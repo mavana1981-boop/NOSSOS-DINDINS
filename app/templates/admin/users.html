@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Usuários{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Usuários</h1>
+    <p>Gerencie quem tem acesso ao sistema.</p>
+  </div>
+  <a href="{{ url_for('admin.new_user') }}" class="btn btn-primary">+ Novo usuário</a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Nome</th>
+          <th>Usuário</th>
+          <th>Email</th>
+          <th>Perfil</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td style="width:60px;">
+            {% if u.photo %}
+              <img src="{{ u.photo_url }}" class="avatar">
+            {% else %}
+              <div class="avatar-fallback">{{ u.full_name[0]|upper }}</div>
+            {% endif %}
+          </td>
+          <td><strong>{{ u.full_name }}</strong></td>
+          <td class="mono text-dim">{{ u.username }}</td>
+          <td class="text-dim">{{ u.email }}</td>
+          <td>
+            {% if u.is_admin %}
+              <span class="badge badge-admin">Admin</span>
+            {% else %}
+              <span class="badge badge-solo">Usuário</span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            <a href="{{ url_for('admin.edit_user', user_id=u.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+            {% if u.id != current_user.id %}
+            <form method="POST" action="{{ url_for('admin.delete_user', user_id=u.id) }}"
+                  style="display:inline;" onsubmit="return confirm('Excluir {{ u.full_name }}?');">
+              <button class="btn btn-danger btn-sm">Excluir</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
