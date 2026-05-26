@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Painel{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Olá, <em style="font-style:italic;color:var(--accent);">{{ current_user.full_name.split()[0] }}</em></h1>
+    <p>Aqui está o resumo da sua vida financeira hoje.</p>
+  </div>
+  <div class="flex flex-gap">
+    <a href="{{ url_for('income.new_income') }}" class="btn btn-ghost btn-sm">+ Renda</a>
+    <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm">+ Gasto</a>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-3 mb-3">
+  <div class="stat">
+    <div class="stat-label">Renda do mês</div>
+    <div class="stat-value positive">{{ summary.income|brl }}</div>
+    <div class="stat-foot">entradas registradas no mês atual</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Gastos do mês</div>
+    <div class="stat-value negative">{{ summary.expense|brl }}</div>
+    <div class="stat-foot">despesas que recaem sobre você</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Saldo do mês</div>
+    <div class="stat-value {{ 'positive' if summary.balance >= 0 else 'negative' }}">{{ summary.balance|brl }}</div>
+    <div class="stat-foot">renda menos gastos próprios + cotas</div>
+  </div>
+</div>
+
+<!-- Créditos/Débitos -->
+<div class="card mb-3">
+  <div class="card-title">
+    <h3>Contas entre membros</h3>
+    <span class="text-faint text-small">acertos pendentes</span>
+  </div>
+  {% if credits_debits %}
+    <div class="grid grid-2">
+      {% for cd in credits_debits %}
+        <div class="flex flex-gap-lg" style="padding:12px;background:var(--bg);border-radius:var(--radius);">
+          {% if cd.user.photo %}
+            <img src="{{ cd.user.photo_url }}" class="avatar">
+          {% else %}
+            <div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>
+          {% endif %}
+          <div style="flex:1;">
+            <div style="font-weight:600;">{{ cd.user.full_name }}</div>
+            {% if cd.balance > 0 %}
+              <span class="badge badge-credit">A receber</span>
+              <div class="mono mt-1" style="color:var(--green);font-size:1.1rem;">{{ cd.balance|brl }}</div>
+            {% else %}
+              <span class="badge badge-debit">A pagar</span>
+              <div class="mono mt-1" style="color:var(--red);font-size:1.1rem;">{{ (cd.balance * -1)|brl }}</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h4>Tudo em dia</h4>
+      <p>Nenhum acerto pendente com outros membros.</p>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Projetos em destaque -->
+<div class="card mb-3">
+  <div class="card-title">
+    <h3>Projetos & metas</h3>
+    <a href="{{ url_for('projects.list_projects') }}" class="small-link">ver todos ({{ all_projects_count }}) →</a>
+  </div>
+  {% if projects %}
+    <div class="grid grid-2">
+      {% for p in projects %}
+        <a href="{{ url_for('projects.detail_project', project_id=p.id) }}" style="text-decoration:none;color:inherit;display:block;padding:18px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);">
+          <div class="flex-between mb-2">
+            <strong style="font-family:'Fraunces',serif;font-size:1.1rem;">{{ p.name }}</strong>
+            {% if p.is_completed %}<span class="badge badge-done">✓ Concluído</span>{% endif %}
+          </div>
+          <div class="progress-info">
+            <span class="text-dim">{{ p.total_raised|brl }} / {{ p.target_amount|brl }}</span>
+            <span class="pct">{{ p.progress_percent }}%</span>
+          </div>
+          <div class="progress">
+            <div class="progress-bar {{ 'complete' if p.is_completed }}" style="width: {{ p.progress_percent }}%;"></div>
+          </div>
+          {% if p.deadline %}
+            <div class="text-faint text-small mt-1">prazo: {{ p.deadline|data_br }}</div>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h4>Sem projetos ainda</h4>
+      <p>Crie metas para juntar dinheiro junto com outros membros.</p>
+      <a href="{{ url_for('projects.new_project') }}" class="btn btn-primary btn-sm mt-2">Criar primeiro projeto</a>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Movimentações recentes -->
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-title">
+      <h3>Gastos recentes</h3>
+      <a href="{{ url_for('expenses.list_expenses') }}" class="small-link">ver todos →</a>
+    </div>
+    {% if recent_expenses %}
+      {% for e in recent_expenses %}
+        <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-weight:500;">{{ e.description }}</div>
+            <div class="text-faint text-small">{{ e.spent_at|data_br }} · {{ e.category }}</div>
+          </div>
+          <div class="text-right">
+            <div class="mono" style="color:var(--text);">{{ e.amount|brl }}</div>
+            {% if e.share_mode == 'integral' %}
+              <span class="badge badge-shared">repasse</span>
+            {% elif e.share_mode == 'split' %}
+              <span class="badge badge-shared">dividido</span>
+            {% else %}
+              <span class="badge badge-solo">solo</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state"><p>Nenhum gasto registrado.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <h3>Rendas recentes</h3>
+      <a href="{{ url_for('income.list_incomes') }}" class="small-link">ver todas →</a>
+    </div>
+    {% if recent_incomes %}
+      {% for i in recent_incomes %}
+        <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-weight:500;">{{ i.description }}</div>
+            <div class="text-faint text-small">{{ i.received_at|data_br }} · {{ i.category }}</div>
+          </div>
+          <div class="mono" style="color:var(--green);">{{ i.amount|brl }}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state"><p>Nenhuma renda registrada.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

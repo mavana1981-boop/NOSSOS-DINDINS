@@ -1,4 +1,4 @@
-# Domus Finanças
+# Nosso Dindin
 
 App de controle financeiro doméstico em Flask + PostgreSQL, pronto para deploy no Railway.
 
