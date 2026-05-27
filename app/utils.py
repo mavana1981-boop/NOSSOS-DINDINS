@@ -78,7 +78,7 @@ def register_context(app):
     def inject_globals():
         return {
             "current_year": datetime.now().year,
-            "app_name": "Domus Finanças",
+            "app_name": "Nosso Dindin",
         }
 
 
