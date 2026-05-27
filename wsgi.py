@@ -8,7 +8,6 @@ app = create_app()
 
 
 def _ensure_column(table, column, ddl):
-    """Adiciona coluna se não existir — idempotente."""
     try:
         with db.engine.connect() as conn:
             insp = inspect(db.engine)
@@ -24,7 +23,6 @@ def _ensure_column(table, column, ddl):
 
 
 def bootstrap():
-    """Inicializa banco e admin. Seguro para rodar a cada deploy."""
     with app.app_context():
         try:
             db.create_all()
@@ -33,9 +31,20 @@ def bootstrap():
             print(f"[bootstrap] erro no create_all: {e}")
             return
 
+        # Colunas novas em tabelas existentes
         _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("expenses", "recurrence_months", "INTEGER")
 
+        # Migra coluna photo para TEXT (suporta base64)
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ALTER COLUMN photo TYPE TEXT"))
+                conn.commit()
+                print("[migrate] users.photo migrada para TEXT")
+        except Exception:
+            pass  # já é TEXT ou Postgres não permite (ignora)
+
+        # Tabelas extras
         try:
             insp = inspect(db.engine)
             if not insp.has_table("subprojects"):
@@ -47,6 +56,7 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro criando tabelas extras: {e}")
 
+        # Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
         try:
@@ -62,7 +72,6 @@ def bootstrap():
                 db.session.commit()
                 print(f"[bootstrap] admin '{admin_username}' criado.")
             else:
-                # Se RESET_ADMIN_PASSWORD estiver definida, reseta a senha
                 reset_pw = os.environ.get("RESET_ADMIN_PASSWORD", "").strip()
                 if reset_pw:
                     existing.password_hash = generate_password_hash(reset_pw)
