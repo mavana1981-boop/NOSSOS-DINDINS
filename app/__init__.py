@@ -17,16 +17,7 @@ def create_app():
 
     # Database URL — Railway injeta DATABASE_URL do plugin Postgres automaticamente.
     # Se não estiver definida, o app recusa subir (evita silenciosamente usar SQLite).
-    db_url = os.environ.get("DATABASE_URL", "")
-    if not db_url:
-        if os.environ.get("FLASK_ENV") == "development":
-            db_url = "sqlite:///finapp.db"
-        else:
-            raise RuntimeError(
-                "DATABASE_URL nao definida. "
-                "No Railway: adicione o plugin PostgreSQL e ligue-o ao servico web. "
-                "Localmente: defina FLASK_ENV=development no .env"
-            )
+    db_url = os.environ.get("DATABASE_URL", "sqlite:///finapp.db")
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
