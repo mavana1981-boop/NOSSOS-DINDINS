@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import User, SubProject
+from app.models import User, SubProject, Investment
 from werkzeug.security import generate_password_hash
 from sqlalchemy import text, inspect
 import os
@@ -40,6 +40,11 @@ def bootstrap():
         if not insp.has_table("subprojects"):
             SubProject.__table__.create(db.engine)
             print("[migrate] tabela subprojects criada")
+
+        # Tabela de investimentos
+        if not insp.has_table("investments"):
+            Investment.__table__.create(db.engine)
+            print("[migrate] tabela investments criada")
 
         # Cria admin apenas se não existir
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
