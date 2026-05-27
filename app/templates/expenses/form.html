@@ -24,7 +24,7 @@
       <div class="form-group">
         <label class="form-label">Valor por parcela (R$) *</label>
         <input class="form-control mono" name="amount" id="amount-input" required inputmode="decimal"
-               value="{{ expense.amount if expense }}"
+               value="{{ fmt(expense.amount) if expense else '' }}"
                placeholder="0,00">
       </div>
       <div class="form-group">
@@ -176,7 +176,7 @@
             </div>
             <input class="form-control mono split-input" name="share_user_{{ u.id }}"
                    data-uid="{{ u.id }}" inputmode="decimal"
-                   value="{{ existing_share.amount }}" placeholder="0,00">
+                   value="{{ fmt(existing_share.amount) if existing_share.amount else '' }}" placeholder="0,00">
           </div>
         {% endfor %}
       </div>
