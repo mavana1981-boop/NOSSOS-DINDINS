@@ -182,14 +182,15 @@ def get_yearly_cashflow(user_id, year):
     for m in range(1, 13):
         # Renda do mês: lançamentos do mês + recorrentes ativos (received_at <= último dia do mês)
         last_day = _date(year, m, 28)  # 28 é seguro p/ todos os meses
-        income_total = 0.0
+        income_recurring = 0.0
+        income_eventual = 0.0
         for i in incomes:
-            if i.received_at.year == year and i.received_at.month == m:
-                income_total += float(i.amount)
-            elif i.is_recurring and i.received_at <= last_day:
-                # Renda recorrente: lança em todo mês a partir do received_at
+            if i.is_recurring and i.received_at <= last_day:
                 if (year, m) >= (i.received_at.year, i.received_at.month):
-                    income_total += float(i.amount)
+                    income_recurring += float(i.amount)
+            elif i.received_at.year == year and i.received_at.month == m:
+                income_eventual += float(i.amount)
+        income_total = income_recurring + income_eventual
 
         fixed_total = 0.0
         eventual_total = 0.0
@@ -208,6 +209,8 @@ def get_yearly_cashflow(user_id, year):
             "month": m,
             "month_name": months_pt[m - 1],
             "income": income_total,
+            "income_recurring": income_recurring,
+            "income_eventual": income_eventual,
             "fixed_expense": fixed_total,
             "eventual_expense": eventual_total,
             "total_expense": fixed_total + eventual_total,
