@@ -154,3 +154,35 @@ class AutoTransfer(db.Model):
     executed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
+
+class SubProject(db.Model):
+    """Componente de um projeto. Soma deles = meta do projeto pai."""
+    __tablename__ = "subprojects"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    target_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def allocated_from_parent(self):
+        if not self.project:
+            return 0
+        subs = sorted(self.project.subprojects, key=lambda s: (s.order_index or 0, s.id))
+        raised = self.project.total_raised
+        cumulative = 0
+        for s in subs:
+            if s.id == self.id:
+                return min(raised - cumulative, float(s.target_amount or 0)) if raised > cumulative else 0
+            cumulative += float(s.target_amount or 0)
+        return 0
+
+    @property
+    def progress_percent(self):
+        target = float(self.target_amount or 0)
+        if target <= 0:
+            return 0
+        pct = (self.allocated_from_parent / target) * 100
+        return min(round(pct, 1), 100)
