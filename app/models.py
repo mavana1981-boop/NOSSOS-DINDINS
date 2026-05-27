@@ -231,3 +231,35 @@ class AutoTransfer(db.Model):
     executed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
+
+
+class Investment(db.Model):
+    """Investimento do usuário, categorizado por objetivo."""
+    __tablename__ = "investments"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    description = db.Column(db.String(160), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)          # valor aportado
+    current_value = db.Column(db.Numeric(12, 2), nullable=True)   # valor atual (atualizado manualmente)
+    invested_at = db.Column(db.Date, nullable=False, default=date.today)
+    category = db.Column(db.String(60), default="Renda Fixa")     # tipo do ativo
+    objective = db.Column(db.String(120), nullable=False)          # objetivo do investimento
+    institution = db.Column(db.String(120))                        # corretora/banco
+    notes = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="investments")
+
+    @property
+    def gain_loss(self):
+        if self.current_value is None:
+            return 0
+        return float(self.current_value) - float(self.amount)
+
+    @property
+    def gain_loss_pct(self):
+        amt = float(self.amount)
+        if amt == 0 or self.current_value is None:
+            return 0
+        return ((float(self.current_value) - amt) / amt) * 100
