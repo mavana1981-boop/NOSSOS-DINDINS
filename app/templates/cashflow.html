@@ -5,9 +5,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Fluxo de caixa</h1>
-    <p>
-      Visão mês a mês de <strong>{{ year }}</strong> — renda menos gastos fixos e eventuais.
-    </p>
+    <p>Visão mês a mês de <strong>{{ year }}</strong></p>
   </div>
   <div class="flex flex-gap">
     <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
@@ -19,16 +17,31 @@
 <!-- Totais do ano -->
 <div class="grid grid-4 mb-3">
   <div class="stat">
-    <div class="stat-label">Renda anual</div>
-    <div class="stat-value positive">{{ totals.income|brl }}</div>
+    <div class="stat-label">Renda fixa anual</div>
+    <div class="stat-value positive">{{ totals.income_recurring|brl }}</div>
+    <div class="stat-foot">rendas recorrentes</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Renda eventual</div>
+    <div class="stat-value" style="color:var(--blue);">{{ totals.income_eventual|brl }}</div>
+    <div class="stat-foot">entradas não recorrentes</div>
   </div>
   <div class="stat">
     <div class="stat-label">Gastos fixos</div>
     <div class="stat-value" style="color:var(--gold);">{{ totals.fixed|brl }}</div>
+    <div class="stat-foot">recorrentes mensais</div>
   </div>
   <div class="stat">
     <div class="stat-label">Gastos eventuais</div>
     <div class="stat-value negative">{{ totals.eventual|brl }}</div>
+    <div class="stat-foot">pontuais do ano</div>
+  </div>
+</div>
+
+<div class="grid grid-2 mb-3">
+  <div class="stat">
+    <div class="stat-label">Total renda</div>
+    <div class="stat-value positive">{{ totals.income|brl }}</div>
   </div>
   <div class="stat">
     <div class="stat-label">Saldo do ano</div>
@@ -40,24 +53,29 @@
 <div class="card mb-3">
   <div class="card-title">
     <h3>Comparativo mensal</h3>
-    <span class="text-faint text-small">verde = renda · vermelho = gastos</span>
+    <span class="text-faint text-small">verde = renda recorrente · azul = renda eventual · amarelo = fixos · vermelho = eventuais</span>
   </div>
-
   <div class="cashflow-chart">
     {% for m in months %}
-    <div class="cashflow-bar-group" data-tooltip="{{ m.month_name }}/{{ year }}">
+    <div class="cashflow-bar-group">
       <div class="cashflow-bars">
-        <div class="cashflow-bar bar-income"
-             style="height: {{ (m.income / max_value * 100)|round }}%;"
-             title="Renda: {{ m.income|brl }}"></div>
+        <div class="cashflow-bar bar-income-rec"
+             style="height: {{ (m.income_recurring / max_value * 100)|round if max_value else 0 }}%;"
+             title="Renda fixa: {{ m.income_recurring|brl }}"></div>
+        <div class="cashflow-bar bar-income-ev"
+             style="height: {{ (m.income_eventual / max_value * 100)|round if max_value else 0 }}%;"
+             title="Renda eventual: {{ m.income_eventual|brl }}"></div>
+        <div class="cashflow-bar bar-fixed"
+             style="height: {{ (m.fixed_expense / max_value * 100)|round if max_value else 0 }}%;"
+             title="Fixos: {{ m.fixed_expense|brl }}"></div>
         <div class="cashflow-bar bar-expense"
-             style="height: {{ (m.total_expense / max_value * 100)|round }}%;"
-             title="Gastos: {{ m.total_expense|brl }}"></div>
+             style="height: {{ (m.total_expense / max_value * 100)|round if max_value else 0 }}%;"
+             title="Total gastos: {{ m.total_expense|brl }}"></div>
       </div>
       <div class="cashflow-label">
         <strong>{{ m.month_name }}</strong>
-        <div class="text-faint" style="font-size:0.7rem;">
-          {{ '%.0f'|format(m.net)|replace('-', '−') }}
+        <div class="text-faint" style="font-size:0.7rem;color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};">
+          {{ '%+.0f'|format(m.net) }}
         </div>
       </div>
     </div>
@@ -67,29 +85,29 @@
 
 <!-- Tabela detalhada -->
 <div class="card">
-  <div class="card-title">
-    <h3>Detalhamento mês a mês</h3>
-  </div>
+  <div class="card-title"><h3>Detalhamento mês a mês</h3></div>
   <div class="table-wrap">
     <table class="tbl">
       <thead>
         <tr>
           <th>Mês</th>
-          <th class="text-right">Renda</th>
+          <th class="text-right">Renda fixa</th>
+          <th class="text-right">Renda eventual</th>
+          <th class="text-right">Total renda</th>
           <th class="text-right">Fixos</th>
           <th class="text-right">Eventuais</th>
           <th class="text-right">Total gasto</th>
-          <th class="text-right">Saldo do mês</th>
+          <th class="text-right">Saldo</th>
           <th class="text-right">Acumulado</th>
         </tr>
       </thead>
       <tbody>
         {% for m in months %}
         <tr>
-          <td>
-            <strong>{{ m.month_name }}/{{ year }}</strong>
-          </td>
-          <td class="text-right amount" style="color:var(--green);">{{ m.income|brl }}</td>
+          <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
+          <td class="text-right amount" style="color:var(--green);">{{ m.income_recurring|brl }}</td>
+          <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
+          <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
           <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
           <td class="text-right amount" style="color:var(--red);">{{ m.eventual_expense|brl }}</td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
@@ -101,6 +119,8 @@
       <tfoot>
         <tr style="border-top:2px solid var(--border-strong);">
           <td><strong>Ano</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income_recurring|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--blue);"><strong>{{ totals.income_eventual|brl }}</strong></td>
           <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income|brl }}</strong></td>
           <td class="text-right amount" style="color:var(--gold);"><strong>{{ totals.fixed|brl }}</strong></td>
           <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.eventual|brl }}</strong></td>
@@ -115,53 +135,19 @@
 
 <style>
 .cashflow-chart {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 8px;
-  align-items: end;
-  height: 220px;
-  padding: 12px 8px 0;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 8px;
+  display: grid; grid-template-columns: repeat(12, 1fr);
+  gap: 6px; align-items: end; height: 220px;
+  padding: 12px 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px;
 }
-.cashflow-bar-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  height: 100%;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.cashflow-bars {
-  display: flex;
-  align-items: end;
-  gap: 3px;
-  height: 100%;
-  width: 100%;
-  justify-content: center;
-}
-.cashflow-bar {
-  width: 12px;
-  min-height: 2px;
-  border-radius: 3px 3px 0 0;
-  transition: opacity 0.2s ease;
-  cursor: pointer;
-}
-.cashflow-bar:hover { opacity: 0.7; }
-.bar-income { background: linear-gradient(180deg, var(--green) 0%, #5d8550 100%); }
-.bar-expense { background: linear-gradient(180deg, var(--red) 0%, #8d3f30 100%); }
-.cashflow-label {
-  text-align: center;
-  font-size: 0.72rem;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-@media (max-width: 700px) {
-  .cashflow-chart { gap: 4px; height: 160px; }
-  .cashflow-bar { width: 8px; }
-  .cashflow-label { font-size: 0.6rem; }
-}
+.cashflow-bar-group { display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; gap:6px; }
+.cashflow-bars { display:flex; align-items:flex-end; gap:2px; height:100%; width:100%; justify-content:center; }
+.cashflow-bar { width:9px; min-height:2px; border-radius:2px 2px 0 0; transition:opacity 0.2s; cursor:pointer; }
+.cashflow-bar:hover { opacity:0.7; }
+.bar-income-rec { background: linear-gradient(180deg, #7ea66b 0%, #5d8550 100%); }
+.bar-income-ev  { background: linear-gradient(180deg, #6b8db5 0%, #4a6d95 100%); }
+.bar-fixed      { background: linear-gradient(180deg, #c9a868 0%, #a08040 100%); }
+.bar-expense    { background: linear-gradient(180deg, #c4654a 0%, #8d3f30 100%); }
+.cashflow-label { text-align:center; font-size:0.68rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em; }
 </style>
 
 {% endblock %}
