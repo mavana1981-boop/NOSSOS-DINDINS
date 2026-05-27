@@ -83,7 +83,7 @@
             {% if p.is_completed %}<span class="badge badge-done">✓ Concluído</span>{% endif %}
           </div>
           <div class="progress-info">
-            <span class="text-dim">{{ p.total_raised|brl }} / {{ p.target_amount|brl }}</span>
+            <span class="text-dim">{{ p.total_raised|brl }} / {{ p.computed_target|brl }}</span>
             <span class="pct">{{ p.progress_percent }}%</span>
           </div>
           <div class="progress">

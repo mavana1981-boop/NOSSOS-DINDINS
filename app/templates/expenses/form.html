@@ -22,13 +22,13 @@
 
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Valor total (R$) *</label>
+        <label class="form-label">Valor por parcela (R$) *</label>
         <input class="form-control mono" name="amount" id="amount-input" required inputmode="decimal"
                value="{{ expense.amount if expense }}"
                placeholder="0,00">
       </div>
       <div class="form-group">
-        <label class="form-label">Data *</label>
+        <label class="form-label">Data inicial *</label>
         <input class="form-control" type="date" name="spent_at"
                value="{{ expense.spent_at.isoformat() if expense else '' }}">
       </div>
@@ -59,6 +59,42 @@
         <input type="hidden" name="payer_id" value="{{ current_user.id }}">
         <div class="form-help">Só admins podem registrar gastos em nome de outro usuário.</div>
         {% endif %}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3 style="margin-bottom:12px;">Tipo de gasto</h3>
+
+    <div class="form-group">
+      <div class="grid grid-2" style="gap:12px;">
+        <label class="form-check kind-option" data-kind="pontual">
+          <input type="radio" name="kind" value="pontual"
+                 {% if not expense or expense.kind == 'pontual' %}checked{% endif %}>
+          <div>
+            <strong>Pontual</strong>
+            <div class="text-faint text-small">Único, na data informada.</div>
+          </div>
+        </label>
+        <label class="form-check kind-option" data-kind="recorrente">
+          <input type="radio" name="kind" value="recorrente"
+                 {% if expense and expense.kind == 'recorrente' %}checked{% endif %}>
+          <div>
+            <strong>Recorrente / Parcelado</strong>
+            <div class="text-faint text-small">Repete todo mês a partir da data inicial.</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div id="kind-recorrente-extra" class="form-group" style="display:none;">
+      <label class="form-label">Quantidade de meses</label>
+      <input class="form-control" type="number" name="recurrence_months" min="1" max="360"
+             value="{{ expense.recurrence_months if expense and expense.recurrence_months else '' }}"
+             placeholder="ex: 12 (deixe vazio para sem prazo)">
+      <div class="form-help">
+        Deixe vazio para gasto fixo perpétuo (luz, aluguel).
+        Informe o número para parcelado (ex: 10 vezes no cartão).
       </div>
     </div>
 
@@ -96,7 +132,6 @@
       </div>
     </div>
 
-    <!-- Modo integral: escolher devedor -->
     <div id="mode-integral" class="form-group" style="display:none;">
       <label class="form-label">Devedor *</label>
       <select class="form-control" name="debtor_id">
@@ -115,7 +150,6 @@
       <div class="form-help">Esta pessoa ficará devendo o valor total para o pagador.</div>
     </div>
 
-    <!-- Modo split: matriz de valores -->
     <div id="mode-split" style="display:none;">
       <div class="form-help mb-2">
         Defina o valor que cada pessoa deve. Use o botão para dividir igualmente.
@@ -169,6 +203,7 @@
 
 <script>
 (function() {
+  // Modo de compartilhamento
   const radios = document.querySelectorAll('input[name="share_mode"]');
   const integral = document.getElementById('mode-integral');
   const split = document.getElementById('mode-split');
@@ -176,6 +211,10 @@
   const splitInputs = document.querySelectorAll('.split-input');
   const splitSum = document.getElementById('split-sum');
   const btnEqual = document.getElementById('btn-split-equal');
+
+  // Tipo de gasto
+  const kindRadios = document.querySelectorAll('input[name="kind"]');
+  const recExtra = document.getElementById('kind-recorrente-extra');
 
   function parseBR(s) {
     if (!s) return 0;
@@ -196,7 +235,13 @@
     integral.style.display = mode === 'integral' ? 'block' : 'none';
     split.style.display = mode === 'split' ? 'block' : 'none';
   }
+  function updateKind() {
+    const k = document.querySelector('input[name="kind"]:checked').value;
+    recExtra.style.display = k === 'recorrente' ? 'block' : 'none';
+  }
+
   radios.forEach(r => r.addEventListener('change', updateMode));
+  kindRadios.forEach(r => r.addEventListener('change', updateKind));
   splitInputs.forEach(i => i.addEventListener('input', updateSum));
   amountInput.addEventListener('input', updateSum);
 
@@ -216,6 +261,7 @@
 
   updateMode();
   updateSum();
+  updateKind();
 })();
 </script>
 

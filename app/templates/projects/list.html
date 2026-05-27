@@ -32,7 +32,7 @@
     {% endif %}
 
     <div class="progress-info">
-      <span class="text-dim">{{ p.total_raised|brl }} <span class="text-faint">/ {{ p.target_amount|brl }}</span></span>
+      <span class="text-dim">{{ p.total_raised|brl }} <span class="text-faint">/ {{ p.computed_target|brl }}</span></span>
       <span class="pct">{{ p.progress_percent }}%</span>
     </div>
     <div class="progress">

@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Fluxo de Caixa {{ year }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Fluxo de caixa</h1>
+    <p>
+      Visão mês a mês de <strong>{{ year }}</strong> — renda menos gastos fixos e eventuais.
+    </p>
+  </div>
+  <div class="flex flex-gap">
+    <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
+    <span class="btn btn-ghost" style="pointer-events:none;color:var(--accent);">{{ year }}</span>
+    <a href="{{ url_for('cashflow.index', year=year+1) }}" class="btn btn-ghost">{{ year+1 }} →</a>
+  </div>
+</div>
+
+<!-- Totais do ano -->
+<div class="grid grid-4 mb-3">
+  <div class="stat">
+    <div class="stat-label">Renda anual</div>
+    <div class="stat-value positive">{{ totals.income|brl }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Gastos fixos</div>
+    <div class="stat-value" style="color:var(--gold);">{{ totals.fixed|brl }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Gastos eventuais</div>
+    <div class="stat-value negative">{{ totals.eventual|brl }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Saldo do ano</div>
+    <div class="stat-value {{ 'positive' if totals.net >= 0 else 'negative' }}">{{ totals.net|brl }}</div>
+  </div>
+</div>
+
+<!-- Gráfico visual -->
+<div class="card mb-3">
+  <div class="card-title">
+    <h3>Comparativo mensal</h3>
+    <span class="text-faint text-small">verde = renda · vermelho = gastos</span>
+  </div>
+
+  <div class="cashflow-chart">
+    {% for m in months %}
+    <div class="cashflow-bar-group" data-tooltip="{{ m.month_name }}/{{ year }}">
+      <div class="cashflow-bars">
+        <div class="cashflow-bar bar-income"
+             style="height: {{ (m.income / max_value * 100)|round }}%;"
+             title="Renda: {{ m.income|brl }}"></div>
+        <div class="cashflow-bar bar-expense"
+             style="height: {{ (m.total_expense / max_value * 100)|round }}%;"
+             title="Gastos: {{ m.total_expense|brl }}"></div>
+      </div>
+      <div class="cashflow-label">
+        <strong>{{ m.month_name }}</strong>
+        <div class="text-faint" style="font-size:0.7rem;">
+          {{ '%.0f'|format(m.net)|replace('-', '−') }}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Tabela detalhada -->
+<div class="card">
+  <div class="card-title">
+    <h3>Detalhamento mês a mês</h3>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th class="text-right">Renda</th>
+          <th class="text-right">Fixos</th>
+          <th class="text-right">Eventuais</th>
+          <th class="text-right">Total gasto</th>
+          <th class="text-right">Saldo do mês</th>
+          <th class="text-right">Acumulado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in months %}
+        <tr>
+          <td>
+            <strong>{{ m.month_name }}/{{ year }}</strong>
+          </td>
+          <td class="text-right amount" style="color:var(--green);">{{ m.income|brl }}</td>
+          <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
+          <td class="text-right amount" style="color:var(--red);">{{ m.eventual_expense|brl }}</td>
+          <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
+          <td class="text-right amount" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;">{{ m.net|brl }}</td>
+          <td class="text-right amount" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};">{{ m.cumulative|brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Ano</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--gold);"><strong>{{ totals.fixed|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.eventual|brl }}</strong></td>
+          <td class="text-right amount text-dim"><strong>{{ totals.total_expense|brl }}</strong></td>
+          <td class="text-right amount" style="color:{{ 'var(--green)' if totals.net >= 0 else 'var(--red)' }};"><strong>{{ totals.net|brl }}</strong></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<style>
+.cashflow-chart {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 8px;
+  align-items: end;
+  height: 220px;
+  padding: 12px 8px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.cashflow-bar-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.cashflow-bars {
+  display: flex;
+  align-items: end;
+  gap: 3px;
+  height: 100%;
+  width: 100%;
+  justify-content: center;
+}
+.cashflow-bar {
+  width: 12px;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+}
+.cashflow-bar:hover { opacity: 0.7; }
+.bar-income { background: linear-gradient(180deg, var(--green) 0%, #5d8550 100%); }
+.bar-expense { background: linear-gradient(180deg, var(--red) 0%, #8d3f30 100%); }
+.cashflow-label {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+@media (max-width: 700px) {
+  .cashflow-chart { gap: 4px; height: 160px; }
+  .cashflow-bar { width: 8px; }
+  .cashflow-label { font-size: 0.6rem; }
+}
+</style>
+
+{% endblock %}

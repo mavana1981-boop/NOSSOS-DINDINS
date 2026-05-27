@@ -6,7 +6,7 @@
   <div class="page-title-wrap">
     <h1>{{ project.name }}</h1>
     <p>
-      Meta de <strong>{{ project.target_amount|brl }}</strong>
+      Meta de <strong>{{ project.computed_target|brl }}</strong>
       {% if project.deadline %} · prazo {{ project.deadline|data_br }}{% endif %}
       {% if project.is_completed %} · <span class="badge badge-done">✓ Concluído</span>{% endif %}
     </p>
@@ -34,7 +34,7 @@
 <!-- Progresso destaque -->
 <div class="card mb-3">
   <div class="flex-between mb-2">
-    <h3 style="margin:0;">Progresso</h3>
+    <h3 style="margin:0;">Progresso geral</h3>
     <div style="font-family:'Fraunces',serif;font-size:1.8rem;font-weight:700;color:var(--accent);">
       {{ project.progress_percent }}%
     </div>
@@ -53,6 +53,34 @@
     </div>
   </div>
 </div>
+
+{% if project.subprojects %}
+<div class="card mb-3">
+  <div class="card-title"><h3>Subprojetos</h3></div>
+  <p class="text-dim text-small mb-2">
+    Os aportes preenchem os subprojetos em ordem. Cada barra mostra quanto desse componente já foi coberto.
+  </p>
+  {% for s in project.subprojects %}
+  <div style="padding:14px;background:var(--bg);border-radius:var(--radius);margin-bottom:10px;">
+    <div class="flex-between mb-1">
+      <div>
+        <strong style="font-family:'Fraunces',serif;font-size:1.05rem;">{{ s.name }}</strong>
+        {% if s.description %}
+          <div class="text-faint text-small">{{ s.description }}</div>
+        {% endif %}
+      </div>
+      <div class="text-right">
+        <div class="mono text-small text-dim">{{ s.allocated_from_parent|brl }} / {{ s.target_amount|brl }}</div>
+        <div class="pct" style="font-family:'Fraunces',serif;font-weight:600;color:{{ 'var(--green)' if s.progress_percent >= 100 else 'var(--accent)' }};">{{ s.progress_percent }}%</div>
+      </div>
+    </div>
+    <div class="progress">
+      <div class="progress-bar {{ 'complete' if s.progress_percent >= 100 }}" style="width: {{ s.progress_percent }}%;"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <div class="grid grid-2 mb-3">
   <!-- Membros e contribuições -->

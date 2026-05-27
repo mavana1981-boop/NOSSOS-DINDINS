@@ -31,7 +31,14 @@
       <tbody>
         {% for e in expenses %}
         <tr>
-          <td class="text-dim">{{ e.spent_at|data_br }}</td>
+          <td class="text-dim">
+            {{ e.spent_at|data_br }}
+            {% if e.kind == 'recorrente' %}
+              <div class="text-faint text-small">
+                {% if e.recurrence_months %}{{ e.recurrence_months }}× mensais{% else %}fixo mensal{% endif %}
+              </div>
+            {% endif %}
+          </td>
           <td>
             <strong>{{ e.description }}</strong>
             {% if e.notes %}<div class="text-faint text-small">{{ e.notes }}</div>{% endif %}
@@ -55,11 +62,23 @@
             </div>
           </td>
           <td>
+            {% if e.kind == 'recorrente' %}
+              <span class="badge badge-shared">{% if e.recurrence_months %}Parcelado{% else %}Fixo{% endif %}</span>
+            {% else %}
+              <span class="badge badge-solo">Pontual</span>
+            {% endif %}
+            <div class="mt-1">
             {% if e.share_mode == 'integral' %}<span class="badge badge-shared">Repasse</span>
             {% elif e.share_mode == 'split' %}<span class="badge badge-shared">Dividido</span>
             {% else %}<span class="badge badge-solo">Solo</span>{% endif %}
+            </div>
           </td>
-          <td class="text-right amount">{{ e.amount|brl }}</td>
+          <td class="text-right amount">
+            {{ e.amount|brl }}
+            {% if e.kind == 'recorrente' and e.recurrence_months %}
+              <div class="text-faint text-small">total {{ (e.amount * e.recurrence_months)|brl }}</div>
+            {% endif %}
+          </td>
           <td class="text-right">
             {% if e.payer_id == current_user.id or current_user.is_admin %}
               <a href="{{ url_for('expenses.edit_expense', expense_id=e.id) }}" class="btn btn-ghost btn-sm">Editar</a>

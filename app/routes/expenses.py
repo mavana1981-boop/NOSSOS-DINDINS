@@ -68,6 +68,8 @@ def _save_expense(expense, users):
     d_str = request.form.get("spent_at")
     share_mode = request.form.get("share_mode", "solo")
     payer_id = int(request.form.get("payer_id", current_user.id))
+    kind = request.form.get("kind", "pontual")
+    rec_months_raw = request.form.get("recurrence_months", "").strip()
 
     if not desc or not amount or amount <= 0:
         flash("Descrição e valor são obrigatórios.", "danger")
@@ -77,6 +79,18 @@ def _save_expense(expense, users):
         d = datetime.strptime(d_str, "%Y-%m-%d").date() if d_str else date.today()
     except ValueError:
         d = date.today()
+
+    # Validar recorrência
+    if kind not in ("pontual", "recorrente"):
+        kind = "pontual"
+    recurrence_months = None
+    if kind == "recorrente":
+        if rec_months_raw:
+            try:
+                recurrence_months = max(1, min(360, int(rec_months_raw)))
+            except ValueError:
+                recurrence_months = None
+        # Se vazio = recorrente sem prazo (fixo perpétuo)
 
     # Verifica permissão de pagador (só pode definir outro pagador se for admin)
     if payer_id != current_user.id and not current_user.is_admin:
@@ -96,6 +110,8 @@ def _save_expense(expense, users):
     expense.notes = notes
     expense.spent_at = d
     expense.share_mode = share_mode
+    expense.kind = kind
+    expense.recurrence_months = recurrence_months
 
     db.session.flush()  # garante ID
 

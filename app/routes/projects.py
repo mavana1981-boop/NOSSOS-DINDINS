@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
 from app import db
-from app.models import Project, ProjectMember, Contribution, User
+from app.models import Project, ProjectMember, Contribution, SubProject, User
 
 projects_bp = Blueprint("projects", __name__)
 
@@ -87,13 +87,35 @@ def edit_project(project_id):
 def _save_project(project, users):
     name = request.form.get("name", "").strip()
     desc = request.form.get("description", "").strip()
-    target = _parse_decimal(request.form.get("target_amount"))
+    target = _parse_decimal(request.form.get("target_amount")) or Decimal("0")
     monthly_auto = _parse_decimal(request.form.get("monthly_auto")) or Decimal("0")
     auto_day = request.form.get("auto_day", "1")
     deadline_str = request.form.get("deadline")
 
-    if not name or not target or target <= 0:
-        flash("Nome e meta são obrigatórios.", "danger")
+    # Subprojetos enviados como arrays
+    sub_names = request.form.getlist("sub_name")
+    sub_descs = request.form.getlist("sub_description")
+    sub_amounts = request.form.getlist("sub_amount")
+
+    if not name:
+        flash("Nome é obrigatório.", "danger")
+        return render_template("projects/form.html", project=project, users=users)
+
+    # Validar subprojetos: filtrar os com nome E valor preenchidos
+    valid_subs = []
+    for i, sn in enumerate(sub_names):
+        sn = sn.strip()
+        amt = _parse_decimal(sub_amounts[i] if i < len(sub_amounts) else "")
+        if sn and amt and amt > 0:
+            valid_subs.append({
+                "name": sn,
+                "description": (sub_descs[i] if i < len(sub_descs) else "").strip(),
+                "amount": amt,
+            })
+
+    # Se não há subs nem target, exige um deles
+    if not valid_subs and target <= 0:
+        flash("Defina ao menos uma meta total OU subprojetos.", "danger")
         return render_template("projects/form.html", project=project, users=users)
 
     try:
@@ -114,12 +136,24 @@ def _save_project(project, users):
 
     project.name = name
     project.description = desc
-    project.target_amount = target
+    # Se há subs, target_amount fica como referência; computed_target usa a soma
+    project.target_amount = target if not valid_subs else sum(s["amount"] for s in valid_subs)
     project.monthly_auto = monthly_auto
     project.auto_day = auto_day
     project.deadline = deadline
 
     db.session.flush()
+
+    # Subprojetos: limpa e recria
+    SubProject.query.filter_by(project_id=project.id).delete()
+    for idx, s in enumerate(valid_subs):
+        db.session.add(SubProject(
+            project_id=project.id,
+            name=s["name"],
+            description=s["description"],
+            target_amount=s["amount"],
+            order_index=idx,
+        ))
 
     # Membros
     ProjectMember.query.filter_by(project_id=project.id).delete()
@@ -161,7 +195,7 @@ def add_contribution(project_id):
 
     # Marca como completo se atingiu meta
     db.session.flush()
-    if p.total_raised >= float(p.target_amount):
+    if p.total_raised >= p.computed_target:
         p.is_completed = True
 
     db.session.commit()
@@ -177,7 +211,7 @@ def delete_contribution(project_id, contrib_id):
     if c.user_id != current_user.id and not _user_can_edit(p):
         abort(403)
     db.session.delete(c)
-    if p.total_raised < float(p.target_amount):
+    if p.total_raised < p.computed_target:
         p.is_completed = False
     db.session.commit()
     flash("Aporte removido.", "info")

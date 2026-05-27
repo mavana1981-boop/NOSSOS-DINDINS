@@ -464,6 +464,11 @@ table.tbl .amount { font-family: 'JetBrains Mono', monospace; font-weight: 500; 
   position: relative;
   overflow: hidden;
 }
+.login-art-photo {
+  background-size: cover !important;
+  background-position: center 30% !important;
+  background-repeat: no-repeat !important;
+}
 .login-art::before {
   content: '';
   position: absolute;

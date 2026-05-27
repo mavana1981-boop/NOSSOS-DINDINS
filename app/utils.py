@@ -105,25 +105,35 @@ def get_user_balance_with(user_id, other_user_id):
 
 
 def get_user_monthly_summary(user_id, year, month):
-    """Resumo mensal do usuário: rendas + gastos (próprios + devidos a outros)."""
+    """Resumo mensal do usuário: rendas + gastos (próprios + devidos a outros),
+    considerando gastos recorrentes ativos no mês."""
     from app.models import Income, Expense, ExpenseShare
+    from datetime import date as _date
 
-    income_total = db.session.query(func.coalesce(func.sum(Income.amount), 0))\
-        .filter(Income.user_id == user_id,
-                func.extract("year", Income.received_at) == year,
-                func.extract("month", Income.received_at) == month).scalar() or 0
+    # Renda: lançamentos do mês + recorrentes ativos
+    incomes = Income.query.filter_by(user_id=user_id).all()
+    income_total = 0.0
+    last_day = _date(year, month, 28)
+    for i in incomes:
+        if i.received_at.year == year and i.received_at.month == month:
+            income_total += float(i.amount)
+        elif i.is_recurring and i.received_at <= last_day:
+            if (year, month) >= (i.received_at.year, i.received_at.month):
+                income_total += float(i.amount)
 
-    # Gastos que recaem sobre o usuário (share dele em qualquer expense)
-    debt_total = db.session.query(func.coalesce(func.sum(ExpenseShare.share_amount), 0))\
-        .join(Expense, Expense.id == ExpenseShare.expense_id)\
-        .filter(ExpenseShare.user_id == user_id,
-                func.extract("year", Expense.spent_at) == year,
-                func.extract("month", Expense.spent_at) == month).scalar() or 0
+    # Gastos onde o usuário tem share, considerando recorrências
+    expenses = db.session.query(Expense, ExpenseShare)\
+        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+        .filter(ExpenseShare.user_id == user_id).all()
+    debt_total = 0.0
+    for exp, share in expenses:
+        if exp.is_active_on(year, month):
+            debt_total += float(share.share_amount)
 
     return {
-        "income": float(income_total),
-        "expense": float(debt_total),
-        "balance": float(income_total) - float(debt_total),
+        "income": income_total,
+        "expense": debt_total,
+        "balance": income_total - debt_total,
     }
 
 
@@ -140,4 +150,68 @@ def get_credits_debits(user_id):
         bal = get_user_balance_with(user_id, o.id)
         if abs(bal) > 0.005:
             result.append({"user": o, "balance": bal})
+    return result
+
+
+def get_yearly_cashflow(user_id, year):
+    """
+    Retorna lista de 12 dicts (jan-dez do ano) com:
+    - month, month_name
+    - income: total de rendas no mês (inclui recorrentes "is_recurring")
+    - fixed_expense: gastos recorrentes ativos naquele mês (cota do usuário)
+    - eventual_expense: gastos pontuais naquele mês (cota do usuário)
+    - net: income - fixed - eventual
+    - cumulative: saldo acumulado desde janeiro
+    """
+    from app.models import Income, Expense, ExpenseShare
+    from datetime import date as _date
+
+    months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                 "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+    # Pega todos os gastos com share do usuário (em qualquer época)
+    expenses = db.session.query(Expense, ExpenseShare)\
+        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+        .filter(ExpenseShare.user_id == user_id).all()
+
+    # Rendas do usuário
+    incomes = Income.query.filter_by(user_id=user_id).all()
+
+    result = []
+    cumulative = 0.0
+    for m in range(1, 13):
+        # Renda do mês: lançamentos do mês + recorrentes ativos (received_at <= último dia do mês)
+        last_day = _date(year, m, 28)  # 28 é seguro p/ todos os meses
+        income_total = 0.0
+        for i in incomes:
+            if i.received_at.year == year and i.received_at.month == m:
+                income_total += float(i.amount)
+            elif i.is_recurring and i.received_at <= last_day:
+                # Renda recorrente: lança em todo mês a partir do received_at
+                if (year, m) >= (i.received_at.year, i.received_at.month):
+                    income_total += float(i.amount)
+
+        fixed_total = 0.0
+        eventual_total = 0.0
+        for exp, share in expenses:
+            if not exp.is_active_on(year, m):
+                continue
+            v = float(share.share_amount)
+            if exp.kind == "recorrente":
+                fixed_total += v
+            else:
+                eventual_total += v
+
+        net = income_total - fixed_total - eventual_total
+        cumulative += net
+        result.append({
+            "month": m,
+            "month_name": months_pt[m - 1],
+            "income": income_total,
+            "fixed_expense": fixed_total,
+            "eventual_expense": eventual_total,
+            "total_expense": fixed_total + eventual_total,
+            "net": net,
+            "cumulative": cumulative,
+        })
     return result
