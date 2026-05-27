@@ -44,6 +44,11 @@ class Expense(db.Model):
     """
     Gasto principal. payer_id é quem pagou (cartão dele).
     Os 'shares' definem quem realmente deve o quê.
+
+    Recorrência:
+      - kind='pontual': aparece só em spent_at
+      - kind='recorrente': aparece de spent_at por N meses (recurrence_months)
+        Se recurrence_months = None: é fixo perpétuo (até excluir)
     """
     __tablename__ = "expenses"
     id = db.Column(db.Integer, primary_key=True)
@@ -55,10 +60,35 @@ class Expense(db.Model):
     notes = db.Column(db.Text)
     # 'integral' = repasse total para outro / 'split' = dividido com percentuais
     share_mode = db.Column(db.String(20), default="solo")  # solo | integral | split
+    # Recorrência
+    kind = db.Column(db.String(20), default="pontual")  # pontual | recorrente
+    recurrence_months = db.Column(db.Integer, nullable=True)  # None = sem fim definido
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     shares = db.relationship("ExpenseShare", backref="expense", lazy="joined",
                              cascade="all, delete-orphan")
+
+    def is_active_on(self, year, month):
+        """Verifica se este gasto incide num determinado mês/ano."""
+        if self.kind == "pontual":
+            return self.spent_at.year == year and self.spent_at.month == month
+        # recorrente
+        start = self.spent_at
+        target_first = date(year, month, 1)
+        if target_first < date(start.year, start.month, 1):
+            return False
+        # meses entre start e target (inclusive ambos)
+        months_diff = (year - start.year) * 12 + (month - start.month)
+        if self.recurrence_months is None:
+            return True  # fixo perpétuo
+        return 0 <= months_diff < self.recurrence_months
+
+    def parcel_label(self, year, month):
+        """Retorna 'x/N' se for recorrente com fim definido, None caso contrário."""
+        if self.kind != "recorrente" or self.recurrence_months is None:
+            return None
+        months_diff = (year - self.spent_at.year) * 12 + (month - self.spent_at.month)
+        return f"{months_diff + 1}/{self.recurrence_months}"
 
 
 class ExpenseShare(db.Model):
@@ -84,7 +114,8 @@ class Project(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
-    target_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    # target_amount agora é fallback caso não haja subprojetos
+    target_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
     deadline = db.Column(db.Date, nullable=True)
     monthly_auto = db.Column(db.Numeric(12, 2), default=0)  # aporte automático mensal total
     auto_day = db.Column(db.Integer, default=1)  # dia do mês para aporte
@@ -96,6 +127,16 @@ class Project(db.Model):
                               cascade="all, delete-orphan")
     contributions = db.relationship("Contribution", backref="project", lazy="dynamic",
                                     cascade="all, delete-orphan")
+    subprojects = db.relationship("SubProject", backref="project", lazy="joined",
+                                  cascade="all, delete-orphan",
+                                  order_by="SubProject.created_at")
+
+    @property
+    def computed_target(self):
+        """Meta efetiva: soma dos subprojetos OU target_amount se não houver subs."""
+        if self.subprojects:
+            return sum(float(s.target_amount or 0) for s in self.subprojects)
+        return float(self.target_amount or 0)
 
     @property
     def total_raised(self):
@@ -105,7 +146,7 @@ class Project(db.Model):
 
     @property
     def progress_percent(self):
-        target = float(self.target_amount or 0)
+        target = self.computed_target
         if target <= 0:
             return 0
         pct = (self.total_raised / target) * 100
@@ -113,10 +154,46 @@ class Project(db.Model):
 
     @property
     def remaining(self):
-        return max(float(self.target_amount) - self.total_raised, 0)
+        return max(self.computed_target - self.total_raised, 0)
 
     def member_ids(self):
         return [m.user_id for m in self.members]
+
+
+class SubProject(db.Model):
+    """Componente de um projeto. Soma deles = meta do projeto pai."""
+    __tablename__ = "subprojects"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    target_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def allocated_from_parent(self):
+        """Quanto do total arrecadado do projeto pai já cobre este subprojeto.
+        Distribuição em ordem: o que arrecadou vai preenchendo os subs em sequência."""
+        if not self.project:
+            return 0
+        # ordena os subs pelo created_at (mesma ordem que está no joined load)
+        subs = sorted(self.project.subprojects, key=lambda s: (s.order_index or 0, s.id))
+        raised = self.project.total_raised
+        cumulative = 0
+        for s in subs:
+            if s.id == self.id:
+                return min(raised - cumulative, float(s.target_amount or 0)) if raised > cumulative else 0
+            cumulative += float(s.target_amount or 0)
+        return 0
+
+    @property
+    def progress_percent(self):
+        target = float(self.target_amount or 0)
+        if target <= 0:
+            return 0
+        pct = (self.allocated_from_parent / target) * 100
+        return min(round(pct, 1), 100)
 
 
 class ProjectMember(db.Model):
@@ -154,35 +231,3 @@ class AutoTransfer(db.Model):
     executed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
-
-class SubProject(db.Model):
-    """Componente de um projeto. Soma deles = meta do projeto pai."""
-    __tablename__ = "subprojects"
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
-    name = db.Column(db.String(120), nullable=False)
-    description = db.Column(db.Text)
-    target_amount = db.Column(db.Numeric(12, 2), nullable=False)
-    order_index = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    @property
-    def allocated_from_parent(self):
-        if not self.project:
-            return 0
-        subs = sorted(self.project.subprojects, key=lambda s: (s.order_index or 0, s.id))
-        raised = self.project.total_raised
-        cumulative = 0
-        for s in subs:
-            if s.id == self.id:
-                return min(raised - cumulative, float(s.target_amount or 0)) if raised > cumulative else 0
-            cumulative += float(s.target_amount or 0)
-        return 0
-
-    @property
-    def progress_percent(self):
-        target = float(self.target_amount or 0)
-        if target <= 0:
-            return 0
-        pct = (self.allocated_from_parent / target) * 100
-        return min(round(pct, 1), 100)
