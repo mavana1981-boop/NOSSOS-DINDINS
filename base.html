@@ -10,7 +10,7 @@
   <a href="{{ url_for('projects.list_projects') }}" class="btn btn-ghost">← Voltar</a>
 </div>
 
-<div class="card" style="max-width:780px;">
+<div class="card" style="max-width:820px;">
   <form method="POST">
 
     <div class="form-group">
@@ -26,19 +26,46 @@
                 placeholder="Por que esse objetivo importa?">{{ project.description if project }}</textarea>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Meta (R$) *</label>
-        <input class="form-control mono" name="target_amount" required inputmode="decimal"
-               value="{{ project.target_amount if project }}"
-               placeholder="0,00">
+    <div class="divider"></div>
+    <h3>Subprojetos</h3>
+    <p class="text-dim text-small mb-2">
+      Quebre a meta em partes. A meta total será a <strong>soma dos subprojetos</strong>.
+      Os aportes preenchem os subprojetos em ordem.
+    </p>
+
+    <div id="subprojects-container" style="background:var(--bg);border-radius:var(--radius);padding:14px;">
+      {% if project and project.subprojects %}
+        {% for s in project.subprojects %}
+        <div class="subproject-row" style="display:grid;grid-template-columns:2fr 3fr 1.2fr auto;gap:10px;align-items:start;margin-bottom:10px;">
+          <input class="form-control" name="sub_name" value="{{ s.name }}" placeholder="Ex: Passagens">
+          <input class="form-control" name="sub_description" value="{{ s.description or '' }}" placeholder="Descrição (opcional)">
+          <input class="form-control mono" name="sub_amount" inputmode="decimal" value="{{ s.target_amount }}" placeholder="Meta R$">
+          <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove();updateSubSum()">×</button>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <div class="flex flex-gap mt-2">
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-add-sub">+ Adicionar subprojeto</button>
+      <div class="text-small text-dim flex" style="margin-left:auto;align-items:center;">
+        Meta total: <strong id="sub-sum" class="mono" style="margin-left:6px;color:var(--accent);">R$ 0,00</strong>
       </div>
-      <div class="form-group">
-        <label class="form-label">Prazo</label>
-        <input class="form-control" type="date" name="deadline"
-               value="{{ project.deadline.isoformat() if project and project.deadline else '' }}">
-        <div class="form-help">Opcional. Para acompanhar o ritmo.</div>
-      </div>
+    </div>
+
+    <div class="form-group mt-3">
+      <label class="form-label">— OU — Meta direta (R$)</label>
+      <input class="form-control mono" name="target_amount" inputmode="decimal"
+             value="{{ project.target_amount if project and not project.subprojects else '' }}"
+             placeholder="0,00 (use só se não tiver subprojetos)">
+      <div class="form-help">Se você definir subprojetos acima, este campo é ignorado.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Prazo</label>
+      <input class="form-control" type="date" name="deadline"
+             value="{{ project.deadline.isoformat() if project and project.deadline else '' }}">
+      <div class="form-help">Opcional. Para acompanhar o ritmo.</div>
     </div>
 
     <div class="divider"></div>
@@ -70,7 +97,6 @@
     </p>
 
     <div style="background:var(--bg);border-radius:var(--radius);padding:14px;">
-      <!-- O próprio usuário (owner ao criar) -->
       {% set my_share = 0 %}
       {% if project %}
         {% for m in project.members %}{% if m.user_id == current_user.id %}{% set my_share = m.monthly_share %}{% endif %}{% endfor %}
@@ -126,5 +152,48 @@
     </div>
   </form>
 </div>
+
+<script>
+function parseBR(s) {
+  if (!s) return 0;
+  return parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0;
+}
+function fmtBR(v) {
+  return 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+function updateSubSum() {
+  let total = 0;
+  document.querySelectorAll('input[name="sub_amount"]').forEach(i => total += parseBR(i.value));
+  document.getElementById('sub-sum').textContent = fmtBR(total);
+}
+function addSubprojectRow(name = '', desc = '', amount = '') {
+  const div = document.createElement('div');
+  div.className = 'subproject-row';
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 3fr 1.2fr auto;gap:10px;align-items:start;margin-bottom:10px;';
+  div.innerHTML = `
+    <input class="form-control" name="sub_name" value="${name}" placeholder="Ex: Passagens">
+    <input class="form-control" name="sub_description" value="${desc}" placeholder="Descrição (opcional)">
+    <input class="form-control mono" name="sub_amount" inputmode="decimal" value="${amount}" placeholder="Meta R$">
+    <button type="button" class="btn btn-danger btn-sm">×</button>
+  `;
+  div.querySelector('button').addEventListener('click', () => { div.remove(); updateSubSum(); });
+  div.querySelector('input[name="sub_amount"]').addEventListener('input', updateSubSum);
+  document.getElementById('subprojects-container').appendChild(div);
+}
+
+document.getElementById('btn-add-sub').addEventListener('click', () => addSubprojectRow());
+
+// Wire up existing rows
+document.querySelectorAll('input[name="sub_amount"]').forEach(i => i.addEventListener('input', updateSubSum));
+document.querySelectorAll('.subproject-row button').forEach(btn => {
+  btn.addEventListener('click', () => { btn.parentElement.remove(); updateSubSum(); });
+});
+
+// Inicializa com 1 linha se vazio
+if (document.querySelectorAll('.subproject-row').length === 0) {
+  addSubprojectRow();
+}
+updateSubSum();
+</script>
 
 {% endblock %}

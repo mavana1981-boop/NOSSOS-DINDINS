@@ -1,68 +1,64 @@
-{% extends "base.html" %}
-{% block title %}{{ 'Editar' if income else 'Nova' }} renda{% endblock %}
-{% block content %}
+from datetime import date, datetime
+from apscheduler.schedulers.background import BackgroundScheduler
 
-<div class="page-header">
-  <div class="page-title-wrap">
-    <h1>{{ 'Editar' if income else 'Nova' }} renda</h1>
-    <p>Registre uma entrada — salário, bônus, freelance, rendimentos.</p>
-  </div>
-  <a href="{{ url_for('income.list_incomes') }}" class="btn btn-ghost">← Voltar</a>
-</div>
 
-<div class="card" style="max-width:680px;">
-  <form method="POST">
-    <div class="form-group">
-      <label class="form-label">Descrição *</label>
-      <input class="form-control" name="description" required
-             value="{{ income.description if income }}"
-             placeholder="ex: Salário, Pró-labore, Aluguel recebido">
-    </div>
+def _process_auto_contributions(app):
+    """Executa aportes automáticos do dia para todos os projetos."""
+    from app import db
+    from app.models import Project, ProjectMember, Contribution, AutoTransfer
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Valor (R$) *</label>
-        <input class="form-control mono" name="amount" required inputmode="decimal"
-               value="{{ income.amount if income }}"
-               placeholder="0,00">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Data *</label>
-        <input class="form-control" type="date" name="received_at"
-               value="{{ income.received_at.isoformat() if income else '' }}">
-      </div>
-    </div>
+    with app.app_context():
+        today = date.today()
+        projects = Project.query.filter(
+            Project.is_completed.is_(False),
+            Project.auto_day == today.day,
+            Project.monthly_auto > 0,
+        ).all()
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Categoria</label>
-        <select class="form-control" name="category">
-          {% set cats = ['Salário', 'Pró-labore', 'Freelance', 'Investimentos', 'Aluguel', 'Bônus', 'Outros'] %}
-          {% for c in cats %}
-            <option {% if income and income.category == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Recorrente</label>
-        <label class="form-check">
-          <input type="checkbox" name="is_recurring" {% if income and income.is_recurring %}checked{% endif %}>
-          <span>Esta renda se repete mensalmente</span>
-        </label>
-      </div>
-    </div>
+        for p in projects:
+            # Idempotência: só roda uma vez por mês
+            existing = AutoTransfer.query.filter_by(
+                project_id=p.id, year=today.year, month=today.month
+            ).first()
+            if existing:
+                continue
 
-    <div class="form-group">
-      <label class="form-label">Observações</label>
-      <textarea class="form-control" name="notes">{{ income.notes if income }}</textarea>
-    </div>
+            for m in p.members:
+                if m.monthly_share and float(m.monthly_share) > 0:
+                    c = Contribution(
+                        project_id=p.id,
+                        user_id=m.user_id,
+                        amount=m.monthly_share,
+                        contributed_at=today,
+                        note=f"Aporte automático {today.month:02d}/{today.year}",
+                        is_auto=True,
+                    )
+                    db.session.add(c)
 
-    <div class="divider"></div>
-    <div class="flex flex-gap">
-      <button class="btn btn-primary">Salvar</button>
-      <a href="{{ url_for('income.list_incomes') }}" class="btn btn-ghost">Cancelar</a>
-    </div>
-  </form>
-</div>
+            db.session.add(AutoTransfer(project_id=p.id, year=today.year, month=today.month))
+            try:
+                db.session.commit()
+                print(f"[auto] aporte projeto {p.id} mês {today.month}/{today.year}")
+            except Exception as e:
+                db.session.rollback()
+                print(f"[auto] falha projeto {p.id}: {e}")
 
-{% endblock %}
+
+def start_scheduler(app):
+    if app.config.get("TESTING"):
+        return
+    scheduler = BackgroundScheduler(daemon=True, timezone="America/Sao_Paulo")
+    # Roda todos os dias às 03:00 - varre projetos do dia
+    scheduler.add_job(
+        func=lambda: _process_auto_contributions(app),
+        trigger="cron",
+        hour=3,
+        minute=0,
+        id="auto_contrib",
+        replace_existing=True,
+    )
+    try:
+        scheduler.start()
+        print("[scheduler] iniciado")
+    except Exception as e:
+        print(f"[scheduler] erro: {e}")

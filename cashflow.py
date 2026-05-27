@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %} · {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23d97757'/%3E%3C/svg%3E">
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">{{ app_name }}</div>
+    <div class="brand-sub">finanças · casa</div>
+
+    <div class="nav-section">Principal</div>
+    <a href="{{ url_for('dashboard.index') }}" class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
+      Painel
+    </a>
+    <a href="{{ url_for('income.list_incomes') }}" class="nav-link {% if 'income' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      Rendas
+    </a>
+    <a href="{{ url_for('expenses.list_expenses') }}" class="nav-link {% if 'expenses' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      Gastos
+    </a>
+    <a href="{{ url_for('cashflow.index') }}" class="nav-link {% if 'cashflow' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
+      Fluxo de Caixa
+    </a>
+    <a href="{{ url_for('projects.list_projects') }}" class="nav-link {% if 'projects' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      Projetos
+    </a>
+
+    {% if current_user.is_admin %}
+    <div class="nav-section">Administração</div>
+    <a href="{{ url_for('admin.list_users') }}" class="nav-link {% if 'admin' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M3 21c0-3 3-6 6-6s6 3 6 6"/><circle cx="17" cy="8" r="3"/><path d="M21 21c0-2-2-4-4-4"/></svg>
+      Usuários
+    </a>
+    {% endif %}
+
+    <div style="margin-top: 40px;">
+      <a href="{{ url_for('auth.logout') }}" class="nav-link">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Sair
+      </a>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="user-card">
+        {% if current_user.photo %}
+          <img src="{{ current_user.photo_url }}" alt="">
+        {% else %}
+          <div class="avatar-fallback">{{ current_user.full_name[0]|upper }}</div>
+        {% endif %}
+        <div class="user-card-info">
+          <div class="user-card-name">{{ current_user.full_name }}</div>
+          <div class="user-card-role">{{ 'Admin' if current_user.is_admin else 'Usuário' }}</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% else %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:1000;max-width:400px;width:90%;">
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  {% block public %}{% endblock %}
+{% endif %}
+</body>
+</html>
