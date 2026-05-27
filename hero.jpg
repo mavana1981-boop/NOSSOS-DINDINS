@@ -12,18 +12,50 @@ login_manager = LoginManager()
 migrate = Migrate()
 
 
+def build_db_url():
+    """
+    Tenta construir a URL do banco em ordem de prioridade.
+    Funciona com qualquer configuração do Railway Postgres.
+    """
+    # 1. DATABASE_URL direto (ideal)
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if url and url.startswith(("postgresql://", "postgres://")):
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return url
+
+    # 2. DATABASE_PUBLIC_URL
+    url = os.environ.get("DATABASE_PUBLIC_URL", "").strip()
+    if url and url.startswith(("postgresql://", "postgres://")):
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return url
+
+    # 3. Montar a partir das variáveis individuais do Railway Postgres
+    pguser = os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER")
+    pgpass = os.environ.get("PGPASSWORD") or os.environ.get("POSTGRES_PASSWORD")
+    pghost = os.environ.get("PGHOST") or os.environ.get("POSTGRES_HOST", "localhost")
+    pgport = os.environ.get("PGPORT") or os.environ.get("POSTGRES_PORT", "5432")
+    pgdb   = os.environ.get("PGDATABASE") or os.environ.get("POSTGRES_DB") or os.environ.get("PGDATA", "railway")
+
+    if pguser and pgpass and pghost:
+        return f"postgresql://{pguser}:{pgpass}@{pghost}:{pgport}/{pgdb}"
+
+    # 4. SQLite local para desenvolvimento
+    print("[WARNING] Nenhuma variável de banco encontrada — usando SQLite local.")
+    return "sqlite:///finapp.db"
+
+
 def create_app():
     app = Flask(__name__)
 
-    # Database URL - Railway provides DATABASE_URL but with postgres:// prefix
-    db_url = os.environ.get("DATABASE_URL", "sqlite:///finapp.db")
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    db_url = build_db_url()
+    print(f"[db] usando: {db_url[:30]}...")
 
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB upload max
+    app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
     app.config["UPLOAD_FOLDER"] = os.path.join(app.root_path, "static", "uploads")
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
@@ -40,7 +72,6 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # Blueprints
     from app.routes.auth import auth_bp
     from app.routes.dashboard import dashboard_bp
     from app.routes.admin import admin_bp
@@ -48,6 +79,7 @@ def create_app():
     from app.routes.expenses import expenses_bp
     from app.routes.projects import projects_bp
     from app.routes.cashflow import cashflow_bp
+    from app.routes.investments import investments_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -56,16 +88,13 @@ def create_app():
     app.register_blueprint(expenses_bp, url_prefix="/gastos")
     app.register_blueprint(projects_bp, url_prefix="/projetos")
     app.register_blueprint(cashflow_bp, url_prefix="/fluxo")
+    app.register_blueprint(investments_bp, url_prefix="/investimentos")
 
-    # Filtros e context processors
     from app.utils import register_filters, register_context
-
     register_filters(app)
     register_context(app)
 
-    # Scheduler para aportes automáticos
     from app.scheduler import start_scheduler
-
     start_scheduler(app)
 
     return app

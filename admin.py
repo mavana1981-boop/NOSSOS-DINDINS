@@ -1,222 +1,98 @@
-{% extends "base.html" %}
-{% block title %}{{ 'Editar' if expense else 'Novo' }} gasto{% endblock %}
-{% block content %}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %} · {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23d97757'/%3E%3C/svg%3E">
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">{{ app_name }}</div>
+    <div class="brand-sub">finanças · casa</div>
 
-<div class="page-header">
-  <div class="page-title-wrap">
-    <h1>{{ 'Editar' if expense else 'Novo' }} gasto</h1>
-    <p>Registre uma despesa e defina como ela é compartilhada.</p>
-  </div>
-  <a href="{{ url_for('expenses.list_expenses') }}" class="btn btn-ghost">← Voltar</a>
-</div>
+    <div class="nav-section">Principal</div>
+    <a href="{{ url_for('dashboard.index') }}" class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
+      Painel
+    </a>
+    <a href="{{ url_for('income.list_incomes') }}" class="nav-link {% if 'income' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      Rendas
+    </a>
+    <a href="{{ url_for('expenses.list_expenses') }}" class="nav-link {% if 'expenses' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      Gastos
+    </a>
+    <a href="{{ url_for('cashflow.index') }}" class="nav-link {% if 'cashflow' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
+      Fluxo de Caixa
+    </a>
+    <a href="{{ url_for('investments.list_investments') }}" class="nav-link {% if 'investments' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      Investimentos
+    </a>
+    <a href="{{ url_for('projects.list_projects') }}" class="nav-link {% if 'projects' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      Projetos
+    </a>
 
-<div class="card" style="max-width:780px;">
-  <form method="POST" id="expense-form">
+    {% if current_user.is_admin %}
+    <div class="nav-section">Administração</div>
+    <a href="{{ url_for('admin.list_users') }}" class="nav-link {% if 'admin' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M3 21c0-3 3-6 6-6s6 3 6 6"/><circle cx="17" cy="8" r="3"/><path d="M21 21c0-2-2-4-4-4"/></svg>
+      Usuários
+    </a>
+    {% endif %}
 
-    <div class="form-group">
-      <label class="form-label">Descrição *</label>
-      <input class="form-control" name="description" required
-             value="{{ expense.description if expense }}"
-             placeholder="ex: Corte de cabelo, Supermercado, Conta de luz">
+    <div style="margin-top: 40px;">
+      <a href="{{ url_for('auth.logout') }}" class="nav-link">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Sair
+      </a>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Valor total (R$) *</label>
-        <input class="form-control mono" name="amount" id="amount-input" required inputmode="decimal"
-               value="{{ expense.amount if expense }}"
-               placeholder="0,00">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Data *</label>
-        <input class="form-control" type="date" name="spent_at"
-               value="{{ expense.spent_at.isoformat() if expense else '' }}">
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Categoria</label>
-        <select class="form-control" name="category">
-          {% set cats = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Moradia', 'Lazer', 'Vestuário', 'Beleza', 'Serviços', 'Contas', 'Outros'] %}
-          {% for c in cats %}
-            <option {% if expense and expense.category == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Quem pagou (cartão usado) *</label>
-        <select class="form-control" name="payer_id" {% if not current_user.is_admin %}disabled{% endif %}>
-          {% for u in users %}
-            <option value="{{ u.id }}"
-              {% if expense and expense.payer_id == u.id %}selected
-              {% elif not expense and u.id == current_user.id %}selected{% endif %}>
-              {{ u.full_name }}{% if u.id == current_user.id %} (você){% endif %}
-            </option>
-          {% endfor %}
-        </select>
-        {% if not current_user.is_admin %}
-        <input type="hidden" name="payer_id" value="{{ current_user.id }}">
-        <div class="form-help">Só admins podem registrar gastos em nome de outro usuário.</div>
+    <div class="sidebar-bottom">
+      <div class="user-card">
+        {% if current_user.photo %}
+          <img src="{{ current_user.photo_url }}" alt="">
+        {% else %}
+          <div class="avatar-fallback">{{ current_user.full_name[0]|upper }}</div>
         {% endif %}
-      </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <h3 style="margin-bottom:12px;">Compartilhamento</h3>
-
-    <div class="form-group">
-      <label class="form-label">Modo</label>
-      <div class="grid grid-3" style="gap:12px;">
-        <label class="form-check share-option" data-mode="solo">
-          <input type="radio" name="share_mode" value="solo"
-                 {% if not expense or expense.share_mode == 'solo' %}checked{% endif %}>
-          <div>
-            <strong>Solo</strong>
-            <div class="text-faint text-small">Só o pagador absorve.</div>
-          </div>
-        </label>
-        <label class="form-check share-option" data-mode="integral">
-          <input type="radio" name="share_mode" value="integral"
-                 {% if expense and expense.share_mode == 'integral' %}checked{% endif %}>
-          <div>
-            <strong>Repasse integral</strong>
-            <div class="text-faint text-small">Um paga, outro deve tudo.</div>
-          </div>
-        </label>
-        <label class="form-check share-option" data-mode="split">
-          <input type="radio" name="share_mode" value="split"
-                 {% if expense and expense.share_mode == 'split' %}checked{% endif %}>
-          <div>
-            <strong>Dividido</strong>
-            <div class="text-faint text-small">Valor/% personalizado por pessoa.</div>
-          </div>
-        </label>
-      </div>
-    </div>
-
-    <!-- Modo integral: escolher devedor -->
-    <div id="mode-integral" class="form-group" style="display:none;">
-      <label class="form-label">Devedor *</label>
-      <select class="form-control" name="debtor_id">
-        <option value="">— selecione —</option>
-        {% for u in users %}
-          {% if expense %}
-            {% set sel_debtor = (expense.shares|length == 1 and expense.shares[0].user_id == u.id and u.id != expense.payer_id) %}
-          {% else %}
-            {% set sel_debtor = False %}
-          {% endif %}
-          <option value="{{ u.id }}" {% if sel_debtor %}selected{% endif %}>
-            {{ u.full_name }}{% if u.id == current_user.id %} (você){% endif %}
-          </option>
-        {% endfor %}
-      </select>
-      <div class="form-help">Esta pessoa ficará devendo o valor total para o pagador.</div>
-    </div>
-
-    <!-- Modo split: matriz de valores -->
-    <div id="mode-split" style="display:none;">
-      <div class="form-help mb-2">
-        Defina o valor que cada pessoa deve. Use o botão para dividir igualmente.
-      </div>
-      <div style="background:var(--bg);border-radius:var(--radius);padding:14px;">
-        {% for u in users %}
-          {% set existing_share = namespace(amount='') %}
-          {% if expense %}
-            {% for s in expense.shares %}
-              {% if s.user_id == u.id %}{% set existing_share.amount = s.share_amount %}{% endif %}
-            {% endfor %}
-          {% endif %}
-          <div class="share-row">
-            <div>
-              {% if u.photo %}
-                <img src="{{ u.photo_url }}" class="avatar" style="width:28px;height:28px;">
-              {% else %}
-                <div class="avatar-fallback" style="width:28px;height:28px;font-size:0.78rem;">{{ u.full_name[0]|upper }}</div>
-              {% endif %}
-            </div>
-            <div>
-              <strong>{{ u.full_name }}</strong>
-              {% if u.id == current_user.id %}<span class="text-faint text-small">(você)</span>{% endif %}
-            </div>
-            <input class="form-control mono split-input" name="share_user_{{ u.id }}"
-                   data-uid="{{ u.id }}" inputmode="decimal"
-                   value="{{ existing_share.amount }}" placeholder="0,00">
-          </div>
-        {% endfor %}
-      </div>
-      <div class="flex flex-gap mt-2">
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-split-equal">Dividir igualmente</button>
-        <div class="text-small text-dim flex" style="margin-left:auto;align-items:center;">
-          Soma: <strong id="split-sum" class="mono" style="margin-left:6px;">R$ 0,00</strong>
+        <div class="user-card-info">
+          <div class="user-card-name">{{ current_user.full_name }}</div>
+          <div class="user-card-role">{{ 'Admin' if current_user.is_admin else 'Usuário' }}</div>
         </div>
       </div>
     </div>
+  </aside>
 
-    <div class="form-group mt-3">
-      <label class="form-label">Observações</label>
-      <textarea class="form-control" name="notes">{{ expense.notes if expense }}</textarea>
-    </div>
+  <main class="main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
 
-    <div class="divider"></div>
-    <div class="flex flex-gap">
-      <button class="btn btn-primary">Salvar gasto</button>
-      <a href="{{ url_for('expenses.list_expenses') }}" class="btn btn-ghost">Cancelar</a>
-    </div>
-  </form>
+    {% block content %}{% endblock %}
+  </main>
 </div>
-
-<script>
-(function() {
-  const radios = document.querySelectorAll('input[name="share_mode"]');
-  const integral = document.getElementById('mode-integral');
-  const split = document.getElementById('mode-split');
-  const amountInput = document.getElementById('amount-input');
-  const splitInputs = document.querySelectorAll('.split-input');
-  const splitSum = document.getElementById('split-sum');
-  const btnEqual = document.getElementById('btn-split-equal');
-
-  function parseBR(s) {
-    if (!s) return 0;
-    return parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0;
-  }
-  function fmtBR(v) {
-    return 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  }
-  function updateSum() {
-    let total = 0;
-    splitInputs.forEach(i => total += parseBR(i.value));
-    splitSum.textContent = fmtBR(total);
-    const target = parseBR(amountInput.value);
-    splitSum.style.color = Math.abs(total - target) < 0.01 ? 'var(--green)' : 'var(--red)';
-  }
-  function updateMode() {
-    const mode = document.querySelector('input[name="share_mode"]:checked').value;
-    integral.style.display = mode === 'integral' ? 'block' : 'none';
-    split.style.display = mode === 'split' ? 'block' : 'none';
-  }
-  radios.forEach(r => r.addEventListener('change', updateMode));
-  splitInputs.forEach(i => i.addEventListener('input', updateSum));
-  amountInput.addEventListener('input', updateSum);
-
-  btnEqual.addEventListener('click', () => {
-    const total = parseBR(amountInput.value);
-    const n = splitInputs.length;
-    if (!total || !n) return;
-    const each = Math.floor((total / n) * 100) / 100;
-    const remainder = +(total - each * n).toFixed(2);
-    splitInputs.forEach((inp, idx) => {
-      let v = each;
-      if (idx === 0) v = +(each + remainder).toFixed(2);
-      inp.value = v.toFixed(2).replace('.', ',');
-    });
-    updateSum();
-  });
-
-  updateMode();
-  updateSum();
-})();
-</script>
-
-{% endblock %}
+{% else %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:1000;max-width:400px;width:90%;">
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  {% block public %}{% endblock %}
+{% endif %}
+</body>
+</html>

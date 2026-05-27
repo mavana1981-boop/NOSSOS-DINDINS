@@ -1,20 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Gastos{% endblock %}
+{% block title %}Rendas{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
-    <h1>Gastos</h1>
-    <p>
-      Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong>
-      · Sua cota total: <strong>{{ total_my_share|brl }}</strong>
-    </p>
+    <h1>Rendas</h1>
+    <p>Total registrado: <strong style="color:var(--green);">{{ total|brl }}</strong></p>
   </div>
-  <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary">+ Novo gasto</a>
+  <a href="{{ url_for('income.new_income') }}" class="btn btn-primary">+ Nova renda</a>
 </div>
 
 <div class="card">
-  {% if expenses %}
+  {% if incomes %}
   <div class="table-wrap">
     <table class="tbl">
       <thead>
@@ -22,71 +19,27 @@
           <th>Data</th>
           <th>Descrição</th>
           <th>Categoria</th>
-          <th>Pagador</th>
-          <th>Compartilhamento</th>
+          <th>Recorrente</th>
           <th class="text-right">Valor</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        {% for e in expenses %}
+        {% for i in incomes %}
         <tr>
-          <td class="text-dim">
-            {{ e.spent_at|data_br }}
-            {% if e.kind == 'recorrente' %}
-              <div class="text-faint text-small">
-                {% if e.recurrence_months %}{{ e.recurrence_months }}× mensais{% else %}fixo mensal{% endif %}
-              </div>
-            {% endif %}
+          <td class="text-dim">{{ i.received_at|data_br }}</td>
+          <td><strong>{{ i.description }}</strong>
+              {% if i.notes %}<div class="text-faint text-small">{{ i.notes }}</div>{% endif %}
           </td>
-          <td>
-            <strong>{{ e.description }}</strong>
-            {% if e.notes %}<div class="text-faint text-small">{{ e.notes }}</div>{% endif %}
-            {% if e.shares|length > 1 or (e.shares|length == 1 and e.shares[0].user_id != e.payer_id) %}
-              <div class="text-small text-dim mt-1">
-                {% for s in e.shares %}
-                  {{ s.user.full_name.split()[0] }}: <span class="mono">{{ s.share_amount|brl }}</span>{% if not loop.last %} · {% endif %}
-                {% endfor %}
-              </div>
-            {% endif %}
-          </td>
-          <td><span class="badge badge-solo">{{ e.category }}</span></td>
-          <td>
-            <div class="flex flex-gap">
-              {% if e.payer.photo %}
-                <img src="{{ e.payer.photo_url }}" class="avatar" style="width:24px;height:24px;">
-              {% else %}
-                <div class="avatar-fallback" style="width:24px;height:24px;font-size:0.75rem;">{{ e.payer.full_name[0]|upper }}</div>
-              {% endif %}
-              <span class="text-small">{{ e.payer.full_name.split()[0] }}</span>
-            </div>
-          </td>
-          <td>
-            {% if e.kind == 'recorrente' %}
-              <span class="badge badge-shared">{% if e.recurrence_months %}Parcelado{% else %}Fixo{% endif %}</span>
-            {% else %}
-              <span class="badge badge-solo">Pontual</span>
-            {% endif %}
-            <div class="mt-1">
-            {% if e.share_mode == 'integral' %}<span class="badge badge-shared">Repasse</span>
-            {% elif e.share_mode == 'split' %}<span class="badge badge-shared">Dividido</span>
-            {% else %}<span class="badge badge-solo">Solo</span>{% endif %}
-            </div>
-          </td>
-          <td class="text-right amount">
-            {{ e.amount|brl }}
-            {% if e.kind == 'recorrente' and e.recurrence_months %}
-              <div class="text-faint text-small">total {{ (e.amount * e.recurrence_months)|brl }}</div>
-            {% endif %}
-          </td>
+          <td><span class="badge badge-solo">{{ i.category }}</span></td>
+          <td>{% if i.is_recurring %}<span class="badge badge-credit">Mensal</span>{% else %}—{% endif %}</td>
+          <td class="text-right amount" style="color:var(--green);">{{ i.amount|brl }}</td>
           <td class="text-right">
-            {% if e.payer_id == current_user.id or current_user.is_admin %}
-              <a href="{{ url_for('expenses.edit_expense', expense_id=e.id) }}" class="btn btn-ghost btn-sm">Editar</a>
-              <form method="POST" action="{{ url_for('expenses.delete_expense', expense_id=e.id) }}"
-                    style="display:inline;" onsubmit="return confirm('Excluir este gasto?');">
-                <button class="btn btn-danger btn-sm">×</button>
-              </form>
-            {% endif %}
+            <a href="{{ url_for('income.edit_income', income_id=i.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+            <form method="POST" action="{{ url_for('income.delete_income', income_id=i.id) }}"
+                  style="display:inline;" onsubmit="return confirm('Excluir esta renda?');">
+              <button class="btn btn-danger btn-sm">×</button>
+            </form>
           </td>
         </tr>
         {% endfor %}
@@ -95,9 +48,9 @@
   </div>
   {% else %}
     <div class="empty-state">
-      <h4>Nenhum gasto registrado</h4>
-      <p>Comece a registrar suas despesas — sozinhas ou compartilhadas.</p>
-      <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm mt-2">Registrar primeiro</a>
+      <h4>Nenhuma renda registrada</h4>
+      <p>Registre seu salário e outras fontes de renda.</p>
+      <a href="{{ url_for('income.new_income') }}" class="btn btn-primary btn-sm mt-2">Registrar primeira</a>
     </div>
   {% endif %}
 </div>

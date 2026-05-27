@@ -1,45 +1,210 @@
 {% extends "base.html" %}
-{% block title %}Entrar{% endblock %}
-{% block public %}
-<div class="login-page">
-  <div class="login-art login-art-photo" style="background-image: linear-gradient(180deg, rgba(26,22,18,0.25) 0%, rgba(26,22,18,0.15) 35%, rgba(26,22,18,0.75) 75%, rgba(26,22,18,0.95) 100%), url('{{ url_for('static', filename='img/hero.jpg') }}');">
-    <div>
-      <div class="brand">{{ app_name }}</div>
-      <div class="brand-sub">o nosso, do nosso jeito</div>
-    </div>
-    <div style="margin-top: auto;">
-      <h1 class="login-art-title">A nossa<br>vida financeira,<br><em>juntos.</em></h1>
-      <p class="login-art-quote mt-3">
-        Renda, gastos e sonhos compartilhados em um só lugar — porque o que é
-        nosso merece um cantinho à altura.
-      </p>
-      <div class="text-faint text-small mt-3">© {{ current_year }} · nosso espaço</div>
-    </div>
+{% block title %}Gastos{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Gastos</h1>
+    <p>Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong> · Sua cota total: <strong>{{ total_my_share|brl }}</strong></p>
   </div>
+  <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary">+ Novo gasto</a>
+</div>
 
-  <div class="login-form-wrap">
-    <form method="POST" class="login-form">
-      <h2>Bem-vindo de volta</h2>
-      <p class="subtitle">Entre com suas credenciais para continuar.</p>
+<!-- Filtros -->
+<div class="card mb-3">
+  <form method="GET" class="flex flex-gap" style="flex-wrap:wrap;align-items:flex-end;gap:12px;">
+    <div class="form-group mb-0">
+      <label class="form-label">Descrição</label>
+      <input class="form-control" name="q" value="{{ q }}" placeholder="buscar..." style="min-width:160px;">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Categoria</label>
+      <select class="form-control" name="category">
+        <option value="">Todas</option>
+        {% for c in categories %}
+          <option {% if cat_filter == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Compartilhamento</label>
+      <select class="form-control" name="share_mode">
+        <option value="">Todos</option>
+        <option value="solo" {% if share_filter == 'solo' %}selected{% endif %}>Solo</option>
+        <option value="integral" {% if share_filter == 'integral' %}selected{% endif %}>Repasse</option>
+        <option value="split" {% if share_filter == 'split' %}selected{% endif %}>Dividido</option>
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Data início</label>
+      <input class="form-control" type="date" name="date_from" value="{{ date_from }}">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Data fim</label>
+      <input class="form-control" type="date" name="date_to" value="{{ date_to }}">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Valor mín.</label>
+      <input class="form-control mono" name="val_min" value="{{ val_min }}" placeholder="0,00" style="width:100px;">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Valor máx.</label>
+      <input class="form-control mono" name="val_max" value="{{ val_max }}" placeholder="0,00" style="width:100px;">
+    </div>
+    <button class="btn btn-primary btn-sm" style="margin-top:auto;">Filtrar</button>
+    <a href="{{ url_for('expenses.list_expenses') }}" class="btn btn-ghost btn-sm" style="margin-top:auto;">Limpar</a>
+  </form>
+</div>
 
-      <div class="form-group">
-        <label class="form-label">Usuário</label>
-        <input class="form-control" name="username" required autofocus>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Senha</label>
-        <input class="form-control" name="password" type="password" required>
-      </div>
-
-      <button class="btn btn-primary w-100" type="submit" style="justify-content:center;">
-        Entrar
-      </button>
-
-      <p class="text-faint text-small text-center mt-3">
-        Não tem conta? Peça para o admin da casa cadastrar você.
-      </p>
-    </form>
+<!-- Gastos compartilhados/repassados em destaque -->
+{% set shared = expenses | selectattr('share_mode', 'ne', 'solo') | list %}
+{% if shared %}
+<div class="card mb-3" style="border-color:var(--blue);border-left:4px solid var(--blue);">
+  <div class="card-title">
+    <h3>
+      <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Gastos compartilhados / repassados
+    </h3>
+    <span class="badge badge-shared">{{ shared|length }} item(s)</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Descrição</th>
+          <th>Modo</th>
+          <th>Pagador</th>
+          <th>Divisão</th>
+          <th class="text-right">Valor</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in shared %}
+        <tr>
+          <td>
+            <strong>{{ e.description }}</strong>
+            <div class="text-faint text-small">{{ e.spent_at|data_br }} · {{ e.category }}</div>
+          </td>
+          <td>
+            {% if e.share_mode == 'integral' %}<span class="badge badge-shared">Repasse integral</span>
+            {% else %}<span class="badge badge-shared">Dividido</span>{% endif %}
+          </td>
+          <td>
+            <div class="flex flex-gap">
+              {% if e.payer.photo %}<img src="{{ e.payer.photo_url }}" class="avatar" style="width:22px;height:22px;">
+              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ e.payer.full_name[0]|upper }}</div>{% endif %}
+              <span class="text-small">{{ e.payer.full_name.split()[0] }}</span>
+            </div>
+          </td>
+          <td class="text-small text-dim">
+            {% for s in e.shares %}
+              {{ s.user.full_name.split()[0] }}: <span class="mono">{{ s.share_amount|brl }}</span>{% if not loop.last %} · {% endif %}
+            {% endfor %}
+          </td>
+          <td class="text-right amount">{{ e.amount|brl }}</td>
+          <td class="text-right">
+            {% if e.payer_id == current_user.id or current_user.is_admin %}
+              <a href="{{ url_for('expenses.edit_expense', expense_id=e.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+              <form method="POST" action="{{ url_for('expenses.delete_expense', expense_id=e.id) }}"
+                    style="display:inline;" onsubmit="return confirm('Excluir?');">
+                <button class="btn btn-danger btn-sm">×</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
+{% endif %}
+
+<!-- Todos os gastos -->
+<div class="card">
+  <div class="card-title">
+    <h3>Todos os gastos</h3>
+    <span class="text-faint text-small">{{ expenses|length }} resultado(s)</span>
+  </div>
+  {% if expenses %}
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Descrição</th>
+          <th>Categoria</th>
+          <th>Pagador</th>
+          <th>Tipo</th>
+          <th class="text-right">Valor</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td class="text-dim">
+            {{ e.spent_at|data_br }}
+            {% if e.kind == 'recorrente' %}
+              <div class="text-faint text-small">
+                {% if e.recurrence_months %}{{ e.recurrence_months }}× mensais{% else %}fixo mensal{% endif %}
+              </div>
+            {% endif %}
+          </td>
+          <td>
+            <strong>{{ e.description }}</strong>
+            {% if e.notes %}<div class="text-faint text-small">{{ e.notes }}</div>{% endif %}
+            {% if e.shares|length > 1 or (e.shares|length == 1 and e.shares[0].user_id != e.payer_id) %}
+              <div class="text-small text-dim mt-1">
+                {% for s in e.shares %}{{ s.user.full_name.split()[0] }}: <span class="mono">{{ s.share_amount|brl }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+              </div>
+            {% endif %}
+          </td>
+          <td><span class="badge badge-solo">{{ e.category }}</span></td>
+          <td>
+            <div class="flex flex-gap">
+              {% if e.payer.photo %}<img src="{{ e.payer.photo_url }}" class="avatar" style="width:22px;height:22px;">
+              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ e.payer.full_name[0]|upper }}</div>{% endif %}
+              <span class="text-small">{{ e.payer.full_name.split()[0] }}</span>
+            </div>
+          </td>
+          <td>
+            <div>
+              {% if e.kind == 'recorrente' %}<span class="badge badge-shared">{% if e.recurrence_months %}Parcelado{% else %}Fixo{% endif %}</span>
+              {% else %}<span class="badge badge-solo">Pontual</span>{% endif %}
+            </div>
+            <div class="mt-1">
+              {% if e.share_mode == 'integral' %}<span class="badge badge-shared">Repasse</span>
+              {% elif e.share_mode == 'split' %}<span class="badge badge-shared">Dividido</span>
+              {% else %}<span class="badge badge-solo">Solo</span>{% endif %}
+            </div>
+          </td>
+          <td class="text-right amount">
+            {{ e.amount|brl }}
+            {% if e.kind == 'recorrente' and e.recurrence_months %}
+              <div class="text-faint text-small">total {{ (e.amount * e.recurrence_months)|brl }}</div>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            {% if e.payer_id == current_user.id or current_user.is_admin %}
+              <a href="{{ url_for('expenses.edit_expense', expense_id=e.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+              <form method="POST" action="{{ url_for('expenses.delete_expense', expense_id=e.id) }}"
+                    style="display:inline;" onsubmit="return confirm('Excluir?');">
+                <button class="btn btn-danger btn-sm">×</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">
+      <h4>Nenhum gasto encontrado</h4>
+      <p>Tente ajustar os filtros ou registre um novo gasto.</p>
+    </div>
+  {% endif %}
+</div>
+
 {% endblock %}
