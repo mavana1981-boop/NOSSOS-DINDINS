@@ -2,19 +2,19 @@
 {% block title %}Entrar{% endblock %}
 {% block public %}
 <div class="login-page">
-  <div class="login-art login-art-photo" style="background-image: linear-gradient(135deg, rgba(26,22,18,0.55) 0%, rgba(26,22,18,0.25) 45%, rgba(26,22,18,0.85) 100%), url('{{ url_for('static', filename='img/hero.jpg') }}');">
+  <div class="login-art login-art-photo" style="background-image: linear-gradient(180deg, rgba(26,22,18,0.25) 0%, rgba(26,22,18,0.15) 35%, rgba(26,22,18,0.75) 75%, rgba(26,22,18,0.95) 100%), url('{{ url_for('static', filename='img/hero.jpg') }}');">
     <div>
       <div class="brand">{{ app_name }}</div>
       <div class="brand-sub">o nosso, do nosso jeito</div>
     </div>
-    <div>
+    <div style="margin-top: auto;">
       <h1 class="login-art-title">A nossa<br>vida financeira,<br><em>juntos.</em></h1>
       <p class="login-art-quote mt-3">
         Renda, gastos e sonhos compartilhados em um só lugar — porque o que é
         nosso merece um cantinho à altura.
       </p>
+      <div class="text-faint text-small mt-3">© {{ current_year }} · nosso espaço</div>
     </div>
-    <div class="text-faint text-small">© {{ current_year }} · nosso espaço</div>
   </div>
 
   <div class="login-form-wrap">
