@@ -15,8 +15,18 @@ migrate = Migrate()
 def create_app():
     app = Flask(__name__)
 
-    # Database URL - Railway provides DATABASE_URL but with postgres:// prefix
-    db_url = os.environ.get("DATABASE_URL", "sqlite:///finapp.db")
+    # Database URL — Railway injeta DATABASE_URL do plugin Postgres automaticamente.
+    # Se não estiver definida, o app recusa subir (evita silenciosamente usar SQLite).
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        if os.environ.get("FLASK_ENV") == "development":
+            db_url = "sqlite:///finapp.db"
+        else:
+            raise RuntimeError(
+                "DATABASE_URL nao definida. "
+                "No Railway: adicione o plugin PostgreSQL e ligue-o ao servico web. "
+                "Localmente: defina FLASK_ENV=development no .env"
+            )
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -48,6 +58,7 @@ def create_app():
     from app.routes.expenses import expenses_bp
     from app.routes.projects import projects_bp
     from app.routes.cashflow import cashflow_bp
+    from app.routes.investments import investments_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -56,6 +67,7 @@ def create_app():
     app.register_blueprint(expenses_bp, url_prefix="/gastos")
     app.register_blueprint(projects_bp, url_prefix="/projetos")
     app.register_blueprint(cashflow_bp, url_prefix="/fluxo")
+    app.register_blueprint(investments_bp, url_prefix="/investimentos")
 
     # Filtros e context processors
     from app.utils import register_filters, register_context
