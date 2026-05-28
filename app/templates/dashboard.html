@@ -36,35 +36,41 @@
 <div class="card mb-3">
   <div class="card-title">
     <h3>Contas entre membros</h3>
-    <span class="text-faint text-small">acertos pendentes</span>
+    <span class="text-faint text-small">acertos pendentes · clique para ordenar</span>
   </div>
   {% if credits_debits %}
-    <div class="grid grid-2">
-      {% for cd in credits_debits %}
-        <div class="flex flex-gap-lg" style="padding:12px;background:var(--bg);border-radius:var(--radius);">
-          {% if cd.user.photo %}
-            <img src="{{ cd.user.photo_url }}" class="avatar">
-          {% else %}
-            <div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>
-          {% endif %}
-          <div style="flex:1;">
-            <div style="font-weight:600;">{{ cd.user.full_name }}</div>
-            {% if cd.balance > 0 %}
-              <span class="badge badge-credit">A receber</span>
-              <div class="mono mt-1" style="color:var(--green);font-size:1.1rem;">{{ cd.balance|brl }}</div>
-            {% else %}
-              <span class="badge badge-debit">A pagar</span>
-              <div class="mono mt-1" style="color:var(--red);font-size:1.1rem;">{{ (cd.balance * -1)|brl }}</div>
-            {% endif %}
-          </div>
-        </div>
-      {% endfor %}
-    </div>
+    <table class="tbl sortable-table" id="tbl-creditos">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Membro ↕</th>
+          <th class="th-sort text-right" data-col="1" style="cursor:pointer;">Situação ↕</th>
+          <th class="th-sort text-right" data-col="2" style="cursor:pointer;">Valor ↕</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cd in credits_debits %}
+        <tr>
+          <td data-val="{{ cd.user.full_name }}">
+            <div class="flex flex-gap">
+              {% if cd.user.photo %}<img src="{{ cd.user.photo_url }}" class="avatar">
+              {% else %}<div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>{% endif %}
+              <strong>{{ cd.user.full_name }}</strong>
+            </div>
+          </td>
+          <td class="text-right" data-val="{{ 'receber' if cd.balance > 0 else 'pagar' }}">
+            {% if cd.balance > 0 %}<span class="badge badge-credit">A receber</span>
+            {% else %}<span class="badge badge-debit">A pagar</span>{% endif %}
+          </td>
+          <td class="text-right mono" data-val="{{ cd.balance|abs }}"
+              style="color:{{ 'var(--green)' if cd.balance > 0 else 'var(--red)' }};font-size:1.1rem;">
+            {{ (cd.balance if cd.balance > 0 else cd.balance * -1)|brl }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   {% else %}
-    <div class="empty-state">
-      <h4>Tudo em dia</h4>
-      <p>Nenhum acerto pendente com outros membros.</p>
-    </div>
+    <div class="empty-state"><h4>Tudo em dia</h4><p>Nenhum acerto pendente com outros membros.</p></div>
   {% endif %}
 </div>
 
@@ -75,10 +81,10 @@
       <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
       Gastos da Casa
     </h3>
-    <span class="text-faint text-small">mês atual</span>
+    <span class="text-faint text-small">mês atual · clique para ordenar</span>
   </div>
 
-  <!-- Barra geral -->
+  {% if household_expenses %}
   <div class="mb-3">
     <div class="progress-info">
       <span class="text-dim">{{ household_total_spent|brl }} de {{ household_total_planned|brl }} planejados</span>
@@ -89,36 +95,52 @@
            style="width:{{ household_pct }}%;background:linear-gradient(90deg,var(--gold),var(--accent));"></div>
     </div>
   </div>
-
-  <!-- Lista de gastos -->
-  {% if not household_expenses %}
+  <table class="tbl sortable-table" id="tbl-household">
+    <thead>
+      <tr>
+        <th class="th-sort" data-col="0" style="cursor:pointer;">Descrição ↕</th>
+        <th class="th-sort" data-col="1" style="cursor:pointer;">Categoria ↕</th>
+        <th class="th-sort" data-col="2" style="cursor:pointer;">Tipo ↕</th>
+        <th class="th-sort" data-col="3" style="cursor:pointer;">Compartilhado com ↕</th>
+        <th class="th-sort text-right" data-col="4" style="cursor:pointer;">Valor ↕</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in household_expenses %}
+      {% set exp = item.expense %}
+      {% set hh = item.household %}
+      <tr>
+        <td data-val="{{ exp.description }}"><strong>{{ exp.description }}</strong></td>
+        <td data-val="{{ exp.category }}"><span class="badge badge-solo">{{ exp.category }}</span></td>
+        <td data-val="{{ exp.kind }}">
+          {% if exp.kind == 'recorrente' %}<span class="badge badge-shared">Fixo</span>
+          {% else %}<span class="badge badge-solo">Pontual</span>{% endif %}
+        </td>
+        <td data-val="{{ hh.shared_with.full_name if hh.owner_id == current_user.id else hh.owner.full_name }}">
+          <div class="flex flex-gap">
+            {% if hh.owner_id == current_user.id %}
+              {% if hh.shared_with.photo %}<img src="{{ hh.shared_with.photo_url }}" class="avatar" style="width:22px;height:22px;">
+              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ hh.shared_with.full_name[0]|upper }}</div>{% endif %}
+              <span class="text-small">{{ hh.shared_with.full_name.split()[0] }}</span>
+            {% else %}
+              {% if hh.owner.photo %}<img src="{{ hh.owner.photo_url }}" class="avatar" style="width:22px;height:22px;">
+              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ hh.owner.full_name[0]|upper }}</div>{% endif %}
+              <span class="text-small">{{ hh.owner.full_name.split()[0] }}</span>
+            {% endif %}
+          </div>
+        </td>
+        <td class="text-right amount" data-val="{{ exp.amount }}" style="color:var(--gold);">{{ exp.amount|brl }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
   <div class="empty-state" style="padding:20px;">
-    <p class="text-dim">Nenhum gasto da casa configurado. Vá em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a> e marque um gasto como "da casa".</p>
+    <p class="text-dim">Nenhum gasto da casa configurado. Vá em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a> e marque um como "da casa".</p>
   </div>
   {% endif %}
-  {% for item in household_expenses %}
-  {% set exp = item.expense %}
-  {% set hh = item.household %}
-  <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
-    <div>
-      <div style="font-weight:500;">{{ exp.description }}</div>
-      <div class="text-faint text-small">
-        {{ exp.category }}
-        {% if exp.kind == 'recorrente' %} · <span class="badge badge-shared" style="font-size:0.65rem;">Fixo</span>{% endif %}
-        · compartilhado com
-        {% if hh.owner_id == current_user.id %}
-          <strong>{{ hh.shared_with.full_name.split()[0] }}</strong>
-        {% else %}
-          <strong>{{ hh.owner.full_name.split()[0] }}</strong>
-        {% endif %}
-      </div>
-    </div>
-    <div class="text-right">
-      <div class="mono" style="color:var(--gold);">{{ exp.amount|brl }}</div>
-    </div>
-  </div>
-  {% endfor %}
 </div>
+
 <!-- Projetos em destaque -->
 <div class="card mb-3">
   <div class="card-title">
@@ -128,7 +150,8 @@
   {% if projects %}
     <div class="grid grid-2">
       {% for p in projects %}
-        <a href="{{ url_for('projects.detail_project', project_id=p.id) }}" style="text-decoration:none;color:inherit;display:block;padding:18px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);">
+        <a href="{{ url_for('projects.detail_project', project_id=p.id) }}"
+           style="text-decoration:none;color:inherit;display:block;padding:18px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);">
           <div class="flex-between mb-2">
             <strong style="font-family:'Fraunces',serif;font-size:1.1rem;">{{ p.name }}</strong>
             {% if p.is_completed %}<span class="badge badge-done">✓ Concluído</span>{% endif %}
@@ -163,24 +186,33 @@
       <a href="{{ url_for('expenses.list_expenses') }}" class="small-link">ver todos →</a>
     </div>
     {% if recent_expenses %}
-      {% for e in recent_expenses %}
-        <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
-          <div>
-            <div style="font-weight:500;">{{ e.description }}</div>
-            <div class="text-faint text-small">{{ e.spent_at|data_br }} · {{ e.category }}</div>
-          </div>
-          <div class="text-right">
-            <div class="mono" style="color:var(--text);">{{ e.amount|brl }}</div>
-            {% if e.share_mode == 'integral' %}
-              <span class="badge badge-shared">repasse</span>
-            {% elif e.share_mode == 'split' %}
-              <span class="badge badge-shared">dividido</span>
-            {% else %}
-              <span class="badge badge-solo">solo</span>
-            {% endif %}
-          </div>
-        </div>
-      {% endfor %}
+    <table class="tbl sortable-table" id="tbl-recent-exp">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Tipo ↕</th>
+          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Valor ↕</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in recent_expenses %}
+        <tr>
+          <td class="text-dim" data-val="{{ e.spent_at.isoformat() }}">{{ e.spent_at|data_br }}</td>
+          <td data-val="{{ e.description }}">
+            <strong>{{ e.description }}</strong>
+            <div class="text-faint text-small">{{ e.category }}</div>
+          </td>
+          <td data-val="{{ e.share_mode }}">
+            {% if e.share_mode == 'integral' %}<span class="badge badge-shared">repasse</span>
+            {% elif e.share_mode == 'split' %}<span class="badge badge-shared">dividido</span>
+            {% else %}<span class="badge badge-solo">solo</span>{% endif %}
+          </td>
+          <td class="text-right mono" data-val="{{ e.amount }}">{{ e.amount|brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
     {% else %}
       <div class="empty-state"><p>Nenhum gasto registrado.</p></div>
     {% endif %}
@@ -192,19 +224,64 @@
       <a href="{{ url_for('income.list_incomes') }}" class="small-link">ver todas →</a>
     </div>
     {% if recent_incomes %}
-      {% for i in recent_incomes %}
-        <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
-          <div>
-            <div style="font-weight:500;">{{ i.description }}</div>
-            <div class="text-faint text-small">{{ i.received_at|data_br }} · {{ i.category }}</div>
-          </div>
-          <div class="mono" style="color:var(--green);">{{ i.amount|brl }}</div>
-        </div>
-      {% endfor %}
+    <table class="tbl sortable-table" id="tbl-recent-inc">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Categoria ↕</th>
+          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Valor ↕</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in recent_incomes %}
+        <tr>
+          <td class="text-dim" data-val="{{ i.received_at.isoformat() }}">{{ i.received_at|data_br }}</td>
+          <td data-val="{{ i.description }}"><strong>{{ i.description }}</strong></td>
+          <td data-val="{{ i.category }}"><span class="badge badge-solo">{{ i.category }}</span></td>
+          <td class="text-right mono" data-val="{{ i.amount }}" style="color:var(--green);">{{ i.amount|brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
     {% else %}
       <div class="empty-state"><p>Nenhuma renda registrada.</p></div>
     {% endif %}
   </div>
 </div>
+
+<script>
+(function() {
+  function initSort(table) {
+    if (!table) return;
+    let sortCol = -1, sortAsc = true;
+    table.querySelectorAll('th.th-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col);
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        table.querySelectorAll('th.th-sort').forEach(t => {
+          t.textContent = t.textContent.replace(' ↑','').replace(' ↓','').replace(' ↕','') + ' ↕';
+        });
+        th.textContent = th.textContent.replace(' ↕','') + (sortAsc ? ' ↑' : ' ↓');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aCell = a.querySelectorAll('td')[col];
+          const bCell = b.querySelectorAll('td')[col];
+          const aVal = (aCell.dataset.val || aCell.textContent).trim().toLowerCase();
+          const bVal = (bCell.dataset.val || bCell.textContent).trim().toLowerCase();
+          const aNum = parseFloat(aVal);
+          const bNum = parseFloat(bVal);
+          if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
+          return sortAsc ? aVal.localeCompare(bVal,'pt-BR') : bVal.localeCompare(aVal,'pt-BR');
+        });
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  }
+  document.querySelectorAll('.sortable-table').forEach(initSort);
+})();
+</script>
 
 {% endblock %}
