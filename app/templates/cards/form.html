@@ -1,1 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar' if card else 'Novo' }} cartão{% endblock %}
+{% block content %}
 
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>{{ 'Editar' if card else 'Novo' }} cartão</h1>
+  </div>
+  <a href="{{ url_for('cards.list_cards') }}" class="btn btn-ghost">← Voltar</a>
+</div>
+
+<div class="card" style="max-width:580px;">
+  <form method="POST">
+
+    <!-- Preview do cartão -->
+    <div id="card-preview" style="background:{{ card.color if card else '#6b8db5' }};border-radius:12px;padding:20px 24px;margin-bottom:24px;position:relative;overflow:hidden;min-height:100px;">
+      <div style="position:absolute;right:-20px;top:-20px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.08);"></div>
+      <div style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:700;color:#fff;" id="preview-name">
+        {{ card.name if card else 'Nome do cartão' }}
+      </div>
+      <div style="font-size:0.85rem;color:rgba(255,255,255,0.75);margin-top:4px;" id="preview-digits">
+        {% if card and card.last_digits %}•••• {{ card.last_digits }}{% else %}•••• 0000{% endif %}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Nome do cartão *</label>
+      <input class="form-control" name="name" id="input-name" required
+             value="{{ card.name if card }}"
+             placeholder="ex: Nubank Roxo, Itaú Visa Gold">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Últimos 4 dígitos</label>
+        <input class="form-control mono" name="last_digits" id="input-digits"
+               maxlength="4" value="{{ card.last_digits if card }}"
+               placeholder="0000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Limite (R$)</label>
+        <input class="form-control mono" name="limit_amount"
+               value="{% if card and card.limit_amount %}{{ card.limit_amount|float|round(2) }}{% endif %}"
+               placeholder="0,00">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Dia de fechamento</label>
+        <input class="form-control" type="number" name="closing_day" min="1" max="31"
+               value="{{ card.closing_day if card and card.closing_day }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dia de vencimento</label>
+        <input class="form-control" type="number" name="due_day" min="1" max="31"
+               value="{{ card.due_day if card and card.due_day }}">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Cor do cartão</label>
+      <div class="flex flex-gap" style="flex-wrap:wrap;">
+        {% for color in colors %}
+        <label style="cursor:pointer;">
+          <input type="radio" name="color" value="{{ color }}"
+                 {% if (card and card.color == color) or (not card and color == '#6b8db5') %}checked{% endif %}
+                 style="display:none;" class="color-radio">
+          <div class="color-swatch {% if (card and card.color == color) or (not card and color == '#6b8db5') %}selected{% endif %}"
+               style="width:32px;height:32px;border-radius:50%;background:{{ color }};border:3px solid transparent;transition:border 0.15s;">
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="flex flex-gap">
+      <button class="btn btn-primary">Salvar</button>
+      <a href="{{ url_for('cards.list_cards') }}" class="btn btn-ghost">Cancelar</a>
+      {% if card %}
+      <form method="POST" action="{{ url_for('cards.delete_card', card_id=card.id) }}"
+            style="margin-left:auto;" onsubmit="return confirm('Remover cartão?');">
+        <button class="btn btn-danger">Remover</button>
+      </form>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<style>
+.color-swatch.selected { border-color: #fff !important; box-shadow: 0 0 0 2px var(--accent); }
+</style>
+
+<script>
+const preview = document.getElementById('card-preview');
+const previewName = document.getElementById('preview-name');
+const previewDigits = document.getElementById('preview-digits');
+
+document.getElementById('input-name').addEventListener('input', function() {
+  previewName.textContent = this.value || 'Nome do cartão';
+});
+document.getElementById('input-digits').addEventListener('input', function() {
+  previewDigits.textContent = '•••• ' + (this.value || '0000');
+});
+document.querySelectorAll('.color-radio').forEach(radio => {
+  radio.addEventListener('change', function() {
+    preview.style.background = this.value;
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+    this.nextElementSibling.classList.add('selected');
+  });
+});
+</script>
+
+{% endblock %}
