@@ -35,35 +35,29 @@
       </div>
     </div>
 
-    <!-- Vínculo com gasto fixo -->
+    <!-- Vínculo com gasto fixo — também serve como categoria -->
     <div class="form-group">
-      <label class="form-label">Vincular a gasto fixo</label>
-      <select class="form-control" name="expense_id" id="sel-expense">
-        <option value="">— Sem vínculo (lançamento avulso) —</option>
+      <label class="form-label">Gasto fixo vinculado / Categoria *</label>
+      <select class="form-control" name="expense_id" id="sel-expense" required>
+        <option value="">— Selecione um gasto fixo —</option>
         {% for exp in fixed_expenses %}
         <option value="{{ exp.id }}"
-                data-category="{{ exp.category }}"
                 {% if entry and entry.expense_id == exp.id %}selected{% endif %}>
           {{ exp.description }} — {{ exp.amount|brl }}/mês
         </option>
         {% endfor %}
+        <option value="" disabled>─────────────</option>
+        <option value="avulso" {% if entry and not entry.expense_id %}selected{% endif %}>Lançamento avulso (sem vínculo)</option>
       </select>
       <div class="form-help">
-        Ao vincular, este lançamento aparecerá na barra de controle desse gasto fixo no cartão.
+        Selecione o gasto fixo para que o valor seja somado na barra de controle da casa.
       </div>
     </div>
+    <!-- Campo hidden de categoria — preenchido pelo JS -->
+    <input type="hidden" name="category" id="hidden-category" value="{{ entry.category if entry else 'Outros' }}">
 
     <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Categoria</label>
-        <select class="form-control" name="category" id="sel-category">
-          {% set cats = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Moradia',
-                         'Lazer', 'Vestuário', 'Beleza', 'Serviços', 'Contas', 'Outros'] %}
-          {% for c in cats %}
-            <option {% if entry and entry.category == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      <div class="form-group" style="display:none;">
       <div class="form-group">
         <label class="form-label">Parcelas</label>
         <div class="flex flex-gap">
@@ -93,18 +87,28 @@
 </div>
 
 <script>
-// Ao selecionar gasto fixo, preenche categoria automaticamente
+// Ao selecionar gasto fixo, usa o nome dele como categoria
 document.getElementById('sel-expense').addEventListener('change', function() {
   const opt = this.options[this.selectedIndex];
-  const cat = opt.dataset.category;
-  if (cat) {
-    const sel = document.getElementById('sel-category');
-    for (let i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].text === cat) { sel.selectedIndex = i; break; }
-    }
+  const hidden = document.getElementById('hidden-category');
+  if (opt.value && opt.value !== 'avulso') {
+    // Usa o texto do gasto fixo (só o nome, sem o valor)
+    hidden.value = opt.text.split(' — ')[0].trim();
+    // Ajusta o name do select para não enviar expense_id quando for avulso
+    this.name = 'expense_id';
+  } else {
+    hidden.value = 'Outros';
+    this.name = '';  // não envia expense_id
+  }
+});
+
+// Se avulso, não envia expense_id
+document.querySelector('form').addEventListener('submit', function() {
+  const sel = document.getElementById('sel-expense');
+  if (sel.value === 'avulso' || !sel.value) {
+    sel.name = '';
   }
 });
 </script>
 
 {% endblock %}
-
