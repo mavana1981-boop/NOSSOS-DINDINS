@@ -4,7 +4,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
-from app.models import Expense, ExpenseShare, User, Card, CardEntry
+from app.models import Expense, ExpenseShare, User, Card, CardEntry, HouseholdExpense
 
 expenses_bp = Blueprint("expenses", __name__)
 
@@ -136,10 +136,11 @@ def list_expenses():
 def new_expense():
     users = User.query.order_by(User.full_name).all()
     user_cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    other_users = User.query.filter(User.id != current_user.id).order_by(User.full_name).all()
     if request.method == "POST":
         return _save_expense(None, users, user_cards)
     return render_template("expenses/form.html", expense=None,
-                           users=users, user_cards=user_cards)
+                           users=users, user_cards=user_cards, other_users=other_users)
 
 
 @expenses_bp.route("/<int:expense_id>/editar", methods=["GET", "POST"])
@@ -150,10 +151,11 @@ def edit_expense(expense_id):
         abort(403)
     users = User.query.order_by(User.full_name).all()
     user_cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    other_users = User.query.filter(User.id != current_user.id).order_by(User.full_name).all()
     if request.method == "POST":
         return _save_expense(e, users, user_cards)
     return render_template("expenses/form.html", expense=e,
-                           users=users, user_cards=user_cards)
+                           users=users, user_cards=user_cards, other_users=other_users)
 
 
 def _save_expense(expense, users, user_cards):
@@ -243,6 +245,25 @@ def _save_expense(expense, users, user_cards):
             return render_template("expenses/form.html", expense=expense,
                                    users=users, user_cards=user_cards)
 
+    # Sincroniza gastos da casa
+    shared_with_id_raw = request.form.get("household_shared_with", "").strip()
+    is_household = bool(request.form.get("is_household"))
+
+    existing_hh = HouseholdExpense.query.filter_by(expense_id=expense.id).first()
+    if is_household and shared_with_id_raw.isdigit():
+        shared_with_id = int(shared_with_id_raw)
+        if existing_hh:
+            existing_hh.shared_with_id = shared_with_id
+        else:
+            db.session.add(HouseholdExpense(
+                expense_id=expense.id,
+                owner_id=current_user.id,
+                shared_with_id=shared_with_id
+            ))
+    else:
+        if existing_hh:
+            db.session.delete(existing_hh)
+
     # Sincroniza cartão
     _sync_card_entry(expense, old_card_id)
 
@@ -257,7 +278,8 @@ def delete_expense(expense_id):
     e = Expense.query.get_or_404(expense_id)
     if e.payer_id != current_user.id and not current_user.is_admin:
         abort(403)
-    # Remove lançamento do cartão antes de excluir o gasto
+    # Remove vínculos antes de excluir
+    HouseholdExpense.query.filter_by(expense_id=e.id).delete()
     CardEntry.query.filter_by(expense_id=e.id).delete()
     db.session.delete(e)
     db.session.commit()
