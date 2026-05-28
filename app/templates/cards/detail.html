@@ -55,68 +55,71 @@
   {% endif %}
 </div>
 
-<!-- Controle por gastos fixos vinculados -->
+<!-- Montante por gasto fixo vinculado -->
 {% if by_expense %}
 <div class="card mb-3">
   <div class="card-title">
-    <h3>Controle por gasto fixo</h3>
-    <span class="text-faint text-small">lançamentos vinculados a gastos recorrentes</span>
+    <h3>Montante por gasto fixo</h3>
+    <span class="text-faint text-small">total lançado por categoria</span>
   </div>
-
-  {% for expense_id, data in by_expense.items() %}
-  {% set exp = data.expense %}
-  {% set total_lancado = data.total %}
-  {% set meta = exp.amount|float %}
-  {% set pct = [(total_lancado / meta * 100)|round(1), 100]|min if meta > 0 else 0 %}
-
-  <div style="padding:16px;background:var(--bg);border-radius:var(--radius);margin-bottom:12px;">
-    <div class="flex-between mb-2">
-      <div>
-        <strong style="font-family:'Fraunces',serif;">{{ exp.description }}</strong>
-        <span class="badge badge-solo" style="margin-left:8px;">{{ exp.category }}</span>
-      </div>
-      <div class="text-right">
-        <div class="mono text-small" style="color:var(--red);">{{ total_lancado|brl }} lançado</div>
-        <div class="mono text-small text-dim">de {{ meta|brl }}/mês</div>
-      </div>
-    </div>
-    <div class="progress-info">
-      <span class="text-faint text-small">preenchimento da parcela mensal</span>
-      <span class="pct" style="color:{{ 'var(--green)' if pct >= 100 else 'var(--accent)' }};">{{ pct }}%</span>
-    </div>
-    <div class="progress">
-      <div class="progress-bar {{ 'complete' if pct >= 100 }}"
-           style="width:{{ pct }}%;background:{{ 'var(--green)' if pct >= 100 else card.color }};"></div>
-    </div>
-
-    <!-- Lançamentos individuais expansíveis -->
-    <div class="mt-2">
-      <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.75rem;padding:3px 10px;"
-              onclick="toggleEntries(this)">▼ ver lançamentos ({{ data.entries|length }})</button>
-      <div class="entries-list" style="display:none;margin-top:8px;">
-        {% for entry in data.entries %}
-        <div class="flex-between" style="padding:6px 0;border-bottom:1px solid var(--border);">
-          <div>
-            <span class="text-small">{{ entry.description }}</span>
-            {% if entry.installments > 1 %}
-              <span class="badge badge-shared" style="font-size:0.65rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
-            {% endif %}
-            <div class="text-faint" style="font-size:0.72rem;">{{ entry.entry_date|data_br }}</div>
-          </div>
-          <div class="flex flex-gap">
-            <span class="mono text-small" style="color:var(--red);">{{ entry.amount|brl }}</span>
-            <a href="{{ url_for('cards.edit_entry', card_id=card.id, entry_id=entry.id) }}" class="btn btn-ghost btn-sm" style="padding:2px 8px;">✎</a>
-            <form method="POST" action="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}"
-                  style="display:inline;" onsubmit="return confirm('Remover?');">
-              <button class="btn btn-danger btn-sm" style="padding:2px 8px;">×</button>
-            </form>
-          </div>
-        </div>
+  <div class="table-wrap">
+    <table class="tbl sortable-table">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Gasto fixo ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Categoria ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Lançamentos ↕</th>
+          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Total ↕</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for expense_id, data in by_expense.items() %}
+        {% set exp = data.expense %}
+        <tr>
+          <td data-val="{{ exp.description }}">
+            <strong>{{ exp.description }}</strong>
+            <div class="text-faint text-small">{{ exp.amount|brl }}/mês planejado</div>
+          </td>
+          <td data-val="{{ exp.category }}"><span class="badge badge-solo">{{ exp.category }}</span></td>
+          <td data-val="{{ data.entries|length }}">
+            <span class="text-dim text-small">{{ data.entries|length }} lançamento(s)</span>
+          </td>
+          <td class="text-right amount" data-val="{{ data.total }}" style="color:var(--red);font-weight:700;">
+            {{ data.total|brl }}
+          </td>
+          <td>
+            <button type="button" class="btn btn-ghost btn-sm"
+                    onclick="toggleEntries(this)">▼ ver</button>
+            <div class="entries-list" style="display:none;margin-top:6px;">
+              {% for entry in data.entries %}
+              <div class="flex-between" style="padding:5px 0;border-bottom:1px solid var(--border);">
+                <div>
+                  <span class="text-small">{{ entry.description }}</span>
+                  {% if entry.kind == 'parcelado' %}
+                    <span class="badge badge-shared" style="font-size:0.62rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
+                  {% elif entry.kind == 'recorrente' %}
+                    <span class="badge badge-shared" style="font-size:0.62rem;">fixo</span>
+                  {% endif %}
+                  <div class="text-faint" style="font-size:0.72rem;">{{ entry.entry_date|data_br }}</div>
+                </div>
+                <div class="flex flex-gap">
+                  <span class="mono text-small" style="color:var(--red);">{{ entry.amount|brl }}</span>
+                  <a href="{{ url_for('cards.edit_entry', card_id=card.id, entry_id=entry.id) }}" class="btn btn-ghost btn-sm" style="padding:2px 6px;">✎</a>
+                  <form method="POST" action="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}"
+                        style="display:inline;" onsubmit="return confirm('Remover?');">
+                    <button class="btn btn-danger btn-sm" style="padding:2px 6px;">×</button>
+                  </form>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </td>
+        </tr>
         {% endfor %}
-      </div>
-    </div>
+      </tbody>
+    </table>
   </div>
-  {% endfor %}
 </div>
 {% endif %}
 
@@ -124,8 +127,8 @@
 {% if unlinked %}
 <div class="card mb-3">
   <div class="card-title">
-    <h3>Outros lançamentos</h3>
-    <span class="text-faint text-small">sem vínculo com gasto fixo · clique no cabeçalho para ordenar</span>
+    <h3>Lançamentos avulsos</h3>
+    <span class="text-faint text-small">sem vínculo com gasto fixo</span>
   </div>
   <div class="table-wrap">
     <table class="tbl sortable-table">
@@ -133,8 +136,9 @@
         <tr>
           <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
           <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
-          <th class="th-sort" data-col="2" style="cursor:pointer;">Categoria ↕</th>
-          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Valor ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Tipo ↕</th>
+          <th class="th-sort" data-col="3" style="cursor:pointer;">Categoria ↕</th>
+          <th class="th-sort text-right" data-col="4" style="cursor:pointer;">Valor ↕</th>
           <th></th>
         </tr>
       </thead>
@@ -144,10 +148,17 @@
           <td class="text-dim" data-val="{{ entry.entry_date.isoformat() }}">{{ entry.entry_date|data_br }}</td>
           <td data-val="{{ entry.description }}">
             {{ entry.description }}
-            {% if entry.installments > 1 %}
+            {% if entry.kind == 'parcelado' %}
               <span class="badge badge-shared">{{ entry.installment_no }}/{{ entry.installments }}</span>
+            {% elif entry.kind == 'recorrente' %}
+              <span class="badge badge-shared">fixo</span>
             {% endif %}
             {% if entry.notes %}<div class="text-faint text-small">{{ entry.notes }}</div>{% endif %}
+          </td>
+          <td data-val="{{ entry.kind if entry.kind else 'pontual' }}">
+            {% if entry.kind == 'recorrente' %}<span class="badge badge-shared">Fixo</span>
+            {% elif entry.kind == 'parcelado' %}<span class="badge badge-shared">Parcelado</span>
+            {% else %}<span class="badge badge-solo">Pontual</span>{% endif %}
           </td>
           <td data-val="{{ entry.category }}"><span class="badge badge-solo">{{ entry.category }}</span></td>
           <td class="text-right amount" data-val="{{ entry.amount }}" style="color:var(--red);">{{ entry.amount|brl }}</td>
@@ -181,9 +192,8 @@ function toggleEntries(btn) {
   const list = btn.nextElementSibling;
   const open = list.style.display !== 'none';
   list.style.display = open ? 'none' : 'block';
-  btn.textContent = (open ? '▼' : '▲') + btn.textContent.slice(1);
+  btn.textContent = open ? '▼ ver' : '▲ ocultar';
 }
-
 (function() {
   function initSort(table) {
     let sortCol = -1, sortAsc = true;
