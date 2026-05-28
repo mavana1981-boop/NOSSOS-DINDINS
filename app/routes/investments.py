@@ -1,138 +1,135 @@
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
-from flask_login import login_required, current_user
-from app import db
-from app.models import Investment
+{% extends "base.html" %}
+{% block title %}Investimentos{% endblock %}
+{% block content %}
 
-investments_bp = Blueprint("investments", __name__)
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Investimentos</h1>
+    <p>
+      Investido: <strong style="color:var(--blue);">{{ total_invested|brl }}</strong> ·
+      Valor atual: <strong style="color:var(--green);">{{ total_current|brl }}</strong> ·
+      <span style="color:{{ 'var(--green)' if total_gain >= 0 else 'var(--red)' }};">
+        {{ '+' if total_gain >= 0 else '' }}{{ total_gain|brl }}
+      </span>
+    </p>
+  </div>
+  <a href="{{ url_for('investments.new_investment') }}" class="btn btn-primary">+ Novo investimento</a>
+</div>
 
-CATEGORIES = ["Renda Fixa", "Renda Variável", "FII", "Ações", "Cripto",
-              "Previdência", "Tesouro Direto", "CDB", "LCI/LCA", "Fundos", "Outros"]
+<!-- Filtros -->
+<div class="card mb-3">
+  <form method="GET" class="flex flex-gap" style="flex-wrap:wrap;align-items:flex-end;">
+    <div class="form-group mb-0">
+      <label class="form-label">Objetivo</label>
+      <select class="form-control" name="objective" style="min-width:180px;">
+        <option value="">Todos</option>
+        {% for o in all_objectives %}
+          <option {% if obj_filter == o %}selected{% endif %}>{{ o }}</option>
+        {% endfor %}
+        {% for o in objectives %}
+          {% if o not in all_objectives %}
+            <option {% if obj_filter == o %}selected{% endif %}>{{ o }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Categoria</label>
+      <select class="form-control" name="category" style="min-width:160px;">
+        <option value="">Todas</option>
+        {% for c in all_categories %}
+          <option {% if cat_filter == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-ghost">Filtrar</button>
+    {% if obj_filter or cat_filter %}
+      <a href="{{ url_for('investments.list_investments') }}" class="btn btn-ghost">Limpar</a>
+    {% endif %}
+  </form>
+</div>
 
-OBJECTIVES = ["Reserva de Emergência", "Aposentadoria", "Viagem",
-              "Educação", "Imóvel", "Carro", "Liberdade Financeira", "Outros"]
+{% if by_objective %}
+  {% for obj, data in by_objective.items() %}
+  <div class="card mb-3">
+    <div class="card-title">
+      <div>
+        <h3 style="margin:0;">{{ obj }}</h3>
+        <div class="text-small text-dim">
+          {{ data.inv_list|length }} ativo(s) ·
+          Investido: <span class="mono">{{ data.total_invested|brl }}</span> ·
+          Atual: <span class="mono" style="color:var(--green);">{{ data.total_current|brl }}</span>
+          {% set gain = data.total_current - data.total_invested %}
+          · <span style="color:{{ 'var(--green)' if gain >= 0 else 'var(--red)' }};">
+              {{ '+' if gain >= 0 }}{{ gain|brl }}
+            </span>
+        </div>
+      </div>
+      {% set pct = [(data.total_current / data.total_invested * 100) if data.total_invested > 0 else 100, 200]|min %}
+      <div style="text-align:right;">
+        <div class="pct" style="font-family:'Fraunces',serif;font-weight:700;font-size:1.4rem;color:var(--blue);">
+          {{ '%.1f'|format(pct) }}%
+        </div>
+        <div class="text-faint text-small">rendimento</div>
+      </div>
+    </div>
 
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Instituição</th>
+            <th>Data</th>
+            <th class="text-right">Aportado</th>
+            <th class="text-right">Valor atual</th>
+            <th class="text-right">Ganho/Perda</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inv in data.inv_list %}
+          <tr>
+            <td>
+              <strong>{{ inv.description }}</strong>
+              {% if not inv.is_active %}<span class="badge badge-solo">Encerrado</span>{% endif %}
+              {% if inv.notes %}<div class="text-faint text-small">{{ inv.notes }}</div>{% endif %}
+            </td>
+            <td><span class="badge badge-shared">{{ inv.category }}</span></td>
+            <td class="text-dim">{{ inv.institution or '—' }}</td>
+            <td class="text-dim">{{ inv.invested_at|data_br }}</td>
+            <td class="text-right amount" style="color:var(--blue);">{{ inv.amount|brl }}</td>
+            <td class="text-right amount" style="color:var(--green);">{{ (inv.current_value or inv.amount)|brl }}</td>
+            <td class="text-right amount">
+              {% set g = inv.gain_loss %}
+              <span style="color:{{ 'var(--green)' if g >= 0 else 'var(--red)' }};">
+                {{ '+' if g >= 0 }}{{ g|brl }}
+              </span>
+              <div class="text-faint text-small">{{ '%.1f'|format(inv.gain_loss_pct) }}%</div>
+            </td>
+            <td class="text-right">
+              <a href="{{ url_for('investments.edit_investment', inv_id=inv.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+              <form method="POST" action="{{ url_for('investments.delete_investment', inv_id=inv.id) }}"
+                    style="display:inline;" onsubmit="return confirm('Excluir?');">
+                <button class="btn btn-danger btn-sm">×</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="card">
+    <div class="empty-state">
+      <h4>Nenhum investimento registrado</h4>
+      <p>Comece a registrar seus investimentos e acompanhe o crescimento por objetivo.</p>
+      <a href="{{ url_for('investments.new_investment') }}" class="btn btn-primary btn-sm mt-2">Registrar primeiro</a>
+    </div>
+  </div>
+{% endif %}
 
-def _parse(s):
-    if not s:
-        return None
-    try:
-        return Decimal(str(s).replace(".", "").replace(",", ".").strip())
-    except (InvalidOperation, ValueError):
-        return None
-
-
-@investments_bp.route("/")
-@login_required
-def list_investments():
-    obj_filter = request.args.get("objective", "")
-    cat_filter = request.args.get("category", "")
-
-    q = Investment.query.filter_by(user_id=current_user.id)
-    if obj_filter:
-        q = q.filter_by(objective=obj_filter)
-    if cat_filter:
-        q = q.filter_by(category=cat_filter)
-    investments = q.order_by(Investment.invested_at.desc()).all()
-
-    # Agrupado por objetivo
-    by_objective = {}
-    for inv in investments:
-        obj = inv.objective or "Outros"
-        if obj not in by_objective:
-            by_objective[obj] = {"items": [], "total_invested": 0, "total_current": 0}
-        by_objective[obj]["items"].append(inv)
-        by_objective[obj]["total_invested"] += float(inv.amount)
-        by_objective[obj]["total_current"] += float(inv.current_value or inv.amount)
-
-    total_invested = sum(float(i.amount) for i in investments)
-    total_current = sum(float(i.current_value or i.amount) for i in investments)
-
-    objectives = Investment.query.filter_by(user_id=current_user.id)\
-        .with_entities(Investment.objective).distinct().all()
-    objectives = [o[0] for o in objectives]
-
-    return render_template("investments/list.html",
-                           investments=investments,
-                           by_objective=by_objective,
-                           total_invested=total_invested,
-                           total_current=total_current,
-                           total_gain=total_current - total_invested,
-                           objectives=objectives,
-                           all_objectives=OBJECTIVES,
-                           all_categories=CATEGORIES,
-                           obj_filter=obj_filter,
-                           cat_filter=cat_filter)
-
-
-@investments_bp.route("/novo", methods=["GET", "POST"])
-@login_required
-def new_investment():
-    if request.method == "POST":
-        return _save(None)
-    return render_template("investments/form.html", inv=None,
-                           categories=CATEGORIES, objectives=OBJECTIVES)
-
-
-@investments_bp.route("/<int:inv_id>/editar", methods=["GET", "POST"])
-@login_required
-def edit_investment(inv_id):
-    inv = Investment.query.get_or_404(inv_id)
-    if inv.user_id != current_user.id:
-        abort(403)
-    if request.method == "POST":
-        return _save(inv)
-    return render_template("investments/form.html", inv=inv,
-                           categories=CATEGORIES, objectives=OBJECTIVES)
-
-
-def _save(inv):
-    desc = request.form.get("description", "").strip()
-    amount = _parse(request.form.get("amount"))
-    current_value = _parse(request.form.get("current_value"))
-    cat = request.form.get("category", "Renda Fixa")
-    obj = request.form.get("objective", "").strip()
-    institution = request.form.get("institution", "").strip()
-    notes = request.form.get("notes", "").strip()
-    d_str = request.form.get("invested_at")
-    is_active = bool(request.form.get("is_active", True))
-
-    if not desc or not amount or amount <= 0 or not obj:
-        flash("Descrição, valor e objetivo são obrigatórios.", "danger")
-        return render_template("investments/form.html", inv=inv,
-                               categories=CATEGORIES, objectives=OBJECTIVES)
-    try:
-        d = datetime.strptime(d_str, "%Y-%m-%d").date() if d_str else date.today()
-    except ValueError:
-        d = date.today()
-
-    if inv is None:
-        inv = Investment(user_id=current_user.id)
-        db.session.add(inv)
-
-    inv.description = desc
-    inv.amount = amount
-    inv.current_value = current_value
-    inv.category = cat
-    inv.objective = obj
-    inv.institution = institution
-    inv.notes = notes
-    inv.invested_at = d
-    inv.is_active = is_active
-
-    db.session.commit()
-    flash("Investimento salvo.", "success")
-    return redirect(url_for("investments.list_investments"))
-
-
-@investments_bp.route("/<int:inv_id>/excluir", methods=["POST"])
-@login_required
-def delete_investment(inv_id):
-    inv = Investment.query.get_or_404(inv_id)
-    if inv.user_id != current_user.id:
-        abort(403)
-    db.session.delete(inv)
-    db.session.commit()
-    flash("Investimento removido.", "info")
-    return redirect(url_for("investments.list_investments"))
+{% endblock %}
