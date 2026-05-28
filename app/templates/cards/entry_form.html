@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Editar' if entry else 'Novo' }} lançamento — {{ card.name }}{% endblock %}
 {% block content %}
-
+{# v2 #}
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>{{ 'Editar' if entry else 'Novo' }} lançamento</h1>
@@ -17,16 +17,16 @@
       <label class="form-label">Descrição *</label>
       <input class="form-control" name="description" required
              value="{{ entry.description if entry }}"
-             placeholder="ex: Netflix, Supermercado, Farmácia">
+             placeholder="ex: Netflix, Farmácia, Parcela do celular">
     </div>
 
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Valor (R$) *</label>
-        <input class="form-control mono" name="amount" required
+        <input class="form-control mono" name="amount" id="amount-input" required
                value="{% if entry %}{{ entry.amount|float|round(2) }}{% endif %}"
                placeholder="0,00"
-               onblur="this.value=this.value.replace('.',',')">
+               onblur="formatarValor(this)">
       </div>
       <div class="form-group">
         <label class="form-label">Data *</label>
@@ -35,43 +35,70 @@
       </div>
     </div>
 
-    <!-- Vínculo com gasto fixo — também serve como categoria -->
     <div class="form-group">
-      <label class="form-label">Gasto fixo vinculado / Categoria *</label>
-      <select class="form-control" name="expense_id" id="sel-expense" required>
-        <option value="">— Selecione um gasto fixo —</option>
+      <label class="form-label">Tipo do lançamento</label>
+      <div class="grid grid-3" style="gap:10px;">
+        <label class="form-check" style="cursor:pointer;">
+          <input type="radio" name="kind" value="pontual"
+                 {% if not entry or not entry.kind or entry.kind == 'pontual' %}checked{% endif %}
+                 onchange="updateKind(this.value)">
+          <div style="margin-left:8px;">
+            <strong>Pontual</strong>
+            <div class="text-faint text-small">Cobrança única</div>
+          </div>
+        </label>
+        <label class="form-check" style="cursor:pointer;">
+          <input type="radio" name="kind" value="recorrente"
+                 {% if entry and entry.kind == 'recorrente' %}checked{% endif %}
+                 onchange="updateKind(this.value)">
+          <div style="margin-left:8px;">
+            <strong>Fixo mensal</strong>
+            <div class="text-faint text-small">Repete todo mês</div>
+          </div>
+        </label>
+        <label class="form-check" style="cursor:pointer;">
+          <input type="radio" name="kind" value="parcelado"
+                 {% if entry and entry.kind == 'parcelado' %}checked{% endif %}
+                 onchange="updateKind(this.value)">
+          <div style="margin-left:8px;">
+            <strong>Parcelado</strong>
+            <div class="text-faint text-small">Número de parcelas</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div id="parcelas-extra" class="form-group"
+         style="display:{{ 'block' if entry and entry.kind == 'parcelado' else 'none' }};">
+      <label class="form-label">Número da parcela</label>
+      <div class="flex flex-gap" style="align-items:center;gap:10px;">
+        <input class="form-control mono" type="number" name="installment_no" min="1"
+               value="{{ entry.installment_no if entry else 1 }}"
+               style="width:80px;" placeholder="atual">
+        <span style="color:var(--text-dim);">de</span>
+        <input class="form-control mono" type="number" name="installments" min="1"
+               value="{{ entry.installments if entry else 1 }}"
+               style="width:80px;" placeholder="total">
+        <span class="text-faint text-small">ex: 3 de 12</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Gasto fixo vinculado</label>
+      <select class="form-control" name="expense_id" id="sel-expense">
+        <option value="">— Lançamento avulso (sem vínculo) —</option>
         {% for exp in fixed_expenses %}
         <option value="{{ exp.id }}"
                 {% if entry and entry.expense_id == exp.id %}selected{% endif %}>
           {{ exp.description }} — {{ exp.amount|brl }}/mês
         </option>
         {% endfor %}
-        <option value="" disabled>─────────────</option>
-        <option value="avulso" {% if entry and not entry.expense_id %}selected{% endif %}>Lançamento avulso (sem vínculo)</option>
       </select>
-      <div class="form-help">
-        Selecione o gasto fixo para que o valor seja somado na barra de controle da casa.
-      </div>
+      <div class="form-help">Ao vincular, o valor soma na barra de controle da casa.</div>
     </div>
-    <!-- Campo hidden de categoria — preenchido pelo JS -->
-    <input type="hidden" name="category" id="hidden-category" value="{{ entry.category if entry else 'Outros' }}">
 
-    <div class="form-row">
-      <div class="form-group" style="display:none;">
-      <div class="form-group">
-        <label class="form-label">Parcelas</label>
-        <div class="flex flex-gap">
-          <input class="form-control mono" type="number" name="installment_no" min="1"
-                 value="{{ entry.installment_no if entry else 1 }}"
-                 style="width:70px;" placeholder="atual">
-          <span class="flex" style="align-items:center;color:var(--text-dim);">de</span>
-          <input class="form-control mono" type="number" name="installments" min="1"
-                 value="{{ entry.installments if entry else 1 }}"
-                 style="width:70px;" placeholder="total">
-        </div>
-        <div class="form-help">Ex: parcela 3 de 12.</div>
-      </div>
-    </div>
+    <input type="hidden" name="category" id="hidden-category"
+           value="{{ entry.category if entry else 'Outros' }}">
 
     <div class="form-group">
       <label class="form-label">Observações</label>
@@ -87,28 +114,32 @@
 </div>
 
 <script>
-// Ao selecionar gasto fixo, usa o nome dele como categoria
+function formatarValor(inp) {
+  const raw = inp.value.replace(/[^\d,\.]/g, '');
+  if (!raw) return;
+  let num = raw.includes(',')
+    ? parseFloat(raw.replace(/\./g, '').replace(',', '.'))
+    : parseFloat(raw);
+  if (!isNaN(num)) inp.value = num.toFixed(2).replace('.', ',');
+}
+
+function updateKind(kind) {
+  document.getElementById('parcelas-extra').style.display =
+    kind === 'parcelado' ? 'block' : 'none';
+}
+
 document.getElementById('sel-expense').addEventListener('change', function() {
-  const opt = this.options[this.selectedIndex];
   const hidden = document.getElementById('hidden-category');
-  if (opt.value && opt.value !== 'avulso') {
-    // Usa o texto do gasto fixo (só o nome, sem o valor)
-    hidden.value = opt.text.split(' — ')[0].trim();
-    // Ajusta o name do select para não enviar expense_id quando for avulso
-    this.name = 'expense_id';
-  } else {
-    hidden.value = 'Outros';
-    this.name = '';  // não envia expense_id
-  }
+  hidden.value = this.value
+    ? this.options[this.selectedIndex].text.split(' — ')[0].trim()
+    : 'Outros';
 });
 
-// Se avulso, não envia expense_id
-document.querySelector('form').addEventListener('submit', function() {
-  const sel = document.getElementById('sel-expense');
-  if (sel.value === 'avulso' || !sel.value) {
-    sel.name = '';
-  }
+document.addEventListener('DOMContentLoaded', function() {
+  const amt = document.getElementById('amount-input');
+  if (amt.value) formatarValor(amt);
+  const checked = document.querySelector('input[name="kind"]:checked');
+  if (checked) updateKind(checked.value);
 });
 </script>
-
 {% endblock %}
