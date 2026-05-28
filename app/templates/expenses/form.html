@@ -58,13 +58,31 @@
         </select>
         {% if not current_user.is_admin %}
         <input type="hidden" name="payer_id" value="{{ current_user.id }}">
-        <div class="form-help">Só admins podem registrar gastos em nome de outro usuário.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Vínculo com cartão -->
+    <div class="form-group">
+      <label class="form-label">Cartão vinculado</label>
+      <select class="form-control" name="card_id">
+        <option value="">— Sem cartão —</option>
+        {% for card in user_cards %}
+          <option value="{{ card.id }}"
+            {% if expense and expense.card_id == card.id %}selected{% endif %}>
+            {{ card.name }}{% if card.last_digits %} •••• {{ card.last_digits }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <div class="form-help">
+        Ao vincular, um lançamento é criado automaticamente no cartão selecionado.
+        {% if not user_cards %}
+          <a href="{{ url_for('cards.new_card') }}">Cadastre um cartão primeiro →</a>
         {% endif %}
       </div>
     </div>
 
     <div class="divider"></div>
-
     <h3 style="margin-bottom:12px;">Tipo de gasto</h3>
 
     <div class="form-group">
@@ -94,17 +112,14 @@
              value="{{ expense.recurrence_months if expense and expense.recurrence_months else '' }}"
              placeholder="ex: 12 (deixe vazio para sem prazo)">
       <div class="form-help">
-        Deixe vazio para gasto fixo perpétuo (luz, aluguel).
-        Informe o número para parcelado (ex: 10 vezes no cartão).
+        Deixe vazio para gasto fixo perpétuo. Informe o número para parcelado.
       </div>
     </div>
 
     <div class="divider"></div>
-
     <h3 style="margin-bottom:12px;">Compartilhamento</h3>
 
     <div class="form-group">
-      <label class="form-label">Modo</label>
       <div class="grid grid-3" style="gap:12px;">
         <label class="form-check share-option" data-mode="solo">
           <input type="radio" name="share_mode" value="solo"
@@ -148,13 +163,10 @@
           </option>
         {% endfor %}
       </select>
-      <div class="form-help">Esta pessoa ficará devendo o valor total para o pagador.</div>
     </div>
 
     <div id="mode-split" style="display:none;">
-      <div class="form-help mb-2">
-        Defina o valor que cada pessoa deve. Use o botão para dividir igualmente.
-      </div>
+      <div class="form-help mb-2">Defina o valor que cada pessoa deve.</div>
       <div style="background:var(--bg);border-radius:var(--radius);padding:14px;">
         {% for u in users %}
           {% set existing_share = namespace(amount=None) %}
@@ -205,23 +217,18 @@
 </div>
 
 <script>
-// Formata valor para BRL ao sair do campo
 function formatarValor(inp) {
   const raw = inp.value.replace(/[^\d,\.]/g, '');
   if (!raw) return;
-  // Se tem vírgula como decimal (padrão BR), converte corretamente
   let num;
   if (raw.includes(',')) {
     num = parseFloat(raw.replace(/\./g, '').replace(',', '.'));
   } else {
     num = parseFloat(raw);
   }
-  if (!isNaN(num)) {
-    inp.value = num.toFixed(2).replace('.', ',');
-  }
+  if (!isNaN(num)) inp.value = num.toFixed(2).replace('.', ',');
 }
 
-// Formata todos os campos de valor ao carregar a página
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('#amount-input, .split-input').forEach(inp => {
     if (inp.value) formatarValor(inp);
