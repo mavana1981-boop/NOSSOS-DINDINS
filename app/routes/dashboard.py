@@ -1,7 +1,7 @@
 from datetime import date
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
-from sqlalchemy import func, extract
+from sqlalchemy import or_
 from app import db
 from app.models import Income, Expense, ExpenseShare, Project, ProjectMember, User, HouseholdExpense
 from app.utils import get_user_monthly_summary, get_credits_debits
@@ -16,14 +16,14 @@ def index():
     summary = get_user_monthly_summary(current_user.id, today.year, today.month)
     credits_debits = get_credits_debits(current_user.id)
 
-    # Projetos do usuário (próprios ou compartilhados)
+    # Projetos do usuário
     member_project_ids = [m.project_id for m in
                           ProjectMember.query.filter_by(user_id=current_user.id).all()]
     projects = Project.query.filter(
         (Project.owner_id == current_user.id) | (Project.id.in_(member_project_ids))
     ).order_by(Project.is_completed, Project.created_at.desc()).all()
 
-    # Últimos gastos onde o usuário aparece
+    # Últimos gastos
     recent_expenses = Expense.query.join(ExpenseShare).filter(
         (Expense.payer_id == current_user.id) | (ExpenseShare.user_id == current_user.id)
     ).distinct().order_by(Expense.spent_at.desc()).limit(6).all()
@@ -32,26 +32,31 @@ def index():
     recent_incomes = Income.query.filter_by(user_id=current_user.id)\
         .order_by(Income.received_at.desc()).limit(5).all()
 
-    # Gastos da casa (mês atual)
-    today = date.today()
-    from sqlalchemy import or_ as _or
+    # Gastos da Casa — mostra todos os configurados (fixos aparecem todo mês, pontuais sempre visíveis)
     household_links = HouseholdExpense.query.filter(
-        _or(
+        or_(
             HouseholdExpense.owner_id == current_user.id,
             HouseholdExpense.shared_with_id == current_user.id
         )
     ).all()
 
     household_expenses = []
-    household_total_planned = 0
-    household_total_spent = 0
+    household_total_planned = 0.0
+    household_total_spent = 0.0
+
     for hh in household_links:
         exp = hh.expense
         if not exp:
             continue
-        is_active = exp.is_active_on(today.year, today.month)
-        if not is_active:
+        # Para recorrentes: sempre aparece. Para pontuais: aparece no mês correto
+        if exp.kind == 'recorrente':
+            visible = exp.is_active_on(today.year, today.month)
+        else:
+            visible = True  # pontuais sempre visíveis no quadro
+
+        if not visible:
             continue
+
         household_expenses.append({
             "expense": exp,
             "household": hh,
