@@ -5,7 +5,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Fluxo de caixa</h1>
-    <p>Visão mês a mês de <strong>{{ year }}</strong></p>
+    <p>Visão mês a mês de <strong>{{ year }}</strong> + Jan/{{ year + 1 }}</p>
   </div>
   <div class="flex flex-gap">
     <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
@@ -40,7 +40,7 @@
 
 <div class="grid grid-2 mb-3">
   <div class="stat">
-    <div class="stat-label">Total renda</div>
+    <div class="stat-label">Total renda {{ year }}</div>
     <div class="stat-value positive">{{ totals.income|brl }}</div>
   </div>
   <div class="stat">
@@ -74,7 +74,31 @@
       </div>
       <div class="cashflow-label">
         <strong>{{ m.month_name }}</strong>
-        <div class="text-faint" style="font-size:0.7rem;color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};">
+        <div style="font-size:0.7rem;color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};">
+          {{ '%+.0f'|format(m.net) }}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% for m in next_jan %}
+    <div class="cashflow-bar-group" style="opacity:0.6;border-left:2px dashed var(--border-strong);padding-left:4px;">
+      <div class="cashflow-bars">
+        <div class="cashflow-bar bar-income-rec"
+             style="height: {{ (m.income_recurring / max_value * 100)|round if max_value else 0 }}%;"
+             title="Renda fixa Jan/{{ year+1 }}: {{ m.income_recurring|brl }}"></div>
+        <div class="cashflow-bar bar-income-ev"
+             style="height: {{ (m.income_eventual / max_value * 100)|round if max_value else 0 }}%;"
+             title="Renda eventual Jan/{{ year+1 }}: {{ m.income_eventual|brl }}"></div>
+        <div class="cashflow-bar bar-fixed"
+             style="height: {{ (m.fixed_expense / max_value * 100)|round if max_value else 0 }}%;"
+             title="Fixos Jan/{{ year+1 }}: {{ m.fixed_expense|brl }}"></div>
+        <div class="cashflow-bar bar-expense"
+             style="height: {{ (m.total_expense / max_value * 100)|round if max_value else 0 }}%;"
+             title="Total gastos Jan/{{ year+1 }}: {{ m.total_expense|brl }}"></div>
+      </div>
+      <div class="cashflow-label" style="color:var(--text-faint);">
+        <strong>Jan+</strong>
+        <div style="font-size:0.7rem;color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};">
           {{ '%+.0f'|format(m.net) }}
         </div>
       </div>
@@ -115,10 +139,23 @@
           <td class="text-right amount" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};">{{ m.cumulative|brl }}</td>
         </tr>
         {% endfor %}
+        {% for m in next_jan %}
+        <tr style="opacity:0.7;border-top:2px dashed var(--border-strong);">
+          <td><strong style="color:var(--text-faint);">Jan/{{ year+1 }}</strong></td>
+          <td class="text-right amount" style="color:var(--green);">{{ m.income_recurring|brl }}</td>
+          <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
+          <td class="text-right amount" style="color:var(--green);">{{ m.income|brl }}</td>
+          <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
+          <td class="text-right amount" style="color:var(--red);">{{ m.eventual_expense|brl }}</td>
+          <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
+          <td class="text-right amount" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;">{{ m.net|brl }}</td>
+          <td class="text-right amount" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};">{{ m.cumulative|brl }}</td>
+        </tr>
+        {% endfor %}
       </tbody>
       <tfoot>
         <tr style="border-top:2px solid var(--border-strong);">
-          <td><strong>Ano</strong></td>
+          <td><strong>Ano {{ year }}</strong></td>
           <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income_recurring|brl }}</strong></td>
           <td class="text-right amount" style="color:var(--blue);"><strong>{{ totals.income_eventual|brl }}</strong></td>
           <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income|brl }}</strong></td>
@@ -135,7 +172,7 @@
 
 <style>
 .cashflow-chart {
-  display: grid; grid-template-columns: repeat(12, 1fr);
+  display: grid; grid-template-columns: repeat(12, 1fr) 0.8fr;
   gap: 6px; align-items: end; height: 220px;
   padding: 12px 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px;
 }
