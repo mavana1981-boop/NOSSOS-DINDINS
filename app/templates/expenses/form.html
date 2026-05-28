@@ -24,8 +24,9 @@
       <div class="form-group">
         <label class="form-label">Valor por parcela (R$) *</label>
         <input class="form-control mono" name="amount" id="amount-input" required
-               value="{% if expense %}{{ '%.2f'|format(expense.amount|float)|replace('.', ',') }}{% endif %}"
-               placeholder="0,00">
+               value="{% if expense %}{{ expense.amount|float|round(2) }}{% endif %}"
+               placeholder="0,00"
+               onblur="formatarValor(this)">
       </div>
       <div class="form-group">
         <label class="form-label">Data inicial *</label>
@@ -176,8 +177,9 @@
             </div>
             <input class="form-control mono split-input" name="share_user_{{ u.id }}"
                    data-uid="{{ u.id }}"
-                   value="{% if existing_share.amount %}{{ '%.2f'|format(existing_share.amount|float)|replace('.', ',') }}{% endif %}"
-                   placeholder="0,00">
+                   value="{% if existing_share.amount %}{{ existing_share.amount|float|round(2) }}{% endif %}"
+                   placeholder="0,00"
+                   onblur="formatarValor(this)">
           </div>
         {% endfor %}
       </div>
@@ -203,6 +205,29 @@
 </div>
 
 <script>
+// Formata valor para BRL ao sair do campo
+function formatarValor(inp) {
+  const raw = inp.value.replace(/[^\d,\.]/g, '');
+  if (!raw) return;
+  // Se tem vírgula como decimal (padrão BR), converte corretamente
+  let num;
+  if (raw.includes(',')) {
+    num = parseFloat(raw.replace(/\./g, '').replace(',', '.'));
+  } else {
+    num = parseFloat(raw);
+  }
+  if (!isNaN(num)) {
+    inp.value = num.toFixed(2).replace('.', ',');
+  }
+}
+
+// Formata todos os campos de valor ao carregar a página
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('#amount-input, .split-input').forEach(inp => {
+    if (inp.value) formatarValor(inp);
+  });
+});
+
 (function() {
   const radios = document.querySelectorAll('input[name="share_mode"]');
   const integral = document.getElementById('mode-integral');
