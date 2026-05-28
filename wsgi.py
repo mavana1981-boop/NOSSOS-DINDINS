@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import User, SubProject, Investment
+from app.models import User, SubProject, Investment, Card, CardEntry
 from werkzeug.security import generate_password_hash
 from sqlalchemy import text, inspect
 import os
@@ -34,6 +34,7 @@ def bootstrap():
         # Colunas novas em tabelas existentes
         _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("expenses", "recurrence_months", "INTEGER")
+        _ensure_column("expenses", "card_id", "INTEGER REFERENCES cards(id)")
 
         # Migra coluna photo para TEXT (suporta base64)
         try:
@@ -53,6 +54,12 @@ def bootstrap():
             if not insp.has_table("investments"):
                 Investment.__table__.create(db.engine)
                 print("[migrate] tabela investments criada")
+            if not insp.has_table("cards"):
+                Card.__table__.create(db.engine)
+                print("[migrate] tabela cards criada")
+            if not insp.has_table("card_entries"):
+                CardEntry.__table__.create(db.engine)
+                print("[migrate] tabela card_entries criada")
         except Exception as e:
             print(f"[migrate] erro criando tabelas extras: {e}")
 
