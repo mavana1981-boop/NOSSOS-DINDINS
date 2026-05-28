@@ -32,6 +32,41 @@ def index():
     recent_incomes = Income.query.filter_by(user_id=current_user.id)\
         .order_by(Income.received_at.desc()).limit(5).all()
 
+    # Detalhes de gastos entre membros
+    from app.models import Expense, ExpenseShare
+    credits_debits_detail = []
+    for cd in credits_debits:
+        other = cd["user"]
+        # Gastos onde eu paguei e o outro tem share
+        eu_paguei = db.session.query(Expense, ExpenseShare)            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)            .filter(Expense.payer_id == current_user.id,
+                    ExpenseShare.user_id == other.id).all()
+        # Gastos onde o outro pagou e eu tenho share
+        outro_pagou = db.session.query(Expense, ExpenseShare)            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)            .filter(Expense.payer_id == other.id,
+                    ExpenseShare.user_id == current_user.id).all()
+        entries = []
+        for exp, share in eu_paguei:
+            entries.append({
+                "description": exp.description,
+                "date": exp.spent_at,
+                "amount": float(share.share_amount),
+                "direction": "receber",  # outro me deve
+                "category": exp.category,
+            })
+        for exp, share in outro_pagou:
+            entries.append({
+                "description": exp.description,
+                "date": exp.spent_at,
+                "amount": float(share.share_amount),
+                "direction": "pagar",  # eu devo ao outro
+                "category": exp.category,
+            })
+        entries.sort(key=lambda x: x["date"], reverse=True)
+        credits_debits_detail.append({
+            "user": other,
+            "balance": cd["balance"],
+            "entries": entries,
+        })
+
     # Gastos da Casa — mostra todos os configurados (fixos aparecem todo mês, pontuais sempre visíveis)
     household_links = HouseholdExpense.query.filter(
         or_(
@@ -89,7 +124,7 @@ def index():
     return render_template(
         "dashboard.html",
         summary=summary,
-        credits_debits=credits_debits,
+        credits_debits=credits_debits_detail,
         projects=projects[:4],
         all_projects_count=len(projects),
         recent_expenses=recent_expenses,
