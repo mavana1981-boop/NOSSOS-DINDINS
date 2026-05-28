@@ -17,16 +17,16 @@
       <label class="form-label">Descrição *</label>
       <input class="form-control" name="description" required
              value="{{ entry.description if entry }}"
-             placeholder="ex: Netflix, Supermercado, Farmácia">
+             placeholder="ex: Netflix, Farmácia, Parcela do celular">
     </div>
 
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Valor (R$) *</label>
-        <input class="form-control mono" name="amount" required
+        <input class="form-control mono" name="amount" id="amount-input" required
                value="{% if entry %}{{ entry.amount|float|round(2) }}{% endif %}"
                placeholder="0,00"
-               onblur="this.value=this.value.replace('.',',')">
+               onblur="formatarValor(this)">
       </div>
       <div class="form-group">
         <label class="form-label">Data *</label>
@@ -35,49 +35,74 @@
       </div>
     </div>
 
+    <!-- Tipo do lançamento -->
+    <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <div class="grid grid-3" style="gap:10px;">
+        <label class="form-check">
+          <input type="radio" name="kind" value="pontual"
+                 {% if not entry or entry.kind == 'pontual' %}checked{% endif %}
+                 onchange="updateKind()">
+          <div>
+            <strong>Pontual</strong>
+            <div class="text-faint text-small">Cobrança única</div>
+          </div>
+        </label>
+        <label class="form-check">
+          <input type="radio" name="kind" value="recorrente"
+                 {% if entry and entry.kind == 'recorrente' %}checked{% endif %}
+                 onchange="updateKind()">
+          <div>
+            <strong>Fixo</strong>
+            <div class="text-faint text-small">Repete todo mês</div>
+          </div>
+        </label>
+        <label class="form-check">
+          <input type="radio" name="kind" value="parcelado"
+                 {% if entry and entry.kind == 'parcelado' %}checked{% endif %}
+                 onchange="updateKind()">
+          <div>
+            <strong>Parcelado</strong>
+            <div class="text-faint text-small">Número de parcelas</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Parcelas — só aparece quando tipo = parcelado -->
+    <div id="parcelas-extra" class="form-group" style="display:{% if entry and entry.kind == 'parcelado' %}block{% else %}none{% endif %};">
+      <label class="form-label">Parcela</label>
+      <div class="flex flex-gap" style="align-items:center;gap:10px;">
+        <input class="form-control mono" type="number" name="installment_no" min="1"
+               value="{{ entry.installment_no if entry else 1 }}"
+               style="width:80px;" placeholder="atual">
+        <span style="color:var(--text-dim);">de</span>
+        <input class="form-control mono" type="number" name="installments" min="1"
+               value="{{ entry.installments if entry else 1 }}"
+               style="width:80px;" placeholder="total">
+        <span class="text-faint text-small">ex: parcela 3 de 12</span>
+      </div>
+    </div>
+
     <!-- Vínculo com gasto fixo -->
     <div class="form-group">
-      <label class="form-label">Vincular a gasto fixo</label>
+      <label class="form-label">Gasto fixo vinculado</label>
       <select class="form-control" name="expense_id" id="sel-expense">
-        <option value="">— Sem vínculo (lançamento avulso) —</option>
+        <option value="">— Lançamento avulso (sem vínculo) —</option>
         {% for exp in fixed_expenses %}
         <option value="{{ exp.id }}"
-                data-category="{{ exp.category }}"
                 {% if entry and entry.expense_id == exp.id %}selected{% endif %}>
           {{ exp.description }} — {{ exp.amount|brl }}/mês
         </option>
         {% endfor %}
       </select>
       <div class="form-help">
-        Ao vincular, este lançamento aparecerá na barra de controle desse gasto fixo no cartão.
+        Ao vincular, o valor é somado na barra de controle desse gasto no cartão e no quadro da casa.
       </div>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Categoria</label>
-        <select class="form-control" name="category" id="sel-category">
-          {% set cats = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Moradia',
-                         'Lazer', 'Vestuário', 'Beleza', 'Serviços', 'Contas', 'Outros'] %}
-          {% for c in cats %}
-            <option {% if entry and entry.category == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Parcelas</label>
-        <div class="flex flex-gap">
-          <input class="form-control mono" type="number" name="installment_no" min="1"
-                 value="{{ entry.installment_no if entry else 1 }}"
-                 style="width:70px;" placeholder="atual">
-          <span class="flex" style="align-items:center;color:var(--text-dim);">de</span>
-          <input class="form-control mono" type="number" name="installments" min="1"
-                 value="{{ entry.installments if entry else 1 }}"
-                 style="width:70px;" placeholder="total">
-        </div>
-        <div class="form-help">Ex: parcela 3 de 12.</div>
-      </div>
-    </div>
+    <input type="hidden" name="category" id="hidden-category"
+           value="{{ entry.category if entry else 'Outros' }}">
 
     <div class="form-group">
       <label class="form-label">Observações</label>
@@ -93,16 +118,36 @@
 </div>
 
 <script>
-// Ao selecionar gasto fixo, preenche categoria automaticamente
+function formatarValor(inp) {
+  const raw = inp.value.replace(/[^\d,\.]/g, '');
+  if (!raw) return;
+  let num = raw.includes(',')
+    ? parseFloat(raw.replace(/\./g, '').replace(',', '.'))
+    : parseFloat(raw);
+  if (!isNaN(num)) inp.value = num.toFixed(2).replace('.', ',');
+}
+
+function updateKind() {
+  const kind = document.querySelector('input[name="kind"]:checked').value;
+  document.getElementById('parcelas-extra').style.display =
+    kind === 'parcelado' ? 'block' : 'none';
+}
+
+// Ao selecionar gasto fixo, usa nome como categoria
 document.getElementById('sel-expense').addEventListener('change', function() {
-  const opt = this.options[this.selectedIndex];
-  const cat = opt.dataset.category;
-  if (cat) {
-    const sel = document.getElementById('sel-category');
-    for (let i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].text === cat) { sel.selectedIndex = i; break; }
-    }
+  const hidden = document.getElementById('hidden-category');
+  if (this.value) {
+    hidden.value = this.options[this.selectedIndex].text.split(' — ')[0].trim();
+  } else {
+    hidden.value = 'Outros';
   }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('amount-input').value) {
+    formatarValor(document.getElementById('amount-input'));
+  }
+  updateKind();
 });
 </script>
 
