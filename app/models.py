@@ -51,10 +51,12 @@ class Expense(db.Model):
     share_mode = db.Column(db.String(20), default="solo")
     kind = db.Column(db.String(20), default="pontual")
     recurrence_months = db.Column(db.Integer, nullable=True)
+    card_id = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     shares = db.relationship("ExpenseShare", backref="expense", lazy="joined",
                              cascade="all, delete-orphan")
+    card = db.relationship("Card", foreign_keys=[card_id], backref="linked_expenses")
 
     def is_active_on(self, year, month):
         if self.kind == "pontual":
@@ -233,3 +235,61 @@ class Investment(db.Model):
         if amt == 0 or self.current_value is None:
             return 0
         return ((float(self.current_value) - amt) / amt) * 100
+
+
+class Card(db.Model):
+    """Cartão de crédito/débito do usuário."""
+    __tablename__ = "cards"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)        # ex: Nubank Visa
+    last_digits = db.Column(db.String(4))                   # 4 últimos dígitos
+    limit_amount = db.Column(db.Numeric(12, 2), default=0)  # limite do cartão
+    closing_day = db.Column(db.Integer)                     # dia fechamento
+    due_day = db.Column(db.Integer)                         # dia vencimento
+    color = db.Column(db.String(20), default="#6b8db5")     # cor do card
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="cards")
+    entries = db.relationship("CardEntry", backref="card", lazy="dynamic",
+                              cascade="all, delete-orphan")
+
+    @property
+    def total_entries(self):
+        from sqlalchemy import func as _func
+        result = db.session.query(_func.coalesce(_func.sum(CardEntry.amount), 0))\
+            .filter_by(card_id=self.id).scalar()
+        return float(result or 0)
+
+    @property
+    def available(self):
+        return max(float(self.limit_amount or 0) - self.total_entries, 0)
+
+    @property
+    def usage_percent(self):
+        lim = float(self.limit_amount or 0)
+        if lim <= 0:
+            return 0
+        return min(round(self.total_entries / lim * 100, 1), 100)
+
+
+class CardEntry(db.Model):
+    """Lançamento em um cartão, podendo ser vinculado a um gasto fixo existente."""
+    __tablename__ = "card_entries"
+    id = db.Column(db.Integer, primary_key=True)
+    card_id = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    description = db.Column(db.String(160), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    entry_date = db.Column(db.Date, nullable=False, default=date.today)
+    # Vínculo com gasto fixo existente (opcional)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    category = db.Column(db.String(60), default="Outros")
+    installments = db.Column(db.Integer, default=1)   # número de parcelas
+    installment_no = db.Column(db.Integer, default=1) # parcela atual
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="card_entries")
+    expense = db.relationship("Expense", backref="card_entries")
