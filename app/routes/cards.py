@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
 from app import db
 from app.models import Card, CardEntry, Expense, ExpenseShare
@@ -21,16 +21,13 @@ def _parse(s):
 
 
 def _get_user_fixed_expenses():
-    """Retorna gastos recorrentes do usuário para vincular a lançamentos."""
-    expenses = Expense.query.join(ExpenseShare)\
-        .filter(
-            Expense.payer_id == current_user.id,
-            Expense.kind == "recorrente"
-        ).order_by(Expense.description).all()
-    return expenses
+    return Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente"
+    ).order_by(Expense.description).all()
 
 
-# ── Cartões ──────────────────────────────────────────────────────────────────
+# ── Cartões ───────────────────────────────────────────────────────────────────
 
 @cards_bp.route("/")
 @login_required
@@ -71,7 +68,8 @@ def _save_card(card):
         flash("Nome é obrigatório.", "danger")
         return render_template("cards/form.html", card=card, colors=COLORS)
 
-    if card is None:
+    is_new = card is None
+    if is_new:
         card = Card(user_id=current_user.id)
         db.session.add(card)
 
@@ -81,9 +79,28 @@ def _save_card(card):
     card.closing_day = int(closing_day) if closing_day.isdigit() else None
     card.due_day = int(due_day) if due_day.isdigit() else None
     card.color = color
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Erro ao salvar cartão: {e}", "danger")
+        return render_template("cards/form.html", card=card, colors=COLORS)
+
+    flash("Cartão salvo com sucesso.", "success")
+    return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/<int:card_id>/excluir", methods=["POST"])
+@login_required
+def delete_card(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    card.is_active = False
     db.session.commit()
-    flash("Cartão salvo.", "success")
-    return redirect(url_for("cards.detail_card", card_id=card.id))
+    flash("Cartão removido.", "info")
+    return redirect(url_for("cards.list_cards"))
 
 
 @cards_bp.route("/<int:card_id>")
@@ -96,7 +113,6 @@ def detail_card(card_id):
         .order_by(CardEntry.entry_date.desc()).all()
     fixed_expenses = _get_user_fixed_expenses()
 
-    # Agrupa lançamentos por gasto fixo vinculado
     by_expense = {}
     unlinked = []
     for e in entries:
@@ -121,18 +137,6 @@ def detail_card(card_id):
                            fixed_expenses=fixed_expenses)
 
 
-@cards_bp.route("/<int:card_id>/excluir", methods=["POST"])
-@login_required
-def delete_card(card_id):
-    card = Card.query.get_or_404(card_id)
-    if card.user_id != current_user.id:
-        abort(403)
-    card.is_active = False
-    db.session.commit()
-    flash("Cartão removido.", "info")
-    return redirect(url_for("cards.list_cards"))
-
-
 # ── Lançamentos ───────────────────────────────────────────────────────────────
 
 @cards_bp.route("/<int:card_id>/lancamento/novo", methods=["GET", "POST"])
@@ -145,8 +149,7 @@ def new_entry(card_id):
     if request.method == "POST":
         return _save_entry(None, card)
     return render_template("cards/entry_form.html",
-                           card=card,
-                           entry=None,
+                           card=card, entry=None,
                            fixed_expenses=fixed_expenses)
 
 
@@ -161,8 +164,7 @@ def edit_entry(card_id, entry_id):
     if request.method == "POST":
         return _save_entry(entry, card)
     return render_template("cards/entry_form.html",
-                           card=card,
-                           entry=entry,
+                           card=card, entry=entry,
                            fixed_expenses=fixed_expenses)
 
 
@@ -195,11 +197,20 @@ def _save_entry(entry, card):
     entry.amount = amount
     entry.expense_id = int(expense_id) if expense_id else None
     entry.category = category
-    entry.installments = max(1, int(installments) if installments.isdigit() else 1)
-    entry.installment_no = max(1, int(installment_no) if installment_no.isdigit() else 1)
+    entry.installments = max(1, int(installments) if str(installments).isdigit() else 1)
+    entry.installment_no = max(1, int(installment_no) if str(installment_no).isdigit() else 1)
     entry.notes = notes
     entry.entry_date = d
-    db.session.commit()
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Erro ao salvar lançamento: {e}", "danger")
+        return render_template("cards/entry_form.html",
+                               card=card, entry=entry,
+                               fixed_expenses=fixed_expenses)
+
     flash("Lançamento salvo.", "success")
     return redirect(url_for("cards.detail_card", card_id=card.id))
 
