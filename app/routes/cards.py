@@ -175,6 +175,7 @@ def _save_entry(entry, card):
     expense_id_raw = request.form.get("expense_id", "").strip()
     expense_id = expense_id_raw if expense_id_raw and expense_id_raw.isdigit() else None
     category = request.form.get("category", "Outros")
+    kind = request.form.get("kind", "pontual")
     installments = request.form.get("installments", "1")
     installment_no = request.form.get("installment_no", "1")
     notes = request.form.get("notes", "").strip()
@@ -201,9 +202,15 @@ def _save_entry(entry, card):
         linked_exp = Expense.query.get(entry.expense_id)
         if linked_exp:
             entry.category = linked_exp.description[:60]
-    entry.category = category
-    entry.installments = max(1, int(installments) if str(installments).isdigit() else 1)
-    entry.installment_no = max(1, int(installment_no) if str(installment_no).isdigit() else 1)
+    else:
+        entry.category = category
+    entry.kind = kind if kind in ("pontual", "recorrente", "parcelado") else "pontual"
+    if kind == "parcelado":
+        entry.installments = max(1, int(installments) if str(installments).isdigit() else 1)
+        entry.installment_no = max(1, int(installment_no) if str(installment_no).isdigit() else 1)
+    else:
+        entry.installments = 1
+        entry.installment_no = 1
     entry.notes = notes
     entry.entry_date = d
 
