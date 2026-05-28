@@ -57,12 +57,29 @@ def index():
         if not visible:
             continue
 
+        # Calcula quanto já foi lançado no cartão vinculado para este gasto no mês atual
+        from app.models import CardEntry
+        spent_this_month = 0.0
+        if exp.card_id:
+            entries = CardEntry.query.filter_by(
+                expense_id=exp.id
+            ).all()
+            spent_this_month = sum(float(e.amount) for e in entries)
+        else:
+            # Sem cartão vinculado: considera o valor planejado como gasto
+            spent_this_month = float(exp.amount)
+
+        planned = float(exp.amount)
+        pct = min(round(spent_this_month / planned * 100, 1) if planned > 0 else 0, 100)
+
         household_expenses.append({
             "expense": exp,
             "household": hh,
+            "spent": spent_this_month,
+            "pct": pct,
         })
-        household_total_planned += float(exp.amount)
-        household_total_spent += float(exp.amount)
+        household_total_planned += planned
+        household_total_spent += spent_this_month
 
     household_pct = min(
         round(household_total_spent / household_total_planned * 100, 1)
