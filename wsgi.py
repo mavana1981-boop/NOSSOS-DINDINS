@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import User, SubProject, Investment, Card, CardEntry
+from app.models import User, SubProject, Investment, Card, CardEntry, HouseholdExpense
 from werkzeug.security import generate_password_hash
 from sqlalchemy import text, inspect
 import os
@@ -60,6 +60,9 @@ def bootstrap():
             if not insp.has_table("card_entries"):
                 CardEntry.__table__.create(db.engine)
                 print("[migrate] tabela card_entries criada")
+            if not insp.has_table("household_expenses"):
+                HouseholdExpense.__table__.create(db.engine)
+                print("[migrate] tabela household_expenses criada")
         except Exception as e:
             print(f"[migrate] erro criando tabelas extras: {e}")
 
