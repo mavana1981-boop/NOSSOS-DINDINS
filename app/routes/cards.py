@@ -34,7 +34,28 @@ def _get_user_fixed_expenses():
 def list_cards():
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True)\
         .order_by(Card.name).all()
-    return render_template("cards/list.html", cards=cards)
+
+    # Consolidado: soma lançamentos por nome do gasto, agrupando entre todos os cartões
+    from collections import defaultdict
+    consolidated = defaultdict(lambda: {"total": 0.0, "cards": {}})
+    for card in cards:
+        entries = CardEntry.query.filter_by(card_id=card.id).all()
+        for entry in entries:
+            key = entry.expense.description if (entry.expense_id and entry.expense) else entry.description
+            consolidated[key]["total"] += float(entry.amount)
+            consolidated[key]["cards"][card.name] = \
+                consolidated[key]["cards"].get(card.name, 0.0) + float(entry.amount)
+
+    consolidated_sorted = sorted(
+        [{"name": k, "total": v["total"], "cards": v["cards"]}
+         for k, v in consolidated.items()],
+        key=lambda x: x["total"], reverse=True
+    )
+    total_geral = sum(x["total"] for x in consolidated_sorted)
+
+    return render_template("cards/list.html", cards=cards,
+                           consolidated=consolidated_sorted,
+                           total_geral=total_geral)
 
 
 @cards_bp.route("/novo", methods=["GET", "POST"])
