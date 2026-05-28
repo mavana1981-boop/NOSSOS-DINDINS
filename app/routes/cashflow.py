@@ -12,6 +12,18 @@ def index():
     year = request.args.get("year", type=int) or date.today().year
     months = get_yearly_cashflow(current_user.id, year)
 
+    # Janeiro do ano seguinte — acumula sobre o saldo de dezembro
+    next_jan_list = get_yearly_cashflow(current_user.id, year + 1)[:1]
+    # Ajusta o acumulado para continuar de onde dezembro parou
+    if next_jan_list and months:
+        dec_cumulative = months[-1]["cumulative"]
+        nj = dict(next_jan_list[0])
+        nj["cumulative"] = dec_cumulative + nj["net"]
+        nj["month_name"] = "Jan+" 
+        next_jan = [nj]
+    else:
+        next_jan = []
+
     totals = {
         "income": sum(m["income"] for m in months),
         "income_recurring": sum(m["income_recurring"] for m in months),
@@ -22,13 +34,14 @@ def index():
     }
     totals["total_expense"] = totals["fixed"] + totals["eventual"]
 
+    all_months = months + next_jan
     max_value = max(
-        max((m["income"] for m in months), default=0),
-        max((m["total_expense"] for m in months), default=0),
+        max((m["income"] for m in all_months), default=0),
+        max((m["total_expense"] for m in all_months), default=0),
         1,
     )
 
     return render_template("cashflow.html",
-                           year=year, months=months, totals=totals,
-                           max_value=max_value,
+                           year=year, months=months, next_jan=next_jan,
+                           totals=totals, max_value=max_value,
                            current_year=date.today().year)
