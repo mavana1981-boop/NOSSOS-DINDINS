@@ -56,14 +56,25 @@
             <span class="badge badge-debit">A pagar</span>
             <span class="mono" style="color:var(--red);font-size:1.1rem;font-weight:700;">{{ (cd.balance * -1)|brl }}</span>
           {% endif %}
+          <button type="button" class="btn btn-ghost btn-sm"
+                  onclick="toggleMemberEntries(this)">▼ listar gastos</button>
         </div>
       </div>
-      <!-- Gastos individuais com scroll -->
-      <div style="max-height:200px;overflow-y:auto;">
+      <!-- Gastos individuais — ocultos por padrão -->
+      <div class="member-entries" style="display:none;max-height:240px;overflow-y:auto;">
         {% for entry in cd.entries %}
         <div class="flex-between" style="padding:8px 14px;border-bottom:1px solid var(--border);">
           <div>
-            <div class="text-small" style="font-weight:500;">{{ entry.description }}</div>
+            <div class="text-small" style="font-weight:500;">
+              {{ entry.description }}
+              {% if entry.kind == 'recorrente' and entry.recurrence_months %}
+                <span class="badge badge-shared" style="font-size:0.62rem;margin-left:4px;">
+                  parcelado {{ entry.recurrence_months }}×
+                </span>
+              {% elif entry.kind == 'recorrente' %}
+                <span class="badge badge-shared" style="font-size:0.62rem;margin-left:4px;">fixo</span>
+              {% endif %}
+            </div>
             <div class="text-faint" style="font-size:0.72rem;">
               {{ entry.date|data_br }} · {{ entry.category }}
             </div>
@@ -263,6 +274,13 @@
 </div>
 
 <script>
+function toggleMemberEntries(btn) {
+  const list = btn.closest('div[style*="border-radius"]').querySelector('.member-entries');
+  const open = list.style.display !== 'none';
+  list.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▼ listar gastos' : '▲ ocultar gastos';
+}
+
 (function() {
   function initSort(table) {
     if (!table) return;
