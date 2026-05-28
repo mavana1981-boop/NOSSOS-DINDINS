@@ -24,6 +24,7 @@ def _ensure_column(table, column, ddl):
 
 def bootstrap():
     with app.app_context():
+        # 1. Cria TODAS as tabelas de uma vez (ordem resolvida pelo SQLAlchemy)
         try:
             db.create_all()
             print("[bootstrap] tabelas verificadas/criadas.")
@@ -31,42 +32,21 @@ def bootstrap():
             print(f"[bootstrap] erro no create_all: {e}")
             return
 
-        # Colunas novas em tabelas existentes
+        # 2. Colunas novas em tabelas existentes — APÓS create_all
         _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("expenses", "recurrence_months", "INTEGER")
-        _ensure_column("expenses", "card_id", "INTEGER REFERENCES cards(id)")
+        _ensure_column("expenses", "card_id",           "INTEGER REFERENCES cards(id) ON DELETE SET NULL")
 
-        # Migra coluna photo para TEXT (suporta base64)
+        # 3. Migra coluna photo para TEXT
         try:
             with db.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE users ALTER COLUMN photo TYPE TEXT"))
                 conn.commit()
                 print("[migrate] users.photo migrada para TEXT")
         except Exception:
-            pass  # já é TEXT ou Postgres não permite (ignora)
+            pass
 
-        # Tabelas extras
-        try:
-            insp = inspect(db.engine)
-            if not insp.has_table("subprojects"):
-                SubProject.__table__.create(db.engine)
-                print("[migrate] tabela subprojects criada")
-            if not insp.has_table("investments"):
-                Investment.__table__.create(db.engine)
-                print("[migrate] tabela investments criada")
-            if not insp.has_table("cards"):
-                Card.__table__.create(db.engine)
-                print("[migrate] tabela cards criada")
-            if not insp.has_table("card_entries"):
-                CardEntry.__table__.create(db.engine)
-                print("[migrate] tabela card_entries criada")
-            if not insp.has_table("household_expenses"):
-                HouseholdExpense.__table__.create(db.engine)
-                print("[migrate] tabela household_expenses criada")
-        except Exception as e:
-            print(f"[migrate] erro criando tabelas extras: {e}")
-
-        # Admin
+        # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
         try:
