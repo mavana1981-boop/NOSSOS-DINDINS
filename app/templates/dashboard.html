@@ -39,6 +39,7 @@
     <span class="text-faint text-small">acertos pendentes · clique para ordenar</span>
   </div>
   {% if credits_debits %}
+    <div style="max-height:280px;overflow-y:auto;">
     <table class="tbl sortable-table" id="tbl-creditos">
       <thead>
         <tr>
@@ -69,6 +70,8 @@
         {% endfor %}
       </tbody>
     </table>
+    </table>
+    </div>
   {% else %}
     <div class="empty-state"><h4>Tudo em dia</h4><p>Nenhum acerto pendente com outros membros.</p></div>
   {% endif %}
