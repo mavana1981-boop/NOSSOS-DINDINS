@@ -3,7 +3,8 @@ from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
-from app.models import Income, Expense, ExpenseShare, Project, ProjectMember, User, HouseholdExpense
+from app.models import (Income, Expense, ExpenseShare, Project,
+                        ProjectMember, User, HouseholdExpense, CardEntry)
 from app.utils import get_user_monthly_summary, get_credits_debits
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -33,15 +34,16 @@ def index():
         .order_by(Income.received_at.desc()).limit(5).all()
 
     # Detalhes de gastos entre membros
-    from app.models import Expense, ExpenseShare
     credits_debits_detail = []
     for cd in credits_debits:
         other = cd["user"]
-        # Gastos onde eu paguei e o outro tem share
-        eu_paguei = db.session.query(Expense, ExpenseShare)            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)            .filter(Expense.payer_id == current_user.id,
+        eu_paguei = db.session.query(Expense, ExpenseShare)\
+            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+            .filter(Expense.payer_id == current_user.id,
                     ExpenseShare.user_id == other.id).all()
-        # Gastos onde o outro pagou e eu tenho share
-        outro_pagou = db.session.query(Expense, ExpenseShare)            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)            .filter(Expense.payer_id == other.id,
+        outro_pagou = db.session.query(Expense, ExpenseShare)\
+            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+            .filter(Expense.payer_id == other.id,
                     ExpenseShare.user_id == current_user.id).all()
         entries = []
         for exp, share in eu_paguei:
@@ -49,7 +51,7 @@ def index():
                 "description": exp.description,
                 "date": exp.spent_at,
                 "amount": float(share.share_amount),
-                "direction": "receber",  # outro me deve
+                "direction": "receber",
                 "category": exp.category,
             })
         for exp, share in outro_pagou:
@@ -57,7 +59,7 @@ def index():
                 "description": exp.description,
                 "date": exp.spent_at,
                 "amount": float(share.share_amount),
-                "direction": "pagar",  # eu devo ao outro
+                "direction": "pagar",
                 "category": exp.category,
             })
         entries.sort(key=lambda x: x["date"], reverse=True)
@@ -67,7 +69,7 @@ def index():
             "entries": entries,
         })
 
-    # Gastos da Casa — mostra todos os configurados (fixos aparecem todo mês, pontuais sempre visíveis)
+    # Gastos da Casa
     household_links = HouseholdExpense.query.filter(
         or_(
             HouseholdExpense.owner_id == current_user.id,
@@ -83,25 +85,18 @@ def index():
         exp = hh.expense
         if not exp:
             continue
-        # Para recorrentes: sempre aparece. Para pontuais: aparece no mês correto
         if exp.kind == 'recorrente':
             visible = exp.is_active_on(today.year, today.month)
         else:
-            visible = True  # pontuais sempre visíveis no quadro
-
+            visible = True
         if not visible:
             continue
 
-        # Calcula quanto já foi lançado no cartão vinculado para este gasto no mês atual
-        from app.models import CardEntry
         spent_this_month = 0.0
         if exp.card_id:
-            entries = CardEntry.query.filter_by(
-                expense_id=exp.id
-            ).all()
-            spent_this_month = sum(float(e.amount) for e in entries)
+            entries_card = CardEntry.query.filter_by(expense_id=exp.id).all()
+            spent_this_month = sum(float(e.amount) for e in entries_card)
         else:
-            # Sem cartão vinculado: considera o valor planejado como gasto
             spent_this_month = float(exp.amount)
 
         planned = float(exp.amount)
