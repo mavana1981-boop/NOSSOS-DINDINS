@@ -3,7 +3,7 @@ from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import func, extract
 from app import db
-from app.models import Income, Expense, ExpenseShare, Project, ProjectMember, User
+from app.models import Income, Expense, ExpenseShare, Project, ProjectMember, User, HouseholdExpense
 from app.utils import get_user_monthly_summary, get_credits_debits
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -32,6 +32,38 @@ def index():
     recent_incomes = Income.query.filter_by(user_id=current_user.id)\
         .order_by(Income.received_at.desc()).limit(5).all()
 
+    # Gastos da casa (mês atual)
+    today = date.today()
+    from sqlalchemy import or_ as _or
+    household_links = HouseholdExpense.query.filter(
+        _or(
+            HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id
+        )
+    ).all()
+
+    household_expenses = []
+    household_total_planned = 0
+    household_total_spent = 0
+    for hh in household_links:
+        exp = hh.expense
+        if not exp:
+            continue
+        is_active = exp.is_active_on(today.year, today.month)
+        if not is_active:
+            continue
+        household_expenses.append({
+            "expense": exp,
+            "household": hh,
+        })
+        household_total_planned += float(exp.amount)
+        household_total_spent += float(exp.amount)
+
+    household_pct = min(
+        round(household_total_spent / household_total_planned * 100, 1)
+        if household_total_planned > 0 else 0, 100
+    )
+
     return render_template(
         "dashboard.html",
         summary=summary,
@@ -40,4 +72,8 @@ def index():
         all_projects_count=len(projects),
         recent_expenses=recent_expenses,
         recent_incomes=recent_incomes,
+        household_expenses=household_expenses,
+        household_total_planned=household_total_planned,
+        household_total_spent=household_total_spent,
+        household_pct=household_pct,
     )
