@@ -69,7 +69,6 @@
 </div>
 
 <!-- Gastos da Casa -->
-{% if household_expenses %}
 <div class="card mb-3" style="border-left:4px solid var(--gold);">
   <div class="card-title">
     <h3>
@@ -92,6 +91,11 @@
   </div>
 
   <!-- Lista de gastos -->
+  {% if not household_expenses %}
+  <div class="empty-state" style="padding:20px;">
+    <p class="text-dim">Nenhum gasto da casa configurado. Vá em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a> e marque um gasto como "da casa".</p>
+  </div>
+  {% endif %}
   {% for item in household_expenses %}
   {% set exp = item.expense %}
   {% set hh = item.household %}
@@ -115,8 +119,6 @@
   </div>
   {% endfor %}
 </div>
-{% endif %}
-
 <!-- Projetos em destaque -->
 <div class="card mb-3">
   <div class="card-title">
