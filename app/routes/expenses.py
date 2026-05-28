@@ -4,7 +4,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
-from app.models import Expense, ExpenseShare, User
+from app.models import Expense, ExpenseShare, User, Card, CardEntry
 
 expenses_bp = Blueprint("expenses", __name__)
 
@@ -21,19 +21,53 @@ def _parse_decimal(s):
         return None
 
 
-def _fmt_decimal(v):
-    """Formata Decimal/float para string BRL sem trailing zeros no input."""
-    if v is None:
-        return ""
-    f = float(v)
-    # Remove zeros desnecessários: 150.00 -> "150,00"
-    return f"{f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def _sync_card_entry(expense, old_card_id=None):
+    """
+    Sincroniza o lançamento no cartão conforme o vínculo do gasto.
+    - Se tinha cartão antigo diferente do novo: remove entrada antiga
+    - Se tem cartão novo: cria ou atualiza entrada
+    - Se removeu cartão: remove entrada existente
+    """
+    # Remove entrada do cartão antigo se mudou de cartão
+    if old_card_id and old_card_id != expense.card_id:
+        old_entry = CardEntry.query.filter_by(
+            expense_id=expense.id, card_id=old_card_id
+        ).first()
+        if old_entry:
+            db.session.delete(old_entry)
+
+    # Remove entrada se cartão foi desvinculado
+    if not expense.card_id:
+        entries = CardEntry.query.filter_by(expense_id=expense.id).all()
+        for e in entries:
+            db.session.delete(e)
+        return
+
+    # Cria ou atualiza entrada no cartão atual
+    entry = CardEntry.query.filter_by(
+        expense_id=expense.id, card_id=expense.card_id
+    ).first()
+
+    if entry is None:
+        entry = CardEntry(
+            card_id=expense.card_id,
+            user_id=expense.payer_id,
+            expense_id=expense.id,
+        )
+        db.session.add(entry)
+
+    entry.description = expense.description
+    entry.amount = expense.amount
+    entry.entry_date = expense.spent_at
+    entry.category = expense.category
+    entry.installments = expense.recurrence_months or 1
+    entry.installment_no = 1
+    entry.notes = f"Lançamento automático — {expense.kind}"
 
 
 @expenses_bp.route("/")
 @login_required
 def list_expenses():
-    # Filtros
     q_text      = request.args.get("q", "").strip()
     cat_filter  = request.args.get("category", "")
     share_filter = request.args.get("share_mode", "")
@@ -81,11 +115,16 @@ def list_expenses():
             if s.user_id == current_user.id:
                 total_my_share += float(s.share_amount)
 
+    # Cartões do usuário para exibir nome na lista
+    user_cards = {c.id: c for c in Card.query.filter_by(
+        user_id=current_user.id, is_active=True).all()}
+
     return render_template("expenses/list.html",
                            expenses=expenses,
                            total_paid=total_paid,
                            total_my_share=total_my_share,
                            categories=CATEGORIES,
+                           user_cards=user_cards,
                            q=q_text, cat_filter=cat_filter,
                            share_filter=share_filter,
                            date_from=date_from, date_to=date_to,
@@ -96,10 +135,11 @@ def list_expenses():
 @login_required
 def new_expense():
     users = User.query.order_by(User.full_name).all()
+    user_cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
     if request.method == "POST":
-        return _save_expense(None, users)
-    return render_template("expenses/form.html", expense=None, users=users,
-                           fmt=_fmt_decimal)
+        return _save_expense(None, users, user_cards)
+    return render_template("expenses/form.html", expense=None,
+                           users=users, user_cards=user_cards)
 
 
 @expenses_bp.route("/<int:expense_id>/editar", methods=["GET", "POST"])
@@ -109,13 +149,14 @@ def edit_expense(expense_id):
     if e.payer_id != current_user.id and not current_user.is_admin:
         abort(403)
     users = User.query.order_by(User.full_name).all()
+    user_cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
     if request.method == "POST":
-        return _save_expense(e, users)
-    return render_template("expenses/form.html", expense=e, users=users,
-                           fmt=_fmt_decimal)
+        return _save_expense(e, users, user_cards)
+    return render_template("expenses/form.html", expense=e,
+                           users=users, user_cards=user_cards)
 
 
-def _save_expense(expense, users):
+def _save_expense(expense, users, user_cards):
     desc = request.form.get("description", "").strip()
     amount = _parse_decimal(request.form.get("amount"))
     cat = request.form.get("category", "Outros").strip() or "Outros"
@@ -125,11 +166,12 @@ def _save_expense(expense, users):
     payer_id = int(request.form.get("payer_id", current_user.id))
     kind = request.form.get("kind", "pontual")
     rec_months_raw = request.form.get("recurrence_months", "").strip()
+    card_id_raw = request.form.get("card_id", "").strip()
 
     if not desc or not amount or amount <= 0:
         flash("Descrição e valor são obrigatórios.", "danger")
-        return render_template("expenses/form.html", expense=expense, users=users,
-                               fmt=_fmt_decimal)
+        return render_template("expenses/form.html", expense=expense,
+                               users=users, user_cards=user_cards)
 
     try:
         d = datetime.strptime(d_str, "%Y-%m-%d").date() if d_str else date.today()
@@ -148,6 +190,10 @@ def _save_expense(expense, users):
     if payer_id != current_user.id and not current_user.is_admin:
         payer_id = current_user.id
 
+    # Cartão vinculado
+    new_card_id = int(card_id_raw) if card_id_raw.isdigit() else None
+    old_card_id = expense.card_id if expense else None
+
     if expense is None:
         expense = Expense(payer_id=payer_id)
         db.session.add(expense)
@@ -163,23 +209,23 @@ def _save_expense(expense, users):
     expense.share_mode = share_mode
     expense.kind = kind
     expense.recurrence_months = recurrence_months
+    expense.card_id = new_card_id
 
     db.session.flush()
 
+    # Shares
     if share_mode == "solo":
         db.session.add(ExpenseShare(expense_id=expense.id, user_id=payer_id,
                                     share_amount=amount, share_percent=Decimal("100")))
-
     elif share_mode == "integral":
         debtor_id = request.form.get("debtor_id")
         if not debtor_id:
             flash("Selecione o usuário devedor (modo integral).", "danger")
             db.session.rollback()
-            return render_template("expenses/form.html", expense=expense, users=users,
-                                   fmt=_fmt_decimal)
+            return render_template("expenses/form.html", expense=expense,
+                                   users=users, user_cards=user_cards)
         db.session.add(ExpenseShare(expense_id=expense.id, user_id=int(debtor_id),
                                     share_amount=amount, share_percent=Decimal("100")))
-
     elif share_mode == "split":
         total_share = Decimal("0")
         any_share = False
@@ -194,10 +240,11 @@ def _save_expense(expense, users):
         if not any_share:
             flash("Defina pelo menos um valor de divisão.", "danger")
             db.session.rollback()
-            return render_template("expenses/form.html", expense=expense, users=users,
-                                   fmt=_fmt_decimal)
-        if abs(total_share - amount) > Decimal("0.01"):
-            flash(f"Soma das divisões ({total_share|string}) difere do total.", "warning")
+            return render_template("expenses/form.html", expense=expense,
+                                   users=users, user_cards=user_cards)
+
+    # Sincroniza cartão
+    _sync_card_entry(expense, old_card_id)
 
     db.session.commit()
     flash("Gasto registrado.", "success")
@@ -210,6 +257,8 @@ def delete_expense(expense_id):
     e = Expense.query.get_or_404(expense_id)
     if e.payer_id != current_user.id and not current_user.is_admin:
         abort(403)
+    # Remove lançamento do cartão antes de excluir o gasto
+    CardEntry.query.filter_by(expense_id=e.id).delete()
     db.session.delete(e)
     db.session.commit()
     flash("Gasto removido.", "info")
