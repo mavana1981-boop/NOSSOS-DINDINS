@@ -39,39 +39,52 @@
     <span class="text-faint text-small">acertos pendentes · clique para ordenar</span>
   </div>
   {% if credits_debits %}
-    <div style="max-height:280px;overflow-y:auto;">
-    <table class="tbl sortable-table" id="tbl-creditos">
-      <thead>
-        <tr>
-          <th class="th-sort" data-col="0" style="cursor:pointer;">Membro ↕</th>
-          <th class="th-sort text-right" data-col="1" style="cursor:pointer;">Situação ↕</th>
-          <th class="th-sort text-right" data-col="2" style="cursor:pointer;">Valor ↕</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for cd in credits_debits %}
-        <tr>
-          <td data-val="{{ cd.user.full_name }}">
-            <div class="flex flex-gap">
-              {% if cd.user.photo %}<img src="{{ cd.user.photo_url }}" class="avatar">
-              {% else %}<div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>{% endif %}
-              <strong>{{ cd.user.full_name }}</strong>
+    {% for cd in credits_debits %}
+    <div style="margin-bottom:12px;background:var(--bg);border-radius:var(--radius);overflow:hidden;">
+      <!-- Cabeçalho do membro com saldo total -->
+      <div class="flex-between" style="padding:12px 14px;border-bottom:1px solid var(--border);">
+        <div class="flex flex-gap">
+          {% if cd.user.photo %}<img src="{{ cd.user.photo_url }}" class="avatar">
+          {% else %}<div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>{% endif %}
+          <strong>{{ cd.user.full_name }}</strong>
+        </div>
+        <div class="flex flex-gap" style="align-items:center;gap:10px;">
+          {% if cd.balance > 0 %}
+            <span class="badge badge-credit">A receber</span>
+            <span class="mono" style="color:var(--green);font-size:1.1rem;font-weight:700;">{{ cd.balance|brl }}</span>
+          {% else %}
+            <span class="badge badge-debit">A pagar</span>
+            <span class="mono" style="color:var(--red);font-size:1.1rem;font-weight:700;">{{ (cd.balance * -1)|brl }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <!-- Gastos individuais com scroll -->
+      <div style="max-height:200px;overflow-y:auto;">
+        {% for entry in cd.entries %}
+        <div class="flex-between" style="padding:8px 14px;border-bottom:1px solid var(--border);">
+          <div>
+            <div class="text-small" style="font-weight:500;">{{ entry.description }}</div>
+            <div class="text-faint" style="font-size:0.72rem;">
+              {{ entry.date|data_br }} · {{ entry.category }}
             </div>
-          </td>
-          <td class="text-right" data-val="{{ 'receber' if cd.balance > 0 else 'pagar' }}">
-            {% if cd.balance > 0 %}<span class="badge badge-credit">A receber</span>
-            {% else %}<span class="badge badge-debit">A pagar</span>{% endif %}
-          </td>
-          <td class="text-right mono" data-val="{{ cd.balance|abs }}"
-              style="color:{{ 'var(--green)' if cd.balance > 0 else 'var(--red)' }};font-size:1.1rem;">
-            {{ (cd.balance if cd.balance > 0 else cd.balance * -1)|brl }}
-          </td>
-        </tr>
+          </div>
+          <div class="text-right">
+            <div class="mono text-small"
+                 style="color:{{ 'var(--green)' if entry.direction == 'receber' else 'var(--red)' }};">
+              {{ entry.amount|brl }}
+            </div>
+            <div style="font-size:0.68rem;color:{{ 'var(--green)' if entry.direction == 'receber' else 'var(--red)' }};">
+              {% if entry.direction == 'receber' %}↑ a receber{% else %}↓ a pagar{% endif %}
+            </div>
+          </div>
+        </div>
         {% endfor %}
-      </tbody>
-    </table>
-    </table>
+        {% if not cd.entries %}
+        <div style="padding:10px 14px;color:var(--text-faint);font-size:0.82rem;">Sem lançamentos detalhados.</div>
+        {% endif %}
+      </div>
     </div>
+    {% endfor %}
   {% else %}
     <div class="empty-state"><h4>Tudo em dia</h4><p>Nenhum acerto pendente com outros membros.</p></div>
   {% endif %}
