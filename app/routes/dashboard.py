@@ -117,6 +117,24 @@ def index():
         if household_total_planned > 0 else 0, 100
     )
 
+    # Percentual desejável — ciclo do dia 16 ao próximo dia 16
+    from datetime import timedelta
+    if today.day >= 16:
+        cycle_start = today.replace(day=16)
+        if today.month == 12:
+            cycle_end = today.replace(year=today.year+1, month=1, day=16)
+        else:
+            cycle_end = today.replace(month=today.month+1, day=16)
+    else:
+        if today.month == 1:
+            cycle_start = today.replace(year=today.year-1, month=12, day=16)
+        else:
+            cycle_start = today.replace(month=today.month-1, day=16)
+        cycle_end = today.replace(day=16)
+    total_days = (cycle_end - cycle_start).days
+    elapsed_days = (today - cycle_start).days
+    desired_pct = min(round(elapsed_days / total_days * 100, 1) if total_days > 0 else 0, 100)
+
     return render_template(
         "dashboard.html",
         summary=summary,
@@ -129,4 +147,6 @@ def index():
         household_total_planned=household_total_planned,
         household_total_spent=household_total_spent,
         household_pct=household_pct,
+        desired_pct=desired_pct,
+        today=today,
     )
