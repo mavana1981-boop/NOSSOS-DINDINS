@@ -53,6 +53,8 @@ def index():
                 "amount": float(share.share_amount),
                 "direction": "receber",
                 "category": exp.category,
+                "kind": exp.kind,
+                "recurrence_months": exp.recurrence_months,
             })
         for exp, share in outro_pagou:
             entries.append({
@@ -61,6 +63,8 @@ def index():
                 "amount": float(share.share_amount),
                 "direction": "pagar",
                 "category": exp.category,
+                "kind": exp.kind,
+                "recurrence_months": exp.recurrence_months,
             })
         entries.sort(key=lambda x: x["date"], reverse=True)
         credits_debits_detail.append({
@@ -92,12 +96,9 @@ def index():
         if not visible:
             continue
 
-        spent_this_month = 0.0
-        if exp.card_id:
-            entries_card = CardEntry.query.filter_by(expense_id=exp.id).all()
-            spent_this_month = sum(float(e.amount) for e in entries_card)
-        else:
-            spent_this_month = float(exp.amount)
+        # Soma lançamentos reais no cartão — se não houver cartão vinculado, spent = 0
+        entries_card = CardEntry.query.filter_by(expense_id=exp.id).all()
+        spent_this_month = sum(float(e.amount) for e in entries_card)
 
         planned = float(exp.amount)
         pct = min(round(spent_this_month / planned * 100, 1) if planned > 0 else 0, 100)
