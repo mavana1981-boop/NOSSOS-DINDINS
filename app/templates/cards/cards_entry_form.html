@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar' if entry else 'Novo' }} lançamento — {{ card.name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>{{ 'Editar' if entry else 'Novo' }} lançamento</h1>
+    <p>Cartão: <strong>{{ card.name }}</strong>{% if card.last_digits %} •••• {{ card.last_digits }}{% endif %}</p>
+  </div>
+  <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost">← Voltar</a>
+</div>
+
+<div class="card" style="max-width:640px;">
+  <form method="POST">
+
+    <div class="form-group">
+      <label class="form-label">Descrição *</label>
+      <input class="form-control" name="description" required
+             value="{{ entry.description if entry }}"
+             placeholder="ex: Netflix, Supermercado, Farmácia">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Valor (R$) *</label>
+        <input class="form-control mono" name="amount" required
+               value="{% if entry %}{{ entry.amount|float|round(2) }}{% endif %}"
+               placeholder="0,00"
+               onblur="this.value=this.value.replace('.',',')">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data *</label>
+        <input class="form-control" type="date" name="entry_date"
+               value="{{ entry.entry_date.isoformat() if entry else '' }}">
+      </div>
+    </div>
+
+    <!-- Vínculo com gasto fixo -->
+    <div class="form-group">
+      <label class="form-label">Vincular a gasto fixo</label>
+      <select class="form-control" name="expense_id" id="sel-expense">
+        <option value="">— Sem vínculo (lançamento avulso) —</option>
+        {% for exp in fixed_expenses %}
+        <option value="{{ exp.id }}"
+                data-category="{{ exp.category }}"
+                {% if entry and entry.expense_id == exp.id %}selected{% endif %}>
+          {{ exp.description }} — {{ exp.amount|brl }}/mês
+        </option>
+        {% endfor %}
+      </select>
+      <div class="form-help">
+        Ao vincular, este lançamento aparecerá na barra de controle desse gasto fixo no cartão.
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Categoria</label>
+        <select class="form-control" name="category" id="sel-category">
+          {% set cats = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Moradia',
+                         'Lazer', 'Vestuário', 'Beleza', 'Serviços', 'Contas', 'Outros'] %}
+          {% for c in cats %}
+            <option {% if entry and entry.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Parcelas</label>
+        <div class="flex flex-gap">
+          <input class="form-control mono" type="number" name="installment_no" min="1"
+                 value="{{ entry.installment_no if entry else 1 }}"
+                 style="width:70px;" placeholder="atual">
+          <span class="flex" style="align-items:center;color:var(--text-dim);">de</span>
+          <input class="form-control mono" type="number" name="installments" min="1"
+                 value="{{ entry.installments if entry else 1 }}"
+                 style="width:70px;" placeholder="total">
+        </div>
+        <div class="form-help">Ex: parcela 3 de 12.</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Observações</label>
+      <textarea class="form-control" name="notes">{{ entry.notes if entry }}</textarea>
+    </div>
+
+    <div class="divider"></div>
+    <div class="flex flex-gap">
+      <button class="btn btn-primary">Salvar lançamento</button>
+      <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost">Cancelar</a>
+    </div>
+  </form>
+</div>
+
+<script>
+// Ao selecionar gasto fixo, preenche categoria automaticamente
+document.getElementById('sel-expense').addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  const cat = opt.dataset.category;
+  if (cat) {
+    const sel = document.getElementById('sel-category');
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].text === cat) { sel.selectedIndex = i; break; }
+    }
+  }
+});
+</script>
+
+{% endblock %}
