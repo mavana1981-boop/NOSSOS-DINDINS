@@ -1,1 +1,74 @@
 
+{% extends "base.html" %}
+{% block title %}Cartões{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Meus Cartões</h1>
+    <p>Gerencie seus cartões e controle os lançamentos por gasto fixo.</p>
+  </div>
+  <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary">+ Novo cartão</a>
+</div>
+
+{% if cards %}
+<div class="grid grid-2">
+  {% for card in cards %}
+  <a href="{{ url_for('cards.detail_card', card_id=card.id) }}"
+     style="text-decoration:none;color:inherit;display:block;" class="card">
+
+    <!-- Header do cartão -->
+    <div style="background:{{ card.color }};border-radius:var(--radius);padding:18px 20px;margin:-24px -24px 20px -24px;position:relative;overflow:hidden;">
+      <div style="position:absolute;right:-20px;top:-20px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.08);"></div>
+      <div style="position:absolute;right:20px;bottom:-30px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.06);"></div>
+      <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;color:#fff;margin-bottom:4px;">
+        {{ card.name }}
+      </div>
+      <div style="font-size:0.85rem;color:rgba(255,255,255,0.75);">
+        {% if card.last_digits %}•••• {{ card.last_digits }}{% endif %}
+        {% if card.closing_day %} · Fecha dia {{ card.closing_day }}{% endif %}
+        {% if card.due_day %} · Vence dia {{ card.due_day }}{% endif %}
+      </div>
+    </div>
+
+    <!-- Barra de uso -->
+    {% if card.limit_amount and card.limit_amount > 0 %}
+    <div class="mb-2">
+      <div class="flex-between mb-1">
+        <span class="text-faint text-small">Utilizado</span>
+        <span class="text-small mono">{{ card.usage_percent }}%</span>
+      </div>
+      <div class="progress">
+        <div class="progress-bar {% if card.usage_percent > 80 %}' style='background:var(--red){% elif card.usage_percent > 60 %}' style='background:var(--gold){% endif %}"
+             style="width:{{ card.usage_percent }}%;"></div>
+      </div>
+      <div class="flex-between mt-1">
+        <span class="text-small" style="color:var(--red);">{{ card.total_entries|brl }} usado</span>
+        <span class="text-small" style="color:var(--green);">{{ card.available|brl }} disponível</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="mb-2">
+      <span class="text-dim text-small">Total lançado: </span>
+      <span class="mono" style="color:var(--red);">{{ card.total_entries|brl }}</span>
+    </div>
+    {% endif %}
+
+    <div class="flex-between">
+      <span class="text-faint text-small">{{ card.entries.count() }} lançamento(s)</span>
+      <span class="btn btn-ghost btn-sm">Ver detalhes →</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <h4>Nenhum cartão cadastrado</h4>
+    <p>Cadastre seus cartões para controlar os lançamentos por gasto fixo.</p>
+    <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary btn-sm mt-2">Cadastrar cartão</a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
