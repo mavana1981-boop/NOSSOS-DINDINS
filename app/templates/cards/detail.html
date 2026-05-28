@@ -1,1 +1,219 @@
+{% extends "base.html" %}
+{% block title %}{{ card.name }}{% endblock %}
+{% block content %}
 
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>{{ card.name }}</h1>
+    <p>
+      {% if card.last_digits %}•••• {{ card.last_digits }} · {% endif %}
+      {% if card.closing_day %}Fecha dia {{ card.closing_day }} · {% endif %}
+      {% if card.due_day %}Vence dia {{ card.due_day }}{% endif %}
+    </p>
+  </div>
+  <div class="flex flex-gap">
+    <a href="{{ url_for('cards.new_entry', card_id=card.id) }}" class="btn btn-primary">+ Lançamento</a>
+    <a href="{{ url_for('cards.edit_card', card_id=card.id) }}" class="btn btn-ghost">Editar</a>
+    <form method="POST" action="{{ url_for('cards.delete_card', card_id=card.id) }}"
+          style="display:inline;" onsubmit="return confirm('Remover este cartão e todos os lançamentos?');">
+      <button class="btn btn-danger">Excluir cartão</button>
+    </form>
+    <a href="{{ url_for('cards.list_cards') }}" class="btn btn-ghost">← Voltar</a>
+  </div>
+</div>
+
+<!-- Resumo do cartão -->
+<div class="card mb-3" style="border-top:4px solid {{ card.color }};">
+  {% if card.limit_amount and card.limit_amount > 0 %}
+  <div class="grid grid-3 mb-3">
+    <div>
+      <div class="stat-label">Limite total</div>
+      <div class="mono" style="font-size:1.4rem;font-family:'Fraunces',serif;">{{ card.limit_amount|brl }}</div>
+    </div>
+    <div>
+      <div class="stat-label">Utilizado</div>
+      <div class="mono" style="font-size:1.4rem;font-family:'Fraunces',serif;color:var(--red);">{{ card.total_entries|brl }}</div>
+    </div>
+    <div>
+      <div class="stat-label">Disponível</div>
+      <div class="mono" style="font-size:1.4rem;font-family:'Fraunces',serif;color:var(--green);">{{ card.available|brl }}</div>
+    </div>
+  </div>
+  <div class="progress-info">
+    <span class="text-dim">Uso do limite</span>
+    <span class="pct" style="color:{{ 'var(--red)' if card.usage_percent > 80 else 'var(--accent)' }};">{{ card.usage_percent }}%</span>
+  </div>
+  <div class="progress" style="height:12px;">
+    <div class="progress-bar"
+         style="width:{{ card.usage_percent }}%;background:{{ 'var(--red)' if card.usage_percent > 80 else card.color }};"></div>
+  </div>
+  {% else %}
+  <div>
+    <div class="stat-label">Total lançado</div>
+    <div class="mono" style="font-size:1.6rem;font-family:'Fraunces',serif;color:var(--red);">{{ card.total_entries|brl }}</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Controle por gastos fixos vinculados -->
+{% if by_expense %}
+<div class="card mb-3">
+  <div class="card-title">
+    <h3>Controle por gasto fixo</h3>
+    <span class="text-faint text-small">lançamentos vinculados a gastos recorrentes</span>
+  </div>
+
+  {% for expense_id, data in by_expense.items() %}
+  {% set exp = data.expense %}
+  {% set total_lancado = data.total %}
+  {% set meta = exp.amount|float %}
+  {% set pct = [(total_lancado / meta * 100)|round(1), 100]|min if meta > 0 else 0 %}
+
+  <div style="padding:16px;background:var(--bg);border-radius:var(--radius);margin-bottom:12px;">
+    <div class="flex-between mb-2">
+      <div>
+        <strong style="font-family:'Fraunces',serif;">{{ exp.description }}</strong>
+        <span class="badge badge-solo" style="margin-left:8px;">{{ exp.category }}</span>
+      </div>
+      <div class="text-right">
+        <div class="mono text-small" style="color:var(--red);">{{ total_lancado|brl }} lançado</div>
+        <div class="mono text-small text-dim">de {{ meta|brl }}/mês</div>
+      </div>
+    </div>
+    <div class="progress-info">
+      <span class="text-faint text-small">preenchimento da parcela mensal</span>
+      <span class="pct" style="color:{{ 'var(--green)' if pct >= 100 else 'var(--accent)' }};">{{ pct }}%</span>
+    </div>
+    <div class="progress">
+      <div class="progress-bar {{ 'complete' if pct >= 100 }}"
+           style="width:{{ pct }}%;background:{{ 'var(--green)' if pct >= 100 else card.color }};"></div>
+    </div>
+
+    <!-- Lançamentos individuais expansíveis -->
+    <div class="mt-2">
+      <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.75rem;padding:3px 10px;"
+              onclick="toggleEntries(this)">▼ ver lançamentos ({{ data.entries|length }})</button>
+      <div class="entries-list" style="display:none;margin-top:8px;">
+        {% for entry in data.entries %}
+        <div class="flex-between" style="padding:6px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <span class="text-small">{{ entry.description }}</span>
+            {% if entry.installments > 1 %}
+              <span class="badge badge-shared" style="font-size:0.65rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
+            {% endif %}
+            <div class="text-faint" style="font-size:0.72rem;">{{ entry.entry_date|data_br }}</div>
+          </div>
+          <div class="flex flex-gap">
+            <span class="mono text-small" style="color:var(--red);">{{ entry.amount|brl }}</span>
+            <a href="{{ url_for('cards.edit_entry', card_id=card.id, entry_id=entry.id) }}" class="btn btn-ghost btn-sm" style="padding:2px 8px;">✎</a>
+            <form method="POST" action="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}"
+                  style="display:inline;" onsubmit="return confirm('Remover?');">
+              <button class="btn btn-danger btn-sm" style="padding:2px 8px;">×</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Lançamentos avulsos -->
+{% if unlinked %}
+<div class="card mb-3">
+  <div class="card-title">
+    <h3>Outros lançamentos</h3>
+    <span class="text-faint text-small">sem vínculo com gasto fixo · clique no cabeçalho para ordenar</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl sortable-table">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Categoria ↕</th>
+          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Valor ↕</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in unlinked %}
+        <tr>
+          <td class="text-dim" data-val="{{ entry.entry_date.isoformat() }}">{{ entry.entry_date|data_br }}</td>
+          <td data-val="{{ entry.description }}">
+            {{ entry.description }}
+            {% if entry.installments > 1 %}
+              <span class="badge badge-shared">{{ entry.installment_no }}/{{ entry.installments }}</span>
+            {% endif %}
+            {% if entry.notes %}<div class="text-faint text-small">{{ entry.notes }}</div>{% endif %}
+          </td>
+          <td data-val="{{ entry.category }}"><span class="badge badge-solo">{{ entry.category }}</span></td>
+          <td class="text-right amount" data-val="{{ entry.amount }}" style="color:var(--red);">{{ entry.amount|brl }}</td>
+          <td class="text-right">
+            <a href="{{ url_for('cards.edit_entry', card_id=card.id, entry_id=entry.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+            <form method="POST" action="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}"
+                  style="display:inline;" onsubmit="return confirm('Remover?');">
+              <button class="btn btn-danger btn-sm">×</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if not by_expense and not unlinked %}
+<div class="card">
+  <div class="empty-state">
+    <h4>Nenhum lançamento ainda</h4>
+    <p>Registre os gastos deste cartão e vincule-os aos gastos fixos.</p>
+    <a href="{{ url_for('cards.new_entry', card_id=card.id) }}" class="btn btn-primary btn-sm mt-2">Novo lançamento</a>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function toggleEntries(btn) {
+  const list = btn.nextElementSibling;
+  const open = list.style.display !== 'none';
+  list.style.display = open ? 'none' : 'block';
+  btn.textContent = (open ? '▼' : '▲') + btn.textContent.slice(1);
+}
+
+(function() {
+  function initSort(table) {
+    let sortCol = -1, sortAsc = true;
+    table.querySelectorAll('th.th-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col);
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        table.querySelectorAll('th.th-sort').forEach(t => {
+          t.textContent = t.textContent.replace(' ↑','').replace(' ↓','').replace(' ↕','') + ' ↕';
+        });
+        th.textContent = th.textContent.replace(' ↕','') + (sortAsc ? ' ↑' : ' ↓');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aCell = a.querySelectorAll('td')[col];
+          const bCell = b.querySelectorAll('td')[col];
+          const aVal = (aCell.dataset.val || aCell.textContent).trim().toLowerCase();
+          const bVal = (bCell.dataset.val || bCell.textContent).trim().toLowerCase();
+          const aNum = parseFloat(aVal);
+          const bNum = parseFloat(bVal);
+          if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
+          return sortAsc ? aVal.localeCompare(bVal,'pt-BR') : bVal.localeCompare(aVal,'pt-BR');
+        });
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  }
+  document.querySelectorAll('.sortable-table').forEach(initSort);
+})();
+</script>
+
+{% endblock %}
