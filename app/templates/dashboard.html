@@ -95,45 +95,41 @@
            style="width:{{ household_pct }}%;background:linear-gradient(90deg,var(--gold),var(--accent));"></div>
     </div>
   </div>
-  <table class="tbl sortable-table" id="tbl-household">
-    <thead>
-      <tr>
-        <th class="th-sort" data-col="0" style="cursor:pointer;">Descrição ↕</th>
-        <th class="th-sort" data-col="1" style="cursor:pointer;">Categoria ↕</th>
-        <th class="th-sort" data-col="2" style="cursor:pointer;">Tipo ↕</th>
-        <th class="th-sort" data-col="3" style="cursor:pointer;">Compartilhado com ↕</th>
-        <th class="th-sort text-right" data-col="4" style="cursor:pointer;">Valor ↕</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in household_expenses %}
-      {% set exp = item.expense %}
-      {% set hh = item.household %}
-      <tr>
-        <td data-val="{{ exp.description }}"><strong>{{ exp.description }}</strong></td>
-        <td data-val="{{ exp.category }}"><span class="badge badge-solo">{{ exp.category }}</span></td>
-        <td data-val="{{ exp.kind }}">
-          {% if exp.kind == 'recorrente' %}<span class="badge badge-shared">Fixo</span>
-          {% else %}<span class="badge badge-solo">Pontual</span>{% endif %}
-        </td>
-        <td data-val="{{ hh.shared_with.full_name if hh.owner_id == current_user.id else hh.owner.full_name }}">
-          <div class="flex flex-gap">
-            {% if hh.owner_id == current_user.id %}
-              {% if hh.shared_with.photo %}<img src="{{ hh.shared_with.photo_url }}" class="avatar" style="width:22px;height:22px;">
-              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ hh.shared_with.full_name[0]|upper }}</div>{% endif %}
-              <span class="text-small">{{ hh.shared_with.full_name.split()[0] }}</span>
-            {% else %}
-              {% if hh.owner.photo %}<img src="{{ hh.owner.photo_url }}" class="avatar" style="width:22px;height:22px;">
-              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ hh.owner.full_name[0]|upper }}</div>{% endif %}
-              <span class="text-small">{{ hh.owner.full_name.split()[0] }}</span>
-            {% endif %}
-          </div>
-        </td>
-        <td class="text-right amount" data-val="{{ exp.amount }}" style="color:var(--gold);">{{ exp.amount|brl }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="mt-2">
+    {% for item in household_expenses %}
+    {% set exp = item.expense %}
+    {% set hh = item.household %}
+    <div style="padding:12px;background:var(--bg);border-radius:var(--radius);margin-bottom:8px;">
+      <div class="flex-between mb-1">
+        <div>
+          <strong>{{ exp.description }}</strong>
+          <span class="badge badge-solo" style="margin-left:6px;">{{ exp.category }}</span>
+          {% if exp.kind == 'recorrente' %}<span class="badge badge-shared" style="margin-left:4px;">Fixo</span>{% endif %}
+        </div>
+        <div class="flex flex-gap" style="align-items:center;gap:8px;">
+          {% if hh.owner_id == current_user.id %}
+            {% if hh.shared_with.photo %}<img src="{{ hh.shared_with.photo_url }}" class="avatar" style="width:20px;height:20px;">
+            {% else %}<div class="avatar-fallback" style="width:20px;height:20px;font-size:0.65rem;">{{ hh.shared_with.full_name[0]|upper }}</div>{% endif %}
+            <span class="text-faint text-small">{{ hh.shared_with.full_name.split()[0] }}</span>
+          {% else %}
+            {% if hh.owner.photo %}<img src="{{ hh.owner.photo_url }}" class="avatar" style="width:20px;height:20px;">
+            {% else %}<div class="avatar-fallback" style="width:20px;height:20px;font-size:0.65rem;">{{ hh.owner.full_name[0]|upper }}</div>{% endif %}
+            <span class="text-faint text-small">{{ hh.owner.full_name.split()[0] }}</span>
+          {% endif %}
+          <span class="mono" style="color:var(--gold);font-weight:600;">{{ exp.amount|brl }}</span>
+        </div>
+      </div>
+      <div class="progress-info" style="margin-bottom:4px;">
+        <span class="text-faint" style="font-size:0.72rem;">{{ item.spent|brl }} de {{ exp.amount|brl }}</span>
+        <span style="font-size:0.72rem;font-weight:700;color:{{ 'var(--green)' if item.pct >= 100 else 'var(--gold)' }};">{{ item.pct }}%</span>
+      </div>
+      <div class="progress" style="height:6px;">
+        <div class="progress-bar {{ 'complete' if item.pct >= 100 }}"
+             style="width:{{ item.pct }}%;background:{{ 'var(--green)' if item.pct >= 100 else 'linear-gradient(90deg,var(--gold),var(--accent))' }};"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
   {% else %}
   <div class="empty-state" style="padding:20px;">
     <p class="text-dim">Nenhum gasto da casa configurado. Vá em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a> e marque um como "da casa".</p>
