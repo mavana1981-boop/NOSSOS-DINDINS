@@ -1,159 +1,314 @@
-{% extends "base.html" %}
-{% block title %}Painel{% endblock %}
-{% block content %}
+from datetime import datetime, date
+from flask_login import UserMixin
+from sqlalchemy import func
+from app import db
 
-<div class="page-header">
-  <div class="page-title-wrap">
-    <h1>Olá, <em style="font-style:italic;color:var(--accent);">{{ current_user.full_name.split()[0] }}</em></h1>
-    <p>Aqui está o resumo da sua vida financeira hoje.</p>
-  </div>
-  <div class="flex flex-gap">
-    <a href="{{ url_for('income.new_income') }}" class="btn btn-ghost btn-sm">+ Renda</a>
-    <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm">+ Gasto</a>
-  </div>
-</div>
 
-<!-- Stats -->
-<div class="grid grid-3 mb-3">
-  <div class="stat">
-    <div class="stat-label">Renda do mês</div>
-    <div class="stat-value positive">{{ summary.income|brl }}</div>
-    <div class="stat-foot">entradas registradas no mês atual</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Gastos do mês</div>
-    <div class="stat-value negative">{{ summary.expense|brl }}</div>
-    <div class="stat-foot">despesas que recaem sobre você</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Saldo do mês</div>
-    <div class="stat-value {{ 'positive' if summary.balance >= 0 else 'negative' }}">{{ summary.balance|brl }}</div>
-    <div class="stat-foot">renda menos gastos próprios + cotas</div>
-  </div>
-</div>
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    full_name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    photo = db.Column(db.Text, nullable=True)  # base64 data URI — persiste no Postgres
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-<!-- Créditos/Débitos -->
-<div class="card mb-3">
-  <div class="card-title">
-    <h3>Contas entre membros</h3>
-    <span class="text-faint text-small">acertos pendentes</span>
-  </div>
-  {% if credits_debits %}
-    <div class="grid grid-2">
-      {% for cd in credits_debits %}
-        <div class="flex flex-gap-lg" style="padding:12px;background:var(--bg);border-radius:var(--radius);">
-          {% if cd.user.photo %}
-            <img src="{{ cd.user.photo_url }}" class="avatar">
-          {% else %}
-            <div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>
-          {% endif %}
-          <div style="flex:1;">
-            <div style="font-weight:600;">{{ cd.user.full_name }}</div>
-            {% if cd.balance > 0 %}
-              <span class="badge badge-credit">A receber</span>
-              <div class="mono mt-1" style="color:var(--green);font-size:1.1rem;">{{ cd.balance|brl }}</div>
-            {% else %}
-              <span class="badge badge-debit">A pagar</span>
-              <div class="mono mt-1" style="color:var(--red);font-size:1.1rem;">{{ (cd.balance * -1)|brl }}</div>
-            {% endif %}
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <div class="empty-state">
-      <h4>Tudo em dia</h4>
-      <p>Nenhum acerto pendente com outros membros.</p>
-    </div>
-  {% endif %}
-</div>
+    incomes = db.relationship("Income", backref="user", lazy="dynamic", cascade="all, delete-orphan")
+    expenses = db.relationship("Expense", backref="payer", lazy="dynamic",
+                               foreign_keys="Expense.payer_id", cascade="all, delete-orphan")
 
-<!-- Projetos em destaque -->
-<div class="card mb-3">
-  <div class="card-title">
-    <h3>Projetos & metas</h3>
-    <a href="{{ url_for('projects.list_projects') }}" class="small-link">ver todos ({{ all_projects_count }}) →</a>
-  </div>
-  {% if projects %}
-    <div class="grid grid-2">
-      {% for p in projects %}
-        <a href="{{ url_for('projects.detail_project', project_id=p.id) }}" style="text-decoration:none;color:inherit;display:block;padding:18px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);">
-          <div class="flex-between mb-2">
-            <strong style="font-family:'Fraunces',serif;font-size:1.1rem;">{{ p.name }}</strong>
-            {% if p.is_completed %}<span class="badge badge-done">✓ Concluído</span>{% endif %}
-          </div>
-          <div class="progress-info">
-            <span class="text-dim">{{ p.total_raised|brl }} / {{ p.computed_target|brl }}</span>
-            <span class="pct">{{ p.progress_percent }}%</span>
-          </div>
-          <div class="progress">
-            <div class="progress-bar {{ 'complete' if p.is_completed }}" style="width: {{ p.progress_percent }}%;"></div>
-          </div>
-          {% if p.deadline %}
-            <div class="text-faint text-small mt-1">prazo: {{ p.deadline|data_br }}</div>
-          {% endif %}
-        </a>
-      {% endfor %}
-    </div>
-  {% else %}
-    <div class="empty-state">
-      <h4>Sem projetos ainda</h4>
-      <p>Crie metas para juntar dinheiro junto com outros membros.</p>
-      <a href="{{ url_for('projects.new_project') }}" class="btn btn-primary btn-sm mt-2">Criar primeiro projeto</a>
-    </div>
-  {% endif %}
-</div>
+    @property
+    def photo_url(self):
+        if self.photo:
+            return self.photo  # já é data URI: "data:image/jpeg;base64,..."
+        return "/static/img/default-avatar.svg"
 
-<!-- Movimentações recentes -->
-<div class="grid grid-2">
-  <div class="card">
-    <div class="card-title">
-      <h3>Gastos recentes</h3>
-      <a href="{{ url_for('expenses.list_expenses') }}" class="small-link">ver todos →</a>
-    </div>
-    {% if recent_expenses %}
-      {% for e in recent_expenses %}
-        <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
-          <div>
-            <div style="font-weight:500;">{{ e.description }}</div>
-            <div class="text-faint text-small">{{ e.spent_at|data_br }} · {{ e.category }}</div>
-          </div>
-          <div class="text-right">
-            <div class="mono" style="color:var(--text);">{{ e.amount|brl }}</div>
-            {% if e.share_mode == 'integral' %}
-              <span class="badge badge-shared">repasse</span>
-            {% elif e.share_mode == 'split' %}
-              <span class="badge badge-shared">dividido</span>
-            {% else %}
-              <span class="badge badge-solo">solo</span>
-            {% endif %}
-          </div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="empty-state"><p>Nenhum gasto registrado.</p></div>
-    {% endif %}
-  </div>
 
-  <div class="card">
-    <div class="card-title">
-      <h3>Rendas recentes</h3>
-      <a href="{{ url_for('income.list_incomes') }}" class="small-link">ver todas →</a>
-    </div>
-    {% if recent_incomes %}
-      {% for i in recent_incomes %}
-        <div class="flex-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
-          <div>
-            <div style="font-weight:500;">{{ i.description }}</div>
-            <div class="text-faint text-small">{{ i.received_at|data_br }} · {{ i.category }}</div>
-          </div>
-          <div class="mono" style="color:var(--green);">{{ i.amount|brl }}</div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="empty-state"><p>Nenhuma renda registrada.</p></div>
-    {% endif %}
-  </div>
-</div>
+class Income(db.Model):
+    __tablename__ = "incomes"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    description = db.Column(db.String(160), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    received_at = db.Column(db.Date, nullable=False, default=date.today)
+    is_recurring = db.Column(db.Boolean, default=False)
+    category = db.Column(db.String(60), default="Salário")
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-{% endblock %}
+
+class Expense(db.Model):
+    __tablename__ = "expenses"
+    id = db.Column(db.Integer, primary_key=True)
+    payer_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    description = db.Column(db.String(160), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    spent_at = db.Column(db.Date, nullable=False, default=date.today)
+    category = db.Column(db.String(60), default="Outros")
+    notes = db.Column(db.Text)
+    share_mode = db.Column(db.String(20), default="solo")
+    kind = db.Column(db.String(20), default="pontual")
+    recurrence_months = db.Column(db.Integer, nullable=True)
+    card_id = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    shares = db.relationship("ExpenseShare", backref="expense", lazy="joined",
+                             cascade="all, delete-orphan")
+    card = db.relationship("Card", foreign_keys=[card_id], backref="linked_expenses")
+
+    def is_active_on(self, year, month):
+        if self.kind == "pontual":
+            return self.spent_at.year == year and self.spent_at.month == month
+        start = self.spent_at
+        target_first = date(year, month, 1)
+        if target_first < date(start.year, start.month, 1):
+            return False
+        months_diff = (year - start.year) * 12 + (month - start.month)
+        if self.recurrence_months is None:
+            return True
+        return 0 <= months_diff < self.recurrence_months
+
+    def parcel_label(self, year, month):
+        if self.kind != "recorrente" or self.recurrence_months is None:
+            return None
+        months_diff = (year - self.spent_at.year) * 12 + (month - self.spent_at.month)
+        return f"{months_diff + 1}/{self.recurrence_months}"
+
+
+class ExpenseShare(db.Model):
+    __tablename__ = "expense_shares"
+    id = db.Column(db.Integer, primary_key=True)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    share_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    share_percent = db.Column(db.Numeric(5, 2))
+
+    user = db.relationship("User", backref="expense_shares")
+
+
+class Project(db.Model):
+    __tablename__ = "projects"
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    target_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    deadline = db.Column(db.Date, nullable=True)
+    monthly_auto = db.Column(db.Numeric(12, 2), default=0)
+    auto_day = db.Column(db.Integer, default=1)
+    is_completed = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    owner = db.relationship("User", foreign_keys=[owner_id], backref="owned_projects")
+    members = db.relationship("ProjectMember", backref="project", lazy="joined",
+                              cascade="all, delete-orphan")
+    contributions = db.relationship("Contribution", backref="project", lazy="dynamic",
+                                    cascade="all, delete-orphan")
+    subprojects = db.relationship("SubProject", backref="project", lazy="joined",
+                                  cascade="all, delete-orphan",
+                                  order_by="SubProject.created_at")
+
+    @property
+    def computed_target(self):
+        if self.subprojects:
+            return sum(float(s.target_amount or 0) for s in self.subprojects)
+        return float(self.target_amount or 0)
+
+    @property
+    def total_raised(self):
+        result = db.session.query(func.coalesce(func.sum(Contribution.amount), 0))\
+            .filter_by(project_id=self.id).scalar()
+        return float(result or 0)
+
+    @property
+    def progress_percent(self):
+        target = self.computed_target
+        if target <= 0:
+            return 0
+        pct = (self.total_raised / target) * 100
+        return min(round(pct, 1), 100)
+
+    @property
+    def remaining(self):
+        return max(self.computed_target - self.total_raised, 0)
+
+    def member_ids(self):
+        return [m.user_id for m in self.members]
+
+
+class SubProject(db.Model):
+    __tablename__ = "subprojects"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    target_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def allocated_from_parent(self):
+        if not self.project:
+            return 0
+        subs = sorted(self.project.subprojects, key=lambda s: (s.order_index or 0, s.id))
+        raised = self.project.total_raised
+        cumulative = 0
+        for s in subs:
+            if s.id == self.id:
+                return min(raised - cumulative, float(s.target_amount or 0)) if raised > cumulative else 0
+            cumulative += float(s.target_amount or 0)
+        return 0
+
+    @property
+    def progress_percent(self):
+        target = float(self.target_amount or 0)
+        if target <= 0:
+            return 0
+        pct = (self.allocated_from_parent / target) * 100
+        return min(round(pct, 1), 100)
+
+
+class ProjectMember(db.Model):
+    __tablename__ = "project_members"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    monthly_share = db.Column(db.Numeric(12, 2), default=0)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="project_memberships")
+
+
+class Contribution(db.Model):
+    __tablename__ = "contributions"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    contributed_at = db.Column(db.Date, default=date.today)
+    note = db.Column(db.String(200))
+    is_auto = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="contributions")
+
+
+class AutoTransfer(db.Model):
+    __tablename__ = "auto_transfers"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    executed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
+
+
+class Investment(db.Model):
+    __tablename__ = "investments"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    description = db.Column(db.String(160), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    current_value = db.Column(db.Numeric(12, 2), nullable=True)
+    invested_at = db.Column(db.Date, nullable=False, default=date.today)
+    category = db.Column(db.String(60), default="Renda Fixa")
+    objective = db.Column(db.String(120), nullable=False)
+    institution = db.Column(db.String(120))
+    notes = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="investments")
+
+    @property
+    def gain_loss(self):
+        if self.current_value is None:
+            return 0
+        return float(self.current_value) - float(self.amount)
+
+    @property
+    def gain_loss_pct(self):
+        amt = float(self.amount)
+        if amt == 0 or self.current_value is None:
+            return 0
+        return ((float(self.current_value) - amt) / amt) * 100
+
+
+class Card(db.Model):
+    """Cartão de crédito/débito do usuário."""
+    __tablename__ = "cards"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)        # ex: Nubank Visa
+    last_digits = db.Column(db.String(4))                   # 4 últimos dígitos
+    limit_amount = db.Column(db.Numeric(12, 2), default=0)  # limite do cartão
+    closing_day = db.Column(db.Integer)                     # dia fechamento
+    due_day = db.Column(db.Integer)                         # dia vencimento
+    color = db.Column(db.String(20), default="#6b8db5")     # cor do card
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="cards")
+    entries = db.relationship("CardEntry", backref="card", lazy="dynamic",
+                              cascade="all, delete-orphan")
+
+    @property
+    def total_entries(self):
+        try:
+            from sqlalchemy import func as _func
+            result = db.session.query(
+                _func.coalesce(_func.sum(CardEntry.amount), 0)
+            ).filter(CardEntry.card_id == self.id).scalar()
+            return float(result or 0)
+        except Exception:
+            return 0.0
+
+    @property
+    def available(self):
+        return max(float(self.limit_amount or 0) - self.total_entries, 0)
+
+    @property
+    def usage_percent(self):
+        lim = float(self.limit_amount or 0)
+        if lim <= 0:
+            return 0
+        return min(round(self.total_entries / lim * 100, 1), 100)
+
+
+class CardEntry(db.Model):
+    """Lançamento em um cartão, podendo ser vinculado a um gasto fixo existente."""
+    __tablename__ = "card_entries"
+    id = db.Column(db.Integer, primary_key=True)
+    card_id = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    description = db.Column(db.String(160), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    entry_date = db.Column(db.Date, nullable=False, default=date.today)
+    # Vínculo com gasto fixo existente (opcional)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    category = db.Column(db.String(60), default="Outros")
+    kind = db.Column(db.String(20), default="pontual")  # pontual / recorrente / parcelado
+    installments = db.Column(db.Integer, default=1)   # número de parcelas (quando parcelado)
+    installment_no = db.Column(db.Integer, default=1) # parcela atual
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="card_entries")
+    expense = db.relationship("Expense", backref="card_entries")
+
+
+class HouseholdExpense(db.Model):
+    """Marca um gasto como 'da casa' e define com quem é compartilhado."""
+    __tablename__ = "household_expenses"
+    id = db.Column(db.Integer, primary_key=True)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False, unique=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    shared_with_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    expense = db.relationship("Expense", backref=db.backref("household", uselist=False))
+    owner = db.relationship("User", foreign_keys=[owner_id], backref="household_owned")
+    shared_with = db.relationship("User", foreign_keys=[shared_with_id], backref="household_shared")
