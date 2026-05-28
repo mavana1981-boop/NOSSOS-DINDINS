@@ -65,8 +65,13 @@
       <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Gastos compartilhados / repassados
     </h3>
-    <span class="badge badge-shared">{{ shared|length }} item(s)</span>
+    <div class="flex flex-gap">
+      <span class="badge badge-shared">{{ shared|length }} item(s)</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-shared"
+              onclick="toggleShared()">▼ expandir</button>
+    </div>
   </div>
+  <div id="shared-table" style="display:none;">
   <div class="table-wrap">
     <table class="tbl sortable-table" id="tbl-shared">
       <thead>
@@ -116,6 +121,7 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
   </div>
 </div>
 {% endif %}
@@ -247,3 +253,13 @@
 </script>
 
 {% endblock %}
+
+<script>
+function toggleShared() {
+  const div = document.getElementById('shared-table');
+  const btn = document.getElementById('btn-toggle-shared');
+  const open = div.style.display !== 'none';
+  div.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▼ expandir' : '▲ recolher';
+}
+</script>
