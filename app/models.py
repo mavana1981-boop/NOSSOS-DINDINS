@@ -257,10 +257,14 @@ class Card(db.Model):
 
     @property
     def total_entries(self):
-        from sqlalchemy import func as _func
-        result = db.session.query(_func.coalesce(_func.sum(CardEntry.amount), 0))\
-            .filter_by(card_id=self.id).scalar()
-        return float(result or 0)
+        try:
+            from sqlalchemy import func as _func
+            result = db.session.query(
+                _func.coalesce(_func.sum(CardEntry.amount), 0)
+            ).filter(CardEntry.card_id == self.id).scalar()
+            return float(result or 0)
+        except Exception:
+            return 0.0
 
     @property
     def available(self):
