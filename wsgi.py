@@ -36,6 +36,7 @@ def bootstrap():
         _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("expenses", "recurrence_months", "INTEGER")
         _ensure_column("expenses", "card_id",           "INTEGER REFERENCES cards(id) ON DELETE SET NULL")
+        _ensure_column("card_entries", "kind", "VARCHAR(20) DEFAULT 'pontual'")
 
         # 3. Migra coluna photo para TEXT
         try:
