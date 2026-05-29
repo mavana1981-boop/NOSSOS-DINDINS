@@ -290,8 +290,11 @@ class CardEntry(db.Model):
     # Vínculo com gasto fixo existente (opcional)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
     category = db.Column(db.String(60), default="Outros")
-    installments = db.Column(db.Integer, default=1)   # número de parcelas
+    kind = db.Column(db.String(20), default="pontual")  # pontual / recorrente / parcelado
+    installments = db.Column(db.Integer, default=1)   # número de parcelas (quando parcelado)
     installment_no = db.Column(db.Integer, default=1) # parcela atual
+    status = db.Column(db.String(20), default="ativo")  # ativo / em_avaliacao
+    batch_id = db.Column(db.String(64), nullable=True)  # ID do lote de importação
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
