@@ -41,30 +41,38 @@ def _check_excedente(expense_id):
         ).all()
     )
     planejado = float(exp.amount)
-    print(f"[excedente] {exp.description}: lancado={total_lancado:.2f} planejado={planejado:.2f}")
-    if total_lancado <= planejado:
-        print(f"[excedente] sem excedente")
-        return
-
-    excedente = total_lancado - planejado
-    print(f"[excedente] EXCEDENTE={excedente:.2f} payer_id={exp.payer_id}")
     mes_nome = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][_date.today().month - 1]
     desc_excedente = f"{exp.description} - excedente {mes_nome}"
 
-    # Evita duplicar: remove excedente anterior do mesmo mês se existir
-    from app.models import Expense as _Exp
-    antigo = _Exp.query.filter(
-        _Exp.payer_id == exp.payer_id,
-        _Exp.description == desc_excedente,
-        _Exp.kind == "pontual"
+    # Usa payer_id do gasto original como dono do excedente
+    payer = exp.payer_id
+
+    # Busca excedente existente deste mês
+    antigo = Expense.query.filter(
+        Expense.payer_id == payer,
+        Expense.description == desc_excedente,
+        Expense.kind == "pontual"
     ).first()
+
+    if total_lancado <= planejado:
+        # Remove excedente antigo se não há mais excedente
+        if antigo:
+            db.session.delete(antigo)
+            db.session.commit()
+        return
+
+    excedente = round(total_lancado - planejado, 2)
+
     if antigo:
-        antigo.amount = excedente
-        db.session.commit()
+        if float(antigo.amount) != excedente:
+            antigo.amount = excedente
+            db.session.commit()
     else:
+        from app.models import ExpenseShare as _Share
+        from decimal import Decimal as _Dec
         novo = Expense(
-            payer_id=exp.payer_id,
+            payer_id=payer,
             description=desc_excedente,
             amount=excedente,
             kind="pontual",
@@ -73,6 +81,13 @@ def _check_excedente(expense_id):
             spent_at=_date.today(),
         )
         db.session.add(novo)
+        db.session.flush()
+        db.session.add(_Share(
+            expense_id=novo.id,
+            user_id=payer,
+            share_amount=_Dec(str(excedente)),
+            share_percent=_Dec("100"),
+        ))
         db.session.commit()
         flash(f"Excedente de R$ {excedente:.2f} registrado em Gastos: {desc_excedente}", "warning")
 
@@ -338,8 +353,12 @@ def delete_entry(card_id, entry_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
+    expense_id = entry.expense_id
     db.session.delete(entry)
     db.session.commit()
+    # Recalcula excedente após exclusão
+    if expense_id:
+        _check_excedente(expense_id)
     flash("Lançamento removido.", "info")
     return redirect(url_for("cards.detail_card", card_id=card_id))
 
