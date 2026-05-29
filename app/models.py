@@ -308,7 +308,7 @@ class HouseholdExpense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False, unique=True)
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    shared_with_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    shared_with_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     expense = db.relationship("Expense", backref=db.backref("household", uselist=False))
