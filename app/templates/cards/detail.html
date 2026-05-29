@@ -13,11 +13,19 @@
   </div>
   <div class="flex flex-gap">
     <a href="{{ url_for('cards.new_entry', card_id=card.id) }}" class="btn btn-primary">+ Lançamento</a>
+    <a href="{{ url_for('cards.batch_upload', card_id=card.id) }}" class="btn btn-ghost">📎 Lançamento em lote</a>
     <a href="{{ url_for('cards.edit_card', card_id=card.id) }}" class="btn btn-ghost">Editar</a>
     <form method="POST" action="{{ url_for('cards.delete_card', card_id=card.id) }}"
           style="display:inline;" onsubmit="return confirm('Remover este cartão e todos os lançamentos?');">
       <button class="btn btn-danger">Excluir cartão</button>
     </form>
+    {% set pending = card.entries.filter_by(status='em_avaliacao').count() %}
+    {% if pending > 0 %}
+    <a href="{{ url_for('cards.batch_pending', card_id=card.id) }}"
+       class="btn btn-ghost" style="border-color:var(--gold);color:var(--gold);">
+      ⏳ {{ pending }} em avaliação
+    </a>
+    {% endif %}
     <a href="{{ url_for('cards.list_cards') }}" class="btn btn-ghost">← Voltar</a>
   </div>
 </div>
