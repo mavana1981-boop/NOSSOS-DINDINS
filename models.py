@@ -293,6 +293,8 @@ class CardEntry(db.Model):
     kind = db.Column(db.String(20), default="pontual")  # pontual / recorrente / parcelado
     installments = db.Column(db.Integer, default=1)   # número de parcelas (quando parcelado)
     installment_no = db.Column(db.Integer, default=1) # parcela atual
+    status = db.Column(db.String(20), default="ativo")  # ativo / em_avaliacao
+    batch_id = db.Column(db.String(64), nullable=True)  # ID do lote de importação
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -306,7 +308,7 @@ class HouseholdExpense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False, unique=True)
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    shared_with_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    shared_with_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     expense = db.relationship("Expense", backref=db.backref("household", uselist=False))
