@@ -353,7 +353,7 @@ def _process_batch(card):
     }).encode()
 
     url = (f"https://generativelanguage.googleapis.com/v1beta/"
-           f"models/gemini-pro:generateContent?key={api_key}")
+           f"models/gemini-1.5-flash:generateContent?key={api_key}")
     req = urllib.request.Request(
         url, data=payload,
         headers={"Content-Type": "application/json"},
@@ -367,6 +367,10 @@ def _process_batch(card):
         raw = re.sub(r"^```[a-z]*\n?", "", raw)
         raw = re.sub(r"\n?```$", "", raw)
         transactions = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        flash(f"Erro Gemini {e.code}: {body[:400]}", "danger")
+        return render_template("cards/batch_upload.html", card=card)
     except Exception as e:
         flash(f"Erro ao processar arquivo: {e}", "danger")
         return render_template("cards/batch_upload.html", card=card)
