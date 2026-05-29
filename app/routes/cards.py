@@ -53,9 +53,31 @@ def list_cards():
     )
     total_geral = sum(x["total"] for x in consolidated_sorted)
 
+    # Consolidado gastos da casa: soma por categoria vinculada a HouseholdExpense
+    from app.models import HouseholdExpense
+    from collections import defaultdict as _dd
+    hh_links = HouseholdExpense.query.filter_by(owner_id=current_user.id).all()
+    hh_consolidated = _dd(lambda: {"total": 0.0, "planned": 0.0})
+    for hh in hh_links:
+        exp = hh.expense
+        if not exp:
+            continue
+        entries = CardEntry.query.filter_by(expense_id=exp.id, status="ativo").all()
+        spent = sum(float(e.amount) for e in entries)
+        hh_consolidated[exp.description]["total"] += spent
+        hh_consolidated[exp.description]["planned"] = float(exp.amount)
+
+    hh_consolidated_sorted = sorted(
+        [{"name": k, "total": v["total"], "planned": v["planned"],
+          "pct": min(round(v["total"]/v["planned"]*100,1) if v["planned"] > 0 else 0, 999)}
+         for k, v in hh_consolidated.items()],
+        key=lambda x: x["total"], reverse=True
+    )
+
     return render_template("cards/list.html", cards=cards,
                            consolidated=consolidated_sorted,
-                           total_geral=total_geral)
+                           total_geral=total_geral,
+                           hh_consolidated=hh_consolidated_sorted)
 
 
 @cards_bp.route("/novo", methods=["GET", "POST"])
@@ -474,6 +496,40 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     entry.description = request.form.get("description", entry.description)
     entry.status = "ativo"
     db.session.commit()
+
+    # Verifica excedente: se vinculado a gasto fixo, compara total lançado com planejado
+    if entry.expense_id:
+        from app.models import Expense as ExpModel
+        exp = ExpModel.query.get(entry.expense_id)
+        if exp:
+            total_lancado = sum(
+                float(e.amount) for e in CardEntry.query.filter_by(
+                    expense_id=exp.id, status="ativo"
+                ).all()
+            )
+            planejado = float(exp.amount)
+            if total_lancado > planejado:
+                excedente = total_lancado - planejado
+                from app.models import Expense as ExpModel2
+                from datetime import date as _date
+                import calendar
+                mes_nome = [
+                    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+                ][_date.today().month - 1]
+                novo_gasto = Expense(
+                    user_id=current_user.id,
+                    description=f"{exp.description} + excedente {mes_nome}",
+                    amount=excedente,
+                    kind="pontual",
+                    share_mode="solo",
+                    category=exp.category,
+                    date=_date.today(),
+                )
+                db.session.add(novo_gasto)
+                db.session.commit()
+                flash(f"Excedente de R$ {excedente:.2f} registrado automaticamente em Gastos.", "warning")
+
     flash("Lançamento aprovado.", "success")
     return redirect(url_for("cards.batch_review",
                             card_id=card_id, batch_id=batch_id))
