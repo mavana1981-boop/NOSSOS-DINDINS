@@ -101,47 +101,6 @@
 </div>
 {% endif %}
 
-<!-- Gastos da Casa consolidados por cartão -->
-{% if hh_consolidated %}
-<div class="card mt-3">
-  <div class="card-title">
-    <h3>
-      <svg style="width:16px;height:16px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      Gastos da Casa — por cartão
-    </h3>
-    <span class="text-faint text-small">lançamentos vinculados</span>
-  </div>
-  <div class="table-wrap">
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th>Gasto</th>
-          <th class="text-right">Planejado</th>
-          <th class="text-right">Lançado</th>
-          <th class="text-right">%</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in hh_consolidated %}
-        <tr>
-          <td><strong>{{ item.name }}</strong></td>
-          <td class="text-right mono text-dim">{{ item.planned|brl }}</td>
-          <td class="text-right mono" style="color:{{ 'var(--red)' if item.pct > 100 else 'inherit' }};">
-            {{ item.total|brl }}
-          </td>
-          <td class="text-right">
-            <span class="badge {{ 'badge-shared' if item.pct <= 100 else 'badge-solo' }}">
-              {{ item.pct }}%
-            </span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endif %}
-
 <script>
 (function() {
   function initSort(table) {
