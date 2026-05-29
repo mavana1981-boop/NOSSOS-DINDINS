@@ -5,21 +5,18 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Meus Cartões</h1>
-    <p>Gerencie seus cartões e controle os lançamentos por gasto fixo.</p>
+    <p>Gerencie seus cartões e acompanhe os gastos consolidados.</p>
   </div>
   <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary">+ Novo cartão</a>
 </div>
 
 {% if cards %}
-<div class="grid grid-2">
+<div class="grid grid-2 mb-3">
   {% for card in cards %}
   <a href="{{ url_for('cards.detail_card', card_id=card.id) }}"
      style="text-decoration:none;color:inherit;display:block;" class="card">
-
-    <!-- Header do cartão -->
     <div style="background:{{ card.color }};border-radius:var(--radius);padding:18px 20px;margin:-24px -24px 20px -24px;position:relative;overflow:hidden;">
       <div style="position:absolute;right:-20px;top:-20px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.08);"></div>
-      <div style="position:absolute;right:20px;bottom:-30px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.06);"></div>
       <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;color:#fff;margin-bottom:4px;">
         {{ card.name }}
       </div>
@@ -29,8 +26,6 @@
         {% if card.due_day %} · Vence dia {{ card.due_day }}{% endif %}
       </div>
     </div>
-
-    <!-- Barra de uso -->
     {% if card.limit_amount and card.limit_amount > 0 %}
     <div class="mb-2">
       <div class="flex-between mb-1">
@@ -38,8 +33,8 @@
         <span class="text-small mono">{{ card.usage_percent }}%</span>
       </div>
       <div class="progress">
-        <div class="progress-bar {% if card.usage_percent > 80 %}' style='background:var(--red){% elif card.usage_percent > 60 %}' style='background:var(--gold){% endif %}"
-             style="width:{{ card.usage_percent }}%;"></div>
+        <div class="progress-bar"
+             style="width:{{ card.usage_percent }}%;background:{{ 'var(--red)' if card.usage_percent > 80 else card.color }};"></div>
       </div>
       <div class="flex-between mt-1">
         <span class="text-small" style="color:var(--red);">{{ card.total_entries|brl }} usado</span>
@@ -52,7 +47,6 @@
       <span class="mono" style="color:var(--red);">{{ card.total_entries|brl }}</span>
     </div>
     {% endif %}
-
     <div class="flex-between">
       <span class="text-faint text-small">{{ card.entries.count() }} lançamento(s)</span>
       <span class="btn btn-ghost btn-sm">Ver detalhes →</span>
@@ -60,6 +54,43 @@
   </a>
   {% endfor %}
 </div>
+
+<!-- Consolidado por gasto entre todos os cartões -->
+{% if consolidated %}
+<div class="card">
+  <div class="card-title">
+    <h3>Gastos consolidados — todos os cartões</h3>
+    <span class="mono" style="color:var(--red);font-weight:700;">{{ total_geral|brl }}</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl sortable-table">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Gasto ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Cartões ↕</th>
+          <th class="th-sort text-right" data-col="2" style="cursor:pointer;">Total ↕</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in consolidated %}
+        <tr>
+          <td data-val="{{ item.name }}"><strong>{{ item.name }}</strong></td>
+          <td data-val="{{ item.cards|length }}">
+            {% for card_name, val in item.cards.items() %}
+              <div class="text-small text-dim">{{ card_name }}: <span class="mono">{{ val|brl }}</span></div>
+            {% endfor %}
+          </td>
+          <td class="text-right amount" data-val="{{ item.total }}" style="color:var(--red);font-weight:700;">
+            {{ item.total|brl }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="card">
   <div class="empty-state">
@@ -69,5 +100,79 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Gastos da Casa consolidados por cartão -->
+{% if hh_consolidated %}
+<div class="card mt-3">
+  <div class="card-title">
+    <h3>
+      <svg style="width:16px;height:16px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Gastos da Casa — por cartão
+    </h3>
+    <span class="text-faint text-small">lançamentos vinculados</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Gasto</th>
+          <th class="text-right">Planejado</th>
+          <th class="text-right">Lançado</th>
+          <th class="text-right">%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in hh_consolidated %}
+        <tr>
+          <td><strong>{{ item.name }}</strong></td>
+          <td class="text-right mono text-dim">{{ item.planned|brl }}</td>
+          <td class="text-right mono" style="color:{{ 'var(--red)' if item.pct > 100 else 'inherit' }};">
+            {{ item.total|brl }}
+          </td>
+          <td class="text-right">
+            <span class="badge {{ 'badge-shared' if item.pct <= 100 else 'badge-solo' }}">
+              {{ item.pct }}%
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function() {
+  function initSort(table) {
+    let sortCol = -1, sortAsc = true;
+    table.querySelectorAll('th.th-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col);
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        table.querySelectorAll('th.th-sort').forEach(t => {
+          t.textContent = t.textContent.replace(' ↑','').replace(' ↓','').replace(' ↕','') + ' ↕';
+        });
+        th.textContent = th.textContent.replace(' ↕','') + (sortAsc ? ' ↑' : ' ↓');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aCell = a.querySelectorAll('td')[col];
+          const bCell = b.querySelectorAll('td')[col];
+          const aVal = (aCell.dataset.val || aCell.textContent).trim().toLowerCase();
+          const bVal = (bCell.dataset.val || bCell.textContent).trim().toLowerCase();
+          const aNum = parseFloat(aVal);
+          const bNum = parseFloat(bVal);
+          if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
+          return sortAsc ? aVal.localeCompare(bVal,'pt-BR') : bVal.localeCompare(aVal,'pt-BR');
+        });
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  }
+  document.querySelectorAll('.sortable-table').forEach(initSort);
+})();
+</script>
 
 {% endblock %}
