@@ -103,7 +103,7 @@
       </thead>
       <tbody>
         {% for m in months %}
-        <tr{% if m.is_next_year is defined and m.is_next_year %} style="border-top:2px solid var(--border-strong);opacity:0.75;"{% endif %}>
+        <tr{% if m.is_next_year is defined and m.is_next_year %} style="border-top:2px dashed var(--border-strong);opacity:0.8;"{% endif %}>
           <td><strong>{{ m.month_name }}/{{ year + 1 if (m.is_next_year is defined and m.is_next_year) else year }}</strong>{% if m.is_next_year is defined and m.is_next_year %} <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span>{% endif %}</td>
           <td class="text-right amount" style="color:var(--green);">{{ m.income_recurring|brl }}</td>
           <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
