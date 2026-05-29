@@ -92,6 +92,33 @@ def _check_excedente(expense_id):
         flash(f"Excedente de R$ {excedente:.2f} registrado em Gastos: {desc_excedente}", "warning")
 
 
+@cards_bp.route("/fix-excedentes")
+@login_required
+def fix_excedentes():
+    """Rota temporária: adiciona ExpenseShare nos excedentes que não têm."""
+    from app.models import ExpenseShare as _Share
+    from decimal import Decimal as _Dec
+    if not current_user.is_admin:
+        abort(403)
+    excedentes = Expense.query.filter(
+        Expense.description.like("% - excedente %"),
+        Expense.kind == "pontual"
+    ).all()
+    fixed = 0
+    for exp in excedentes:
+        share = _Share.query.filter_by(expense_id=exp.id).first()
+        if not share:
+            db.session.add(_Share(
+                expense_id=exp.id,
+                user_id=exp.payer_id,
+                share_amount=_Dec(str(float(exp.amount))),
+                share_percent=_Dec("100"),
+            ))
+            fixed += 1
+    db.session.commit()
+    return f"<pre>Corrigidos {fixed} de {len(excedentes)} excedentes.</pre>"
+
+
 # ── Cartões ───────────────────────────────────────────────────────────────────
 
 @cards_bp.route("/")
