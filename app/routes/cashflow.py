@@ -12,13 +12,22 @@ def index():
     year = request.args.get("year", type=int) or date.today().year
     months = get_yearly_cashflow(current_user.id, year)
 
+    # Adiciona Janeiro do ano seguinte
+    jan_next = get_yearly_cashflow(current_user.id, year + 1)
+    if jan_next:
+        jan = dict(jan_next[0])
+        jan["is_next_year"] = True
+        months = months + [jan]
+
+    # Totais apenas dos 12 meses do ano atual
+    months12 = months[:12]
     totals = {
-        "income": sum(m["income"] for m in months),
-        "income_recurring": sum(m["income_recurring"] for m in months),
-        "income_eventual": sum(m["income_eventual"] for m in months),
-        "fixed": sum(m["fixed_expense"] for m in months),
-        "eventual": sum(m["eventual_expense"] for m in months),
-        "net": sum(m["net"] for m in months),
+        "income": sum(m["income"] for m in months12),
+        "income_recurring": sum(m["income_recurring"] for m in months12),
+        "income_eventual": sum(m["income_eventual"] for m in months12),
+        "fixed": sum(m["fixed_expense"] for m in months12),
+        "eventual": sum(m["eventual_expense"] for m in months12),
+        "net": sum(m["net"] for m in months12),
     }
     totals["total_expense"] = totals["fixed"] + totals["eventual"]
 
