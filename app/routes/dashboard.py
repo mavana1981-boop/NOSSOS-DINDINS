@@ -80,6 +80,11 @@ def index():
             HouseholdExpense.shared_with_id == current_user.id
         )
     ).all()
+    # Filtra: se shared_with_id for None, só o owner vê; se preenchido, ambos veem
+    household_links = [
+        hh for hh in household_links
+        if hh.owner_id == current_user.id or (hh.shared_with_id == current_user.id)
+    ]
 
     household_expenses = []
     household_total_planned = 0.0
