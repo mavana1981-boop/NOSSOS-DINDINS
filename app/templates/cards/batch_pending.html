@@ -1,1 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Lotes pendentes — {{ card.name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Lotes pendentes</h1>
+    <p>Cartão: <strong>{{ card.name }}</strong></p>
+  </div>
+  <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost">← Voltar</a>
+</div>
+
+{% if batches %}
+<div class="card">
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Lote</th>
+          <th>Data mín.</th>
+          <th class="text-right">Lançamentos</th>
+          <th class="text-right">Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in batches %}
+        <tr>
+          <td><code>{{ b.batch_id }}</code></td>
+          <td class="text-dim">{{ b.min_date|data_br }}</td>
+          <td class="text-right">{{ b.count }}</td>
+          <td class="text-right mono" style="color:var(--red);">{{ b.total|brl }}</td>
+          <td class="text-right">
+            <a href="{{ url_for('cards.batch_review', card_id=card.id, batch_id=b.batch_id) }}"
+               class="btn btn-primary btn-sm">Revisar</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <h4>Nenhum lote pendente</h4>
+    <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost btn-sm mt-2">← Voltar</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
 
