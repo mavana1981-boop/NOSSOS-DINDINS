@@ -438,15 +438,19 @@ def batch_pending(card_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
-    batches = db.session.query(
-        CardEntry.batch_id,
-        db.func.count(CardEntry.id).label("count"),
-        db.func.sum(CardEntry.amount).label("total"),
-        db.func.min(CardEntry.entry_date).label("min_date"),
-    ).filter(
-        CardEntry.card_id == card_id,
-        CardEntry.status == "em_avaliacao"
-    ).group_by(CardEntry.batch_id).all()
+    try:
+        batches = db.session.query(
+            CardEntry.batch_id,
+            db.func.count(CardEntry.id).label("count"),
+            db.func.sum(CardEntry.amount).label("total"),
+            db.func.min(CardEntry.entry_date).label("min_date"),
+        ).filter(
+            CardEntry.card_id == card_id,
+            CardEntry.status == "em_avaliacao"
+        ).group_by(CardEntry.batch_id).all()
+    except Exception as e:
+        from flask import abort
+        return f"<pre>ERRO batch_pending: {e}</pre>", 500
     return render_template("cards/batch_pending.html",
                            card=card, batches=batches)
 
