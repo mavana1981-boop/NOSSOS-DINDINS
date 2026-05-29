@@ -49,6 +49,31 @@ def bootstrap():
         except Exception:
             pass
 
+        # 3b. Corrige excedentes sem ExpenseShare
+        try:
+            from app.models import Expense, ExpenseShare
+            from decimal import Decimal as _Dec
+            excedentes = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).all()
+            fixed = 0
+            for exp in excedentes:
+                share = ExpenseShare.query.filter_by(expense_id=exp.id).first()
+                if not share:
+                    db.session.add(ExpenseShare(
+                        expense_id=exp.id,
+                        user_id=exp.payer_id,
+                        share_amount=_Dec(str(float(exp.amount))),
+                        share_percent=_Dec("100"),
+                    ))
+                    fixed += 1
+            if fixed:
+                db.session.commit()
+                print(f"[migrate] {fixed} excedente(s) corrigido(s) com ExpenseShare")
+        except Exception as e:
+            print(f"[migrate] erro ao corrigir excedentes: {e}")
+
         # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
