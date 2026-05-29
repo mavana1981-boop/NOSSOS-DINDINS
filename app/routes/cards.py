@@ -41,10 +41,13 @@ def _check_excedente(expense_id):
         ).all()
     )
     planejado = float(exp.amount)
+    print(f"[excedente] {exp.description}: lancado={total_lancado:.2f} planejado={planejado:.2f}")
     if total_lancado <= planejado:
+        print(f"[excedente] sem excedente")
         return
 
     excedente = total_lancado - planejado
+    print(f"[excedente] EXCEDENTE={excedente:.2f} payer_id={exp.payer_id}")
     mes_nome = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][_date.today().month - 1]
     desc_excedente = f"{exp.description} - excedente {mes_nome}"
@@ -218,6 +221,13 @@ def detail_card(card_id):
             by_expense[eid]["total"] += float(e.amount)
         else:
             unlinked.append(e)
+
+    # Verifica excedentes de todos os gastos vinculados a este cartão
+    expense_ids_checked = set()
+    for e in entries:
+        if e.expense_id and e.expense_id not in expense_ids_checked:
+            _check_excedente(e.expense_id)
+            expense_ids_checked.add(e.expense_id)
 
     return render_template("cards/detail.html",
                            card=card,
