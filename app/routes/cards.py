@@ -1,4 +1,4 @@
-from datetime import date, datetime 
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
@@ -25,6 +25,53 @@ def _get_user_fixed_expenses():
         Expense.payer_id == current_user.id,
         Expense.kind == "recorrente"
     ).order_by(Expense.description).all()
+
+
+# ── Excedente ─────────────────────────────────────────────────────────────────
+
+def _check_excedente(expense_id):
+    """Verifica se total lançado ultrapassou o planejado e registra excedente se necessário."""
+    from datetime import date as _date
+    exp = Expense.query.get(expense_id)
+    if not exp:
+        return
+    total_lancado = sum(
+        float(e.amount) for e in CardEntry.query.filter_by(
+            expense_id=exp.id, status="ativo"
+        ).all()
+    )
+    planejado = float(exp.amount)
+    if total_lancado <= planejado:
+        return
+
+    excedente = total_lancado - planejado
+    mes_nome = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][_date.today().month - 1]
+    desc_excedente = f"{exp.description} - excedente {mes_nome}"
+
+    # Evita duplicar: remove excedente anterior do mesmo mês se existir
+    from app.models import Expense as _Exp
+    antigo = _Exp.query.filter(
+        _Exp.payer_id == exp.payer_id,
+        _Exp.description == desc_excedente,
+        _Exp.kind == "pontual"
+    ).first()
+    if antigo:
+        antigo.amount = excedente
+        db.session.commit()
+    else:
+        novo = Expense(
+            payer_id=exp.payer_id,
+            description=desc_excedente,
+            amount=excedente,
+            kind="pontual",
+            share_mode="solo",
+            category=exp.category,
+            spent_at=_date.today(),
+        )
+        db.session.add(novo)
+        db.session.commit()
+        flash(f"Excedente de R$ {excedente:.2f} registrado em Gastos: {desc_excedente}", "warning")
 
 
 # ── Cartões ───────────────────────────────────────────────────────────────────
@@ -266,6 +313,10 @@ def _save_entry(entry, card):
                                card=card, entry=entry,
                                fixed_expenses=fixed_expenses)
 
+    # Verifica excedente ao salvar lançamento normal
+    if entry.expense_id:
+        _check_excedente(entry.expense_id)
+
     flash("Lançamento salvo.", "success")
     return redirect(url_for("cards.detail_card", card_id=card.id))
 
@@ -497,38 +548,8 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     entry.status = "ativo"
     db.session.commit()
 
-    # Verifica excedente: se vinculado a gasto fixo, compara total lançado com planejado
     if entry.expense_id:
-        from app.models import Expense as ExpModel
-        exp = ExpModel.query.get(entry.expense_id)
-        if exp:
-            total_lancado = sum(
-                float(e.amount) for e in CardEntry.query.filter_by(
-                    expense_id=exp.id, status="ativo"
-                ).all()
-            )
-            planejado = float(exp.amount)
-            if total_lancado > planejado:
-                excedente = total_lancado - planejado
-                from app.models import Expense as ExpModel2
-                from datetime import date as _date
-                import calendar
-                mes_nome = [
-                    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-                    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
-                ][_date.today().month - 1]
-                novo_gasto = Expense(
-                    user_id=current_user.id,
-                    description=f"{exp.description} + excedente {mes_nome}",
-                    amount=excedente,
-                    kind="pontual",
-                    share_mode="solo",
-                    category=exp.category,
-                    date=_date.today(),
-                )
-                db.session.add(novo_gasto)
-                db.session.commit()
-                flash(f"Excedente de R$ {excedente:.2f} registrado automaticamente em Gastos.", "warning")
+        _check_excedente(entry.expense_id)
 
     flash("Lançamento aprovado.", "success")
     return redirect(url_for("cards.batch_review",
