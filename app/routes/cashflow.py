@@ -12,11 +12,14 @@ def index():
     year = request.args.get("year", type=int) or date.today().year
     months = get_yearly_cashflow(current_user.id, year)
 
-    # Adiciona Janeiro do ano seguinte
+    # Adiciona Janeiro do ano seguinte com acumulado continuado
     jan_next = get_yearly_cashflow(current_user.id, year + 1)
     if jan_next:
         jan = dict(jan_next[0])
         jan["is_next_year"] = True
+        # Acumulado continua a partir do acumulado de dezembro
+        dec_cumulative = months[-1]["cumulative"] if months else 0.0
+        jan["cumulative"] = dec_cumulative + jan["net"]
         months = months + [jan]
 
     # Totais apenas dos 12 meses do ano atual
