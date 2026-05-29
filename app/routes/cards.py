@@ -352,8 +352,8 @@ def _process_batch(card):
         "contents": [{"parts": parts}]
     }).encode()
 
-    url = (f"https://generativelanguage.googleapis.com/v1beta/"
-           f"models/gemini-1.5-flash-latest:generateContent?key={api_key}")
+    url = (f"https://generativelanguage.googleapis.com/v1/"
+           f"models/gemini-2.0-flash:generateContent?key={api_key}")
     req = urllib.request.Request(
         url, data=payload,
         headers={"Content-Type": "application/json"},
