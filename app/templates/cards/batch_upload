@@ -1,1 +1,103 @@
 
+{% extends "base.html" %}
+{% block title %}Lançamento em lote — {{ card.name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Lançamento em lote</h1>
+    <p>Cartão: <strong>{{ card.name }}</strong> — envie imagens ou PDF do extrato</p>
+  </div>
+  <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost">← Voltar</a>
+</div>
+
+<div class="card" style="max-width:640px;">
+  <form method="POST" enctype="multipart/form-data" id="batch-form">
+
+    <div class="form-group">
+      <label class="form-label">Arquivos do extrato *</label>
+      <div id="drop-zone" style="border:2px dashed var(--border-strong);border-radius:var(--radius);
+           padding:40px;text-align:center;cursor:pointer;transition:border 0.2s;"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+           ondragleave="this.style.borderColor='var(--border-strong)'"
+           ondrop="handleDrop(event)">
+        <div style="font-size:2rem;margin-bottom:8px;">📎</div>
+        <div style="font-weight:600;margin-bottom:4px;">Clique ou arraste os arquivos aqui</div>
+        <div class="text-faint text-small">Imagens (JPG, PNG) ou PDF do extrato · múltiplos arquivos aceitos</div>
+      </div>
+      <input type="file" id="file-input" name="files" multiple
+             accept="image/*,.pdf" style="display:none"
+             onchange="showFiles(this.files)">
+    </div>
+
+    <div id="file-list" style="display:none;margin-bottom:16px;">
+      <div class="text-small text-dim mb-2">Arquivos selecionados:</div>
+      <div id="file-names"></div>
+    </div>
+
+    <div class="form-help" style="margin-bottom:16px;">
+      <strong>Como funciona:</strong> O sistema usa inteligência artificial para ler o extrato
+      e extrair automaticamente cada transação (descrição, valor e data). Os lançamentos ficam
+      em <em>avaliação</em> até você confirmar, categorizar ou excluir cada um.
+    </div>
+
+    <div id="loading" style="display:none;text-align:center;padding:20px;">
+      <div style="font-size:1.5rem;margin-bottom:8px;">⏳</div>
+      <div style="font-weight:600;">Processando extrato...</div>
+      <div class="text-faint text-small">Isso pode levar alguns segundos</div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="flex flex-gap">
+      <button class="btn btn-primary" id="btn-submit" type="submit">
+        Processar extrato
+      </button>
+      <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost">Cancelar</a>
+    </div>
+  </form>
+</div>
+
+{% set pending_count = card.entries.filter_by(status='em_avaliacao').count() %}
+{% if pending_count > 0 %}
+<div class="card mt-3" style="border-left:4px solid var(--gold);max-width:640px;">
+  <div class="flex-between">
+    <div>
+      <strong>{{ pending_count }} lançamento(s) aguardando avaliação</strong>
+      <div class="text-faint text-small">de importações anteriores</div>
+    </div>
+    <a href="{{ url_for('cards.batch_pending', card_id=card.id) }}" class="btn btn-ghost btn-sm">Ver pendentes →</a>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function showFiles(files) {
+  const list = document.getElementById('file-list');
+  const names = document.getElementById('file-names');
+  if (!files.length) { list.style.display='none'; return; }
+  list.style.display = 'block';
+  names.innerHTML = Array.from(files).map(f =>
+    `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:0.85rem;">📄 ${f.name}</span>
+      <span class="text-faint text-small" style="margin-left:8px;">${(f.size/1024).toFixed(0)} KB</span>
+    </div>`
+  ).join('');
+  document.getElementById('drop-zone').style.borderColor = 'var(--green)';
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').style.borderColor = 'var(--border-strong)';
+  const dt = new DataTransfer();
+  Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
+  const input = document.getElementById('file-input');
+  input.files = dt.files;
+  showFiles(dt.files);
+}
+document.getElementById('batch-form').addEventListener('submit', function() {
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('btn-submit').disabled = true;
+  document.getElementById('btn-submit').textContent = 'Processando...';
+});
+</script>
+{% endblock %}
