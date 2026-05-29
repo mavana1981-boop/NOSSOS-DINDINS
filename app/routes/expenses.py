@@ -250,8 +250,8 @@ def _save_expense(expense, users, user_cards):
     is_household = bool(request.form.get("is_household"))
 
     existing_hh = HouseholdExpense.query.filter_by(expense_id=expense.id).first()
-    if is_household and shared_with_id_raw.isdigit():
-        shared_with_id = int(shared_with_id_raw)
+    if is_household:
+        shared_with_id = int(shared_with_id_raw) if shared_with_id_raw.isdigit() else None
         if existing_hh:
             existing_hh.shared_with_id = shared_with_id
         else:
