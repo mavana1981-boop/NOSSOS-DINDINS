@@ -130,7 +130,7 @@ def detail_card(card_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
-    entries = CardEntry.query.filter_by(card_id=card_id)\
+    entries = CardEntry.query.filter_by(card_id=card_id, status="ativo")\
         .order_by(CardEntry.entry_date.desc()).all()
     fixed_expenses = _get_user_fixed_expenses()
 
@@ -259,3 +259,225 @@ def delete_entry(card_id, entry_id):
     db.session.commit()
     flash("Lançamento removido.", "info")
     return redirect(url_for("cards.detail_card", card_id=card_id))
+
+
+# ── Lançamento em Lote ────────────────────────────────────────────────────────
+
+@cards_bp.route("/<int:card_id>/lote", methods=["GET", "POST"])
+@login_required
+def batch_upload(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    if request.method == "POST":
+        return _process_batch(card)
+    return render_template("cards/batch_upload.html", card=card)
+
+
+def _process_batch(card):
+    import uuid, base64, json, re
+    files = request.files.getlist("files")
+    if not files or not files[0].filename:
+        flash("Selecione pelo menos um arquivo.", "danger")
+        return render_template("cards/batch_upload.html", card=card)
+
+    # Monta conteúdo para a API
+    content = []
+    for f in files:
+        data = f.read()
+        mime = f.content_type or "image/jpeg"
+        if mime == "application/pdf":
+            content.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf",
+                           "data": base64.b64encode(data).decode()}
+            })
+        else:
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime,
+                           "data": base64.b64encode(data).decode()}
+            })
+
+    content.append({
+        "type": "text",
+        "text": (
+            "Analise este extrato de cartão de crédito e extraia TODAS as transações/lançamentos. "
+            "Retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações. "
+            "Formato exato:\n"
+            '[{"description": "nome do lançamento", "amount": 99.90, "date": "2024-01-15", '
+            '"kind": "pontual"}]\n'
+            'Regras: amount sempre número positivo em reais. '
+            'date no formato YYYY-MM-DD, se não encontrar use a data de hoje. '
+            'kind: "pontual" para compras normais, "recorrente" para assinaturas, '
+            '"parcelado" para parcelados. '
+            'Se parcelado, adicione "installment_no" e "installments" (ex: 2 e 6 para 2/6). '
+            'Ignore taxas, juros, pagamentos e saldo. Extraia apenas compras/débitos.'
+        )
+    })
+
+    import urllib.request
+    import os
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    payload = json.dumps({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": content}]
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read())
+        raw = result["content"][0]["text"].strip()
+        # Limpa possíveis blocos markdown
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+        transactions = json.loads(raw)
+    except Exception as e:
+        flash(f"Erro ao processar arquivo: {e}", "danger")
+        return render_template("cards/batch_upload.html", card=card)
+
+    if not isinstance(transactions, list) or not transactions:
+        flash("Nenhuma transação encontrada no arquivo.", "warning")
+        return render_template("cards/batch_upload.html", card=card)
+
+    batch_id = str(uuid.uuid4())[:8]
+    count = 0
+    for t in transactions:
+        try:
+            d_str = t.get("date", "")
+            try:
+                d = datetime.strptime(d_str, "%Y-%m-%d").date()
+            except Exception:
+                d = date.today()
+            amount = Decimal(str(t.get("amount", 0)))
+            if amount <= 0:
+                continue
+            kind = t.get("kind", "pontual")
+            entry = CardEntry(
+                card_id=card.id,
+                user_id=current_user.id,
+                description=str(t.get("description", "Sem descrição"))[:160],
+                amount=amount,
+                entry_date=d,
+                kind=kind,
+                installments=int(t.get("installments", 1)),
+                installment_no=int(t.get("installment_no", 1)),
+                category="A classificar",
+                status="em_avaliacao",
+                batch_id=batch_id,
+            )
+            db.session.add(entry)
+            count += 1
+        except Exception:
+            continue
+
+    db.session.commit()
+    flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
+    return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/revisao")
+@login_required
+def batch_review(card_id, batch_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    entries = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).order_by(CardEntry.entry_date).all()
+    fixed_expenses = _get_user_fixed_expenses()
+    return render_template("cards/batch_review.html",
+                           card=card, entries=entries,
+                           batch_id=batch_id,
+                           fixed_expenses=fixed_expenses)
+
+
+@cards_bp.route("/<int:card_id>/lote/pendentes")
+@login_required
+def batch_pending(card_id):
+    """Lista todos os lotes pendentes de avaliação."""
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    from sqlalchemy import distinct
+    batches = db.session.query(
+        CardEntry.batch_id,
+        db.func.count(CardEntry.id).label("count"),
+        db.func.sum(CardEntry.amount).label("total"),
+        db.func.min(CardEntry.entry_date).label("min_date"),
+    ).filter_by(card_id=card_id, status="em_avaliacao")\
+     .group_by(CardEntry.batch_id).all()
+    return render_template("cards/batch_pending.html",
+                           card=card, batches=batches)
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/aprovar/<int:entry_id>", methods=["POST"])
+@login_required
+def batch_approve_entry(card_id, batch_id, entry_id):
+    card = Card.query.get_or_404(card_id)
+    entry = CardEntry.query.get_or_404(entry_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    expense_id_raw = request.form.get("expense_id", "").strip()
+    expense_id = int(expense_id_raw) if expense_id_raw.isdigit() else None
+    entry.expense_id = expense_id
+    if expense_id:
+        linked = Expense.query.get(expense_id)
+        if linked:
+            entry.category = linked.description[:60]
+    else:
+        entry.category = request.form.get("category", "Outros")
+    entry.description = request.form.get("description", entry.description)
+    entry.status = "ativo"
+    db.session.commit()
+    flash("Lançamento aprovado.", "success")
+    return redirect(url_for("cards.batch_review",
+                            card_id=card_id, batch_id=batch_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/aprovar-todos", methods=["POST"])
+@login_required
+def batch_approve_all(card_id, batch_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    entries = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).all()
+    for e in entries:
+        e.status = "ativo"
+    db.session.commit()
+    flash(f"{len(entries)} lançamento(s) aprovado(s).", "success")
+    return redirect(url_for("cards.detail_card", card_id=card_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/excluir/<int:entry_id>", methods=["POST"])
+@login_required
+def batch_delete_entry(card_id, batch_id, entry_id):
+    entry = CardEntry.query.get_or_404(entry_id)
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    db.session.delete(entry)
+    db.session.commit()
+    remaining = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).count()
+    if remaining == 0:
+        flash("Lote concluído.", "info")
+        return redirect(url_for("cards.detail_card", card_id=card_id))
+    return redirect(url_for("cards.batch_review",
+                            card_id=card_id, batch_id=batch_id))
