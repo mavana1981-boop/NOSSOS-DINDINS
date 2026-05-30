@@ -74,12 +74,15 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro ao corrigir excedentes: {e}")
 
-        # 3c. Gera gastos eventuais para parcelados existentes
+        # 3c. Projeta excedentes de parcelados existentes
         try:
             from app.models import CardEntry, Expense, ExpenseShare
             from decimal import Decimal as _Dec
             from datetime import date as _date
             import calendar
+
+            MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                     "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
 
             def _add_months(dt, n):
                 month = dt.month - 1 + n
@@ -97,11 +100,13 @@ def bootstrap():
                 payer = entry.user_id
                 for i in range(1, entry.installments + 1):
                     parcel_date = _add_months(first_date, i - 1)
-                    desc = f"{entry.description} - parcela {i}/{entry.installments}"
+                    mes_nome = MESES[parcel_date.month - 1]
+                    desc = f"{entry.description} - excedente {mes_nome}"
                     existing = Expense.query.filter(
                         Expense.payer_id == payer,
                         Expense.description == desc,
-                        Expense.kind == "pontual"
+                        Expense.kind == "pontual",
+                        Expense.spent_at == parcel_date,
                     ).first()
                     if existing:
                         continue
@@ -125,9 +130,9 @@ def bootstrap():
                     generated += 1
             if generated:
                 db.session.commit()
-                print(f"[migrate] {generated} parcela(s) gerada(s) em Gastos")
+                print(f"[migrate] {generated} excedente(s) de parcelados projetados")
         except Exception as e:
-            print(f"[migrate] erro ao gerar parcelas: {e}")
+            print(f"[migrate] erro ao projetar parcelados: {e}")
 
         # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
