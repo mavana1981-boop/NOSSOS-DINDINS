@@ -102,6 +102,23 @@ def bootstrap():
                 db.session.commit()
                 print(f"[migrate] {removed} excedente(s) indevido(s) removido(s)")
 
+            # Remove excedentes de parcelados de maio/2026 para trás
+            from datetime import date as _d2
+            corte = _d2(2026, 5, 31)
+            excedentes_passados = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual",
+                Expense.spent_at <= corte
+            ).all()
+            removed_past = 0
+            for exp in excedentes_passados:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+                removed_past += 1
+            if removed_past:
+                db.session.commit()
+                print(f"[migrate] {removed_past} excedente(s) passado(s) removido(s)")
+
             # Projeta excedentes para parcelados
             generated = 0
             for eid in expense_ids_parcelados:
