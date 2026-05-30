@@ -109,8 +109,8 @@
           <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
           <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
           <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
-          <td class="text-right amount" style="color:var(--red);cursor:pointer;"
-              onclick="showEventual('{{ loop.index }}', {{ m.eventual_items | tojson | safe }})">
+          <td class="text-right amount eventual-cell" style="color:var(--red);cursor:pointer;"
+              data-items="{{ m.eventual_items | tojson | e }}">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
@@ -159,26 +159,33 @@
 </div>
 
 <script>
-function showEventual(idx, items) {
-  const list = document.getElementById('eventual-list');
-  const total = document.getElementById('eventual-total');
-  list.innerHTML = '';
-  let sum = 0;
-  items.forEach(item => {
-    sum += item.amount;
-    const tr = document.createElement('tr');
-    tr.style.borderTop = '1px solid var(--border)';
-    tr.innerHTML = `<td style="padding:6px 4px;">${item.desc}</td>
-      <td class="text-right mono" style="padding:6px 4px;color:var(--red);">
-        ${item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}
-      </td>`;
-    list.appendChild(tr);
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.eventual-cell').forEach(function(td) {
+    td.addEventListener('click', function() {
+      const items = JSON.parse(td.getAttribute('data-items') || '[]');
+      const list = document.getElementById('eventual-list');
+      const total = document.getElementById('eventual-total');
+      list.innerHTML = '';
+      let sum = 0;
+      items.forEach(function(item) {
+        sum += item.amount;
+        const tr = document.createElement('tr');
+        tr.style.borderTop = '1px solid var(--border)';
+        tr.innerHTML = '<td style="padding:6px 4px;">' + item.desc + '</td>' +
+          '<td class="text-right mono" style="padding:6px 4px;color:var(--red);">' +
+          item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) +
+          '</td>';
+        list.appendChild(tr);
+      });
+      total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const modal = document.getElementById('eventual-modal');
+      modal.style.display = 'flex';
+      modal.onclick = function(e) { if (e.target === modal) closeEventual(); };
+    });
   });
-  total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const modal = document.getElementById('eventual-modal');
-  modal.style.display = 'flex';
-  modal.onclick = function(e) { if (e.target === modal) closeEventual(); };
-}
+});
+
+function showEventual(idx, items) {}
 function closeEventual() {
   document.getElementById('eventual-modal').style.display = 'none';
 }
