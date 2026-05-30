@@ -136,9 +136,7 @@
   </div>
 </div>
 
-{% set eventual_data = [] %}
-{% for m in months %}{% if eventual_data.append(m.eventual_items) %}{% endif %}{% endfor %}
-<script id="eventual-json" type="application/json">{{ eventual_data | tojson }}</script>
+<script id="eventual-json" type="application/json">{{ eventual_data }}</script>
 
 <!-- Modal eventual -->
 <div id="eventual-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
