@@ -49,6 +49,29 @@ def bootstrap():
         except Exception:
             pass
 
+        # 3b1. DEBUG: mostra card_entries de Assinaturas
+        try:
+            from app.models import Expense, CardEntry
+            assinaturas = Expense.query.filter(
+                Expense.description.ilike("%assinatura%")
+            ).all()
+            for exp in assinaturas:
+                entries = CardEntry.query.filter_by(expense_id=exp.id).all()
+                print(f"[debug] Expense '{exp.description}' id={exp.id} card_id={exp.card_id} kind={exp.kind}")
+                print(f"[debug]   -> {len(entries)} CardEntry(s) vinculados")
+                for e in entries:
+                    print(f"[debug]      entry id={e.id} status={e.status} amount={e.amount} card_id={e.card_id}")
+            # Também mostra entries sem expense_id que mencionam assinatura
+            orphans = CardEntry.query.filter(
+                CardEntry.expense_id == None,
+                CardEntry.description.ilike("%assinatura%")
+            ).all()
+            print(f"[debug] CardEntries órfãos com 'assinatura': {len(orphans)}")
+            for e in orphans:
+                print(f"[debug]   orphan id={e.id} desc='{e.description}' status={e.status} card_id={e.card_id}")
+        except Exception as ex:
+            print(f"[debug] erro: {ex}")
+
         # 3b2. Corrige card_entries com status NULL para ativo
         try:
             with db.engine.connect() as conn:
