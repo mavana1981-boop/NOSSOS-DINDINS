@@ -30,66 +30,105 @@ def _get_user_fixed_expenses():
 # ── Excedente ─────────────────────────────────────────────────────────────────
 
 def _check_excedente(expense_id):
-    """Verifica se total lançado ultrapassou o planejado e registra excedente se necessário."""
+    """Verifica excedente do mês atual e projeta excedentes futuros para parcelados."""
     from datetime import date as _date
+    from app.models import ExpenseShare as _Share
+    from decimal import Decimal as _Dec
+    import calendar
+
+    MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+
+    def add_months(dt, n):
+        month = dt.month - 1 + n
+        year = dt.year + month // 12
+        month = month % 12 + 1
+        day = min(dt.day, calendar.monthrange(year, month)[1])
+        return _date(year, month, day)
+
+    def set_excedente(payer, desc, amount, cat, dt):
+        antigo = Expense.query.filter(
+            Expense.payer_id == payer,
+            Expense.description == desc,
+            Expense.kind == "pontual",
+            Expense.spent_at == dt,
+        ).first()
+        if amount <= 0:
+            if antigo:
+                _Share.query.filter_by(expense_id=antigo.id).delete()
+                db.session.delete(antigo)
+                db.session.commit()
+            return
+        if antigo:
+            if round(float(antigo.amount), 2) != round(amount, 2):
+                antigo.amount = amount
+                db.session.commit()
+        else:
+            novo = Expense(
+                payer_id=payer, description=desc, amount=amount,
+                kind="pontual", share_mode="solo", category=cat, spent_at=dt,
+            )
+            db.session.add(novo)
+            db.session.flush()
+            db.session.add(_Share(
+                expense_id=novo.id, user_id=payer,
+                share_amount=_Dec(str(round(amount, 2))),
+                share_percent=_Dec("100"),
+            ))
+            db.session.commit()
+            flash(f"Excedente R$ {amount:.2f} registrado: {desc}", "warning")
+
     exp = Expense.query.get(expense_id)
     if not exp:
         return
-    total_lancado = sum(
-        float(e.amount) for e in CardEntry.query.filter_by(
-            expense_id=exp.id, status="ativo"
-        ).all()
-    )
+
     planejado = float(exp.amount)
-    mes_nome = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][_date.today().month - 1]
-    desc_excedente = f"{exp.description} - excedente {mes_nome}"
-
-    # Usa payer_id do gasto original como dono do excedente
     payer = exp.payer_id
+    today = _date.today()
 
-    # Busca excedente existente deste mês
-    antigo = Expense.query.filter(
-        Expense.payer_id == payer,
-        Expense.description == desc_excedente,
-        Expense.kind == "pontual"
-    ).first()
+    # Busca todos os parcelados vinculados a este gasto
+    parcelados = CardEntry.query.filter_by(
+        expense_id=exp.id, kind="parcelado", status="ativo"
+    ).all()
 
-    if total_lancado <= planejado:
-        # Remove excedente antigo se não há mais excedente
-        if antigo:
-            db.session.delete(antigo)
-            db.session.commit()
+    if not parcelados:
+        # Sem parcelados: verifica só mês atual com todos lançamentos
+        total = sum(float(e.amount) for e in CardEntry.query.filter_by(
+            expense_id=exp.id, status="ativo").all())
+        mes_nome = MESES[today.month - 1]
+        desc = f"{exp.description} - excedente {mes_nome}"
+        excedente = round(total - planejado, 2)
+        set_excedente(payer, desc, max(excedente, 0), exp.category, today)
         return
 
-    excedente = round(total_lancado - planejado, 2)
+    # Com parcelados: projeta mês a mês
+    # Monta mapa de {(year,month): total_parcelado_projetado}
+    month_totals = {}
+    for entry in parcelados:
+        if not entry.installments:
+            continue
+        first_date = add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+        for i in range(1, entry.installments + 1):
+            d = add_months(first_date, i - 1)
+            key = (d.year, d.month)
+            month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
 
-    if antigo:
-        if float(antigo.amount) != excedente:
-            antigo.amount = excedente
-            db.session.commit()
-    else:
-        from app.models import ExpenseShare as _Share
-        from decimal import Decimal as _Dec
-        novo = Expense(
-            payer_id=payer,
-            description=desc_excedente,
-            amount=excedente,
-            kind="pontual",
-            share_mode="solo",
-            category=exp.category,
-            spent_at=_date.today(),
-        )
-        db.session.add(novo)
-        db.session.flush()
-        db.session.add(_Share(
-            expense_id=novo.id,
-            user_id=payer,
-            share_amount=_Dec(str(excedente)),
-            share_percent=_Dec("100"),
-        ))
-        db.session.commit()
-        flash(f"Excedente de R$ {excedente:.2f} registrado em Gastos: {desc_excedente}", "warning")
+    # Também soma lançamentos não-parcelados do mês atual
+    nao_parcelados = sum(
+        float(e.amount) for e in CardEntry.query.filter_by(
+            expense_id=exp.id, status="ativo"
+        ).all() if e.kind != "parcelado"
+    )
+
+    for (year, month), total in month_totals.items():
+        if year == today.year and month == today.month:
+            total += nao_parcelados
+        excedente = round(total - planejado, 2)
+        mes_nome = MESES[month - 1]
+        desc = f"{exp.description} - excedente {mes_nome}"
+        import datetime
+        dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+        set_excedente(payer, desc, max(excedente, 0), exp.category, dt)
 
 
 @cards_bp.route("/fix-excedentes")
@@ -371,7 +410,6 @@ def _save_entry(entry, card):
         _check_excedente(entry.expense_id)
 
     # Projeta parcelas futuras como eventuais
-    _project_parcelado_excedentes(entry)
 
     flash("Lançamento salvo.", "success")
     return redirect(url_for("cards.detail_card", card_id=card.id))
@@ -611,7 +649,6 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     if entry.expense_id:
         _check_excedente(entry.expense_id)
 
-    _project_parcelado_excedentes(entry)
 
     flash("Lançamento aprovado.", "success")
     return redirect(url_for("cards.batch_review",
