@@ -119,6 +119,37 @@ def bootstrap():
                 db.session.commit()
                 print(f"[migrate] {removed_past} excedente(s) passado(s) removido(s)")
 
+            # Remove duplicados: mantém só o menor id por (payer_id, description, spent_at)
+            todos = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).order_by(Expense.id).all()
+            seen = {}
+            removed_dup = 0
+            for exp in todos:
+                key = (exp.payer_id, exp.description, str(exp.spent_at))
+                if key in seen:
+                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                    db.session.delete(exp)
+                    removed_dup += 1
+                else:
+                    seen[key] = exp.id
+            if removed_dup:
+                db.session.commit()
+                print(f"[migrate] {removed_dup} excedente(s) duplicado(s) removido(s)")
+
+            # Remove excedentes de "Celular Denise" se existirem
+            cel_denise = Expense.query.filter(
+                Expense.description.like("Celular Denise - excedente %"),
+                Expense.kind == "pontual"
+            ).all()
+            for exp in cel_denise:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+            if cel_denise:
+                db.session.commit()
+                print(f"[migrate] {len(cel_denise)} excedente(s) Celular Denise removido(s)")
+
             # Projeta excedentes para parcelados
             generated = 0
             for eid in expense_ids_parcelados:
@@ -157,6 +188,9 @@ def bootstrap():
                         Expense.spent_at == dt,
                     ).first()
                     if existing:
+                        continue
+                    # Não projeta excedente para Celular Denise
+                    if "celular denise" in desc.lower():
                         continue
                     novo = Expense(
                         payer_id=payer, description=desc, amount=excedente,
