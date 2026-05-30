@@ -110,7 +110,7 @@
           <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
           <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
           <td class="text-right amount eventual-cell" style="color:var(--red);cursor:pointer;"
-              data-items="{{ m.eventual_items | tojson | e }}">
+              data-idx="{{ loop.index0 }}">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
@@ -159,10 +159,12 @@
 </div>
 
 <script>
+var EVENTUAL_DATA = {{ months | map(attribute='eventual_items') | list | tojson }};
+
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.eventual-cell').forEach(function(td) {
     td.addEventListener('click', function() {
-      const items = JSON.parse(td.getAttribute('data-items') || '[]');
+      const items = EVENTUAL_DATA[parseInt(td.getAttribute('data-idx'))] || [];
       const list = document.getElementById('eventual-list');
       const total = document.getElementById('eventual-total');
       list.innerHTML = '';
