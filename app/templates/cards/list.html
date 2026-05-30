@@ -75,8 +75,11 @@
       </thead>
       <tbody>
         {% for item in consolidated %}
-        <tr>
-          <td data-val="{{ item.name }}"><strong>{{ item.name }}</strong></td>
+        <tr class="consolidated-row" style="cursor:pointer;" onclick="toggleDetail('detail-{{ loop.index }}', this)">
+          <td data-val="{{ item.name }}">
+            <strong>{{ item.name }}</strong>
+            <span class="text-faint text-small" style="margin-left:6px;">▼</span>
+          </td>
           <td data-val="{{ item.cards|length }}">
             {% for card_name, val in item.cards.items() %}
               <div class="text-small text-dim">{{ card_name }}: <span class="mono">{{ val|brl }}</span></div>
@@ -92,6 +95,30 @@
             {% if item.pct is not none %}
               <span class="badge {{ 'badge-solo' if item.pct > 100 else 'badge-shared' }}">{{ item.pct }}%</span>
             {% else %}—{% endif %}
+          </td>
+        </tr>
+        <tr id="detail-{{ loop.index }}" style="display:none;">
+          <td colspan="5" style="padding:0 0 8px 16px;">
+            <table style="width:100%;font-size:0.82rem;">
+              <thead>
+                <tr style="color:var(--text-faint);">
+                  <th style="text-align:left;padding:4px 8px;">Lançamento</th>
+                  <th style="text-align:left;padding:4px 8px;">Cartão</th>
+                  <th style="text-align:left;padding:4px 8px;">Data</th>
+                  <th style="text-align:right;padding:4px 8px;">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for e in item.entries %}
+                <tr style="border-top:1px solid var(--border);">
+                  <td style="padding:4px 8px;">{{ e.desc }}</td>
+                  <td style="padding:4px 8px;color:var(--text-faint);">{{ e.card }}</td>
+                  <td style="padding:4px 8px;color:var(--text-faint);">{{ e.date }}</td>
+                  <td style="padding:4px 8px;text-align:right;" class="mono">{{ e.amount|brl }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </td>
         </tr>
         {% endfor %}
@@ -110,6 +137,20 @@
   </div>
 </div>
 {% endif %}
+
+<script>
+function toggleDetail(id, row) {
+  const detail = document.getElementById(id);
+  const arrow = row.querySelector('.text-faint.text-small');
+  if (detail.style.display === 'none') {
+    detail.style.display = 'table-row';
+    if (arrow) arrow.textContent = '▲';
+  } else {
+    detail.style.display = 'none';
+    if (arrow) arrow.textContent = '▼';
+  }
+}
+</script>
 
 <script>
 (function() {
