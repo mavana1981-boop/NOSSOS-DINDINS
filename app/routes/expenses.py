@@ -62,6 +62,7 @@ def _sync_card_entry(expense, old_card_id=None):
     entry.category = expense.category
     entry.installments = expense.recurrence_months or 1
     entry.installment_no = 1
+    entry.status = "ativo"
     entry.notes = f"Lançamento automático — {expense.kind}"
 
 
