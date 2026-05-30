@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Fluxo de Caixa {{ year }}<!-- Modal eventual -->
+{% block title %}Fluxo de Caixa {{ year }}{% endblock %}
+{% block content %}
 <div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
   background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
   <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;
@@ -43,8 +44,6 @@ function loadEventual(idx, year) {
     });
 }
 </script>
-{% endblock %}
-{% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
