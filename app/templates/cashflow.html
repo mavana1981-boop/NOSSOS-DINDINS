@@ -110,7 +110,7 @@
           <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
           <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
           <td class="text-right amount" style="color:var(--red);cursor:pointer;"
-              onclick="showEventual('{{ loop.index }}', {{ m.eventual_items | tojson }})">
+              onclick="showEventual('{{ loop.index }}', {{ m.eventual_items | tojson | safe }})">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
