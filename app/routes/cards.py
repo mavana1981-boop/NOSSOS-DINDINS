@@ -121,7 +121,7 @@ def _check_excedente(expense_id):
         set_excedente(payer, desc, max(excedente, 0), exp.category, dt)
 
 
-@cards_bp.route("/fix-excedentes")
+@cards_bp.route("/admin/fix-excedentes")
 @login_required
 def fix_excedentes():
     """Limpa excedentes não-parcelados gerados indevidamente e reprojeta só parcelados."""
