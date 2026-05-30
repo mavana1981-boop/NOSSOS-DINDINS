@@ -164,7 +164,7 @@ def get_yearly_cashflow(user_id, year):
                 eventual_total += v
                 eventual_items.append({
                     "desc": exp.description,
-                    "amount": v,
+                    "amount": round(float(v), 2),
                 })
         net = income_total - fixed_total - eventual_total
         cumulative += net
