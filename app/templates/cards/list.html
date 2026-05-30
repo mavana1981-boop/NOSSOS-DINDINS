@@ -68,7 +68,9 @@
         <tr>
           <th class="th-sort" data-col="0" style="cursor:pointer;">Gasto ↕</th>
           <th class="th-sort" data-col="1" style="cursor:pointer;">Cartões ↕</th>
-          <th class="th-sort text-right" data-col="2" style="cursor:pointer;">Total ↕</th>
+          <th class="th-sort text-right" data-col="2" style="cursor:pointer;">Planejado ↕</th>
+          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Total ↕</th>
+          <th class="text-right">%</th>
         </tr>
       </thead>
       <tbody>
@@ -80,8 +82,16 @@
               <div class="text-small text-dim">{{ card_name }}: <span class="mono">{{ val|brl }}</span></div>
             {% endfor %}
           </td>
+          <td class="text-right mono text-dim" data-val="{{ item.planned }}">
+            {% if item.planned > 0 %}{{ item.planned|brl }}{% else %}—{% endif %}
+          </td>
           <td class="text-right amount" data-val="{{ item.total }}" style="color:var(--red);font-weight:700;">
             {{ item.total|brl }}
+          </td>
+          <td class="text-right">
+            {% if item.pct is not none %}
+              <span class="badge {{ 'badge-solo' if item.pct > 100 else 'badge-shared' }}">{{ item.pct }}%</span>
+            {% else %}—{% endif %}
           </td>
         </tr>
         {% endfor %}
