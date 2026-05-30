@@ -153,6 +153,9 @@ def get_yearly_cashflow(user_id, year):
         for exp, share in expenses:
             if not exp.is_active_on(year, m):
                 continue
+            # Exclui gastos eventuais (pontual) anteriores a junho/2026
+            if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
+                continue
             v = float(share.share_amount)
             if exp.kind == "recorrente":
                 fixed_total += v
