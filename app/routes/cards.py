@@ -87,16 +87,20 @@ def _check_excedente(expense_id):
     today = _date.today()
 
     # Verifica mês atual com todos os lançamentos
-    total_atual = sum(float(e.amount) for e in CardEntry.query.filter_by(
-        expense_id=exp.id, status="ativo").all())
+    total_atual = sum(float(e.amount) for e in CardEntry.query.filter(
+        CardEntry.expense_id == exp.id,
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all())
     mes_nome = MESES[today.month - 1]
     desc_atual = f"{exp.description} - excedente {mes_nome}"
     excedente_atual = round(total_atual - planejado, 2)
     set_excedente(payer, desc_atual, max(excedente_atual, 0), exp.category, today)
 
     # Para parcelados: projeta excedentes nos meses futuros
-    parcelados = CardEntry.query.filter_by(
-        expense_id=exp.id, kind="parcelado", status="ativo"
+    parcelados = CardEntry.query.filter(
+        CardEntry.expense_id == exp.id,
+        CardEntry.kind == "parcelado",
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
     ).all()
     if not parcelados:
         return
