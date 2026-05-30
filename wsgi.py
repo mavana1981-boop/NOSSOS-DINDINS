@@ -104,7 +104,7 @@ def bootstrap():
 
             # Remove excedentes de parcelados de maio/2026 para trás
             from datetime import date as _d2
-            corte = _d2(2026, 5, 31)
+            corte = _d2(2026, 5, 31)  # exclui até maio inclusive
             excedentes_passados = Expense.query.filter(
                 Expense.description.like("% - excedente %"),
                 Expense.kind == "pontual",
