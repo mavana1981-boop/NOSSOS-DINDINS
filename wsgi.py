@@ -183,48 +183,6 @@ def bootstrap():
                 ).all()
             )
 
-            # Remove APENAS excedentes cujo expense pai NÃO tem parcelados
-            # (foram gerados indevidamente para gastos normais como Restaurante)
-            todos_excedentes = Expense.query.filter(
-                Expense.description.like("% - excedente %"),
-                Expense.kind == "pontual"
-            ).all()
-
-            removed = 0
-            for exp in todos_excedentes:
-                # Descobre qual expense pai gerou este excedente pelo nome
-                # Ex: "Restaurante - excedente Maio" -> pai é "Restaurante"
-                pai_desc = exp.description.split(" - excedente ")[0]
-                pai = Expense.query.filter(
-                    Expense.payer_id == exp.payer_id,
-                    Expense.description == pai_desc,
-                ).first()
-                if pai and pai.id not in expense_ids_parcelados:
-                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                    db.session.delete(exp)
-                    removed += 1
-
-            if removed:
-                db.session.commit()
-                print(f"[migrate] {removed} excedente(s) indevido(s) removido(s)")
-
-            # Remove excedentes de parcelados de maio/2026 para trás
-            from datetime import date as _d2
-            corte = _d2(2026, 5, 31)  # exclui até maio inclusive
-            excedentes_passados = Expense.query.filter(
-                Expense.description.like("% - excedente %"),
-                Expense.kind == "pontual",
-                Expense.spent_at <= corte
-            ).all()
-            removed_past = 0
-            for exp in excedentes_passados:
-                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                db.session.delete(exp)
-                removed_past += 1
-            if removed_past:
-                db.session.commit()
-                print(f"[migrate] {removed_past} excedente(s) passado(s) removido(s)")
-
             # Remove duplicados: mantém só o menor id por (payer_id, description, spent_at)
             todos = Expense.query.filter(
                 Expense.description.like("% - excedente %"),
