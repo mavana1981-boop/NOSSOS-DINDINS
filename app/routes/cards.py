@@ -226,10 +226,10 @@ def list_cards():
 
     # Consolidado: soma lançamentos por nome do gasto, agrupando entre todos os cartões
     from collections import defaultdict
-    consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}})
+    consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
     for card in cards:
-        entries = CardEntry.query.filter(CardEntry.card_id == card.id, (CardEntry.status == "ativo") | (CardEntry.status == None)).all()
-        for entry in entries:
+        card_entries = CardEntry.query.filter(CardEntry.card_id == card.id, (CardEntry.status == "ativo") | (CardEntry.status == None)).all()
+        for entry in card_entries:
             if entry.expense_id and entry.expense:
                 key = entry.expense.description
                 consolidated[key]["planned"] = float(entry.expense.amount)
@@ -238,11 +238,18 @@ def list_cards():
             consolidated[key]["total"] += float(entry.amount)
             consolidated[key]["cards"][card.name] = \
                 consolidated[key]["cards"].get(card.name, 0.0) + float(entry.amount)
+            consolidated[key]["entries"].append({
+                "desc": entry.description,
+                "card": card.name,
+                "amount": float(entry.amount),
+                "date": entry.entry_date.strftime("%d/%m/%Y") if entry.entry_date else ""
+            })
 
     consolidated_sorted = sorted(
         [{"name": k, "total": v["total"], "planned": v["planned"],
           "pct": round(v["total"]/v["planned"]*100,1) if v["planned"] > 0 else None,
-          "cards": v["cards"]}
+          "cards": v["cards"],
+          "entries": sorted(v["entries"], key=lambda x: x["amount"], reverse=True)}
          for k, v in consolidated.items()],
         key=lambda x: x["total"], reverse=True
     )
