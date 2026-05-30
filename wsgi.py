@@ -49,6 +49,78 @@ def bootstrap():
         except Exception:
             pass
 
+        # 3b0. Gera excedentes para todos os gastos que ultrapassam o planejado
+        try:
+            from app.models import CardEntry, Expense, ExpenseShare
+            from decimal import Decimal as _Dec
+            from datetime import date as _date
+
+            MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                     "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+            today = _date.today()
+            mes_nome = MESES[today.month - 1]
+
+            # Todos expense_ids com lançamentos
+            expense_ids = set(
+                e.expense_id for e in CardEntry.query.filter(
+                    CardEntry.expense_id != None
+                ).all()
+            )
+
+            generated = 0
+            for eid in expense_ids:
+                exp = Expense.query.get(eid)
+                if not exp:
+                    continue
+                planejado = float(exp.amount)
+                total = sum(
+                    float(e.amount) for e in CardEntry.query.filter(
+                        CardEntry.expense_id == eid,
+                        (CardEntry.status == "ativo") | (CardEntry.status == None)
+                    ).all()
+                )
+                excedente = round(total - planejado, 2)
+                if excedente <= 0:
+                    continue
+                desc = f"{exp.description} - excedente {mes_nome}"
+                existing = Expense.query.filter(
+                    Expense.payer_id == exp.payer_id,
+                    Expense.description == desc,
+                    Expense.kind == "pontual",
+                    Expense.spent_at == today,
+                ).first()
+                if existing:
+                    if round(float(existing.amount), 2) != excedente:
+                        existing.amount = excedente
+                        db.session.commit()
+                else:
+                    novo = Expense(
+                        payer_id=exp.payer_id,
+                        description=desc,
+                        amount=excedente,
+                        kind="pontual",
+                        share_mode="solo",
+                        category=exp.category,
+                        spent_at=today,
+                    )
+                    db.session.add(novo)
+                    db.session.flush()
+                    db.session.add(ExpenseShare(
+                        expense_id=novo.id,
+                        user_id=exp.payer_id,
+                        share_amount=_Dec(str(excedente)),
+                        share_percent=_Dec("100"),
+                    ))
+                    db.session.commit()
+                    generated += 1
+                    print(f"[migrate] excedente criado: {desc} R$ {excedente:.2f}")
+
+            if generated:
+                print(f"[migrate] {generated} excedente(s) de gastos gerados")
+        except Exception as e:
+            db.session.rollback()
+            print(f"[migrate] erro ao gerar excedentes: {e}")
+
         # 3b1. DEBUG: mostra card_entries de Assinaturas
         try:
             from app.models import Expense, CardEntry
