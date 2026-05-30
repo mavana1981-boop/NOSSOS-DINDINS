@@ -1,53 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Fluxo de Caixa {{ year }}{% endblock %}
 {% block content %}
-<div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
-  background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
-  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;
-    max-width:480px;width:90%;max-height:80vh;overflow-y:auto;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h3 id="ev-title" style="margin:0;">Gastos eventuais</h3>
-      <button onclick="document.getElementById('ev-modal').style.display='none'"
-        style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">x</button>
-    </div>
-    <table style="width:100%;"><tbody id="ev-list"></tbody>
-      <tfoot><tr style="border-top:2px solid var(--border-strong);">
-        <td><strong>Total</strong></td>
-        <td class="text-right mono" id="ev-total" style="color:var(--red);font-weight:700;"></td>
-      </tr></tfoot>
-    </table>
-  </div>
-</div>
-<script>
-function loadEventual(idx, year) {
-  fetch('/fluxo/eventual-json?year=' + year)
-    .then(r => r.json())
-    .then(data => {
-      var items = data[idx] || [];
-      var list = document.getElementById('ev-list');
-      var total = document.getElementById('ev-total');
-      list.innerHTML = '';
-      var sum = 0;
-      items.forEach(function(item) {
-        sum += item.amount;
-        var tr = document.createElement('tr');
-        tr.style.borderTop = '1px solid var(--border)';
-        tr.innerHTML = '<td style="padding:6px 4px;">' + item.desc + '</td>' +
-          '<td class="text-right mono" style="padding:6px 4px;color:var(--red);">' +
-          item.amount.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</td>';
-        list.appendChild(tr);
-      });
-      total.textContent = sum.toLocaleString('pt-BR',{minimumFractionDigits:2});
-      var modal = document.getElementById('ev-modal');
-      modal.style.display = 'flex';
-      modal.onclick = function(e) { if(e.target===modal) modal.style.display='none'; };
-    });
-}
-</script>
 
 <div class="page-header">
   <div class="page-title-wrap">
-    <h1>Fluxo de caixa</h1>
+    <h1>Fluxo de Caixa</h1>
     <p>Visão mês a mês de <strong>{{ year }}</strong></p>
   </div>
   <div class="flex flex-gap">
@@ -58,76 +15,66 @@ function loadEventual(idx, year) {
 </div>
 
 <!-- Totais do ano -->
-<div class="grid grid-4 mb-3">
-  <div class="stat">
-    <div class="stat-label">Renda fixa anual</div>
+<div class="grid grid-3 mb-3">
+  <div class="card">
+    <div class="stat-label">Renda fixa</div>
     <div class="stat-value positive">{{ totals.income_recurring|brl }}</div>
-    <div class="stat-foot">rendas recorrentes</div>
   </div>
-  <div class="stat">
+  <div class="card">
     <div class="stat-label">Renda eventual</div>
     <div class="stat-value" style="color:var(--blue);">{{ totals.income_eventual|brl }}</div>
-    <div class="stat-foot">entradas não recorrentes</div>
   </div>
-  <div class="stat">
-    <div class="stat-label">Gastos fixos</div>
+  <div class="card">
+    <div class="stat-label">Fixos</div>
     <div class="stat-value" style="color:var(--gold);">{{ totals.fixed|brl }}</div>
-    <div class="stat-foot">recorrentes mensais</div>
   </div>
-  <div class="stat">
-    <div class="stat-label">Gastos eventuais</div>
+  <div class="card">
+    <div class="stat-label">Eventuais</div>
     <div class="stat-value negative">{{ totals.eventual|brl }}</div>
-    <div class="stat-foot">pontuais do ano</div>
   </div>
-</div>
-
-<div class="grid grid-2 mb-3">
-  <div class="stat">
+  <div class="card">
     <div class="stat-label">Total renda</div>
     <div class="stat-value positive">{{ totals.income|brl }}</div>
   </div>
-  <div class="stat">
+  <div class="card">
     <div class="stat-label">Saldo do ano</div>
-    <div class="stat-value {{ 'positive' if totals.net >= 0 else 'negative' }}">{{ totals.net|brl }}</div>
+    {% if totals.net >= 0 %}
+    <div class="stat-value positive">{{ totals.net|brl }}</div>
+    {% else %}
+    <div class="stat-value negative">{{ totals.net|brl }}</div>
+    {% endif %}
   </div>
 </div>
 
-<!-- Gráfico visual -->
-<div class="card mb-3">
-  <div class="card-title">
-    <h3>Comparativo mensal</h3>
-    <span class="text-faint text-small">verde = renda recorrente · azul = renda eventual · amarelo = fixos · vermelho = eventuais</span>
-  </div>
-  <div class="cashflow-chart">
+<span class="text-faint text-small">verde = renda recorrente · azul = renda eventual · amarelo = fixos · vermelho = eventuais</span>
+
+<!-- Gráfico de barras -->
+<div class="card mt-2">
+  <div style="display:flex;gap:4px;align-items:flex-end;height:120px;padding:8px 0;">
     {% for m in months %}
-    <div class="cashflow-bar-group">
-      <div class="cashflow-bars">
-        <div class="cashflow-bar bar-income-rec"
-             style="height: {{ (m.income_recurring / max_value * 100)|round if max_value else 0 }}%;"
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;justify-content:flex-end;">
+      <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:1px;">
+        <div style="background:var(--green);border-radius:2px 2px 0 0;
+             height: {{ (m.income_recurring / max_value * 100)|round if max_value else 0 }}%;"
              title="Renda fixa: {{ m.income_recurring|brl }}"></div>
-        <div class="cashflow-bar bar-income-ev"
-             style="height: {{ (m.income_eventual / max_value * 100)|round if max_value else 0 }}%;"
+        <div style="background:var(--blue);border-radius:2px 2px 0 0;
+             height: {{ (m.income_eventual / max_value * 100)|round if max_value else 0 }}%;"
              title="Renda eventual: {{ m.income_eventual|brl }}"></div>
-        <div class="cashflow-bar bar-fixed"
-             style="height: {{ (m.fixed_expense / max_value * 100)|round if max_value else 0 }}%;"
+        <div style="background:var(--gold);border-radius:2px 2px 0 0;
+             height: {{ (m.fixed_expense / max_value * 100)|round if max_value else 0 }}%;"
              title="Fixos: {{ m.fixed_expense|brl }}"></div>
-        <div class="cashflow-bar bar-expense"
-             style="height: {{ (m.total_expense / max_value * 100)|round if max_value else 0 }}%;"
+        <div style="background:var(--red);border-radius:2px 2px 0 0;
+             height: {{ (m.total_expense / max_value * 100)|round if max_value else 0 }}%;"
              title="Total gastos: {{ m.total_expense|brl }}"></div>
       </div>
-      <div class="cashflow-label">
-        <strong>{{ m.month_name }}</strong>
-        <div class="text-faint" style="font-size:0.7rem;color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};">
-          {{ '%+.0f'|format(m.net) }}
-        </div>
-      </div>
+      <strong style="font-size:0.65rem;">{{ m.month_name }}</strong>
     </div>
     {% endfor %}
   </div>
 </div>
 
 <!-- Tabela detalhada -->
-<div class="card">
+<div class="card mt-3">
   <div class="card-title"><h3>Detalhamento mês a mês</h3></div>
   <div class="table-wrap">
     <table class="tbl">
@@ -146,19 +93,31 @@ function loadEventual(idx, year) {
       </thead>
       <tbody>
         {% for m in months %}
-        <tr{% if m.is_next_year is defined and m.is_next_year %} style="border-top:2px dashed var(--border-strong);opacity:0.8;"{% endif %}>
-          <td><strong>{{ m.month_name }}/{{ year + 1 if (m.is_next_year is defined and m.is_next_year) else year }}</strong>{% if m.is_next_year is defined and m.is_next_year %} <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span>{% endif %}</td>
+        {% if m.is_next_year is defined and m.is_next_year %}
+        <tr style="border-top:2px dashed var(--border-strong);opacity:0.8;">
+          <td><strong>{{ m.month_name }}/{{ year + 1 }}</strong> <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
+        {% else %}
+        <tr>
+          <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
+        {% endif %}
           <td class="text-right amount" style="color:var(--green);">{{ m.income_recurring|brl }}</td>
           <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
           <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
           <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
-          <td class="text-right amount" style="color:var(--red);cursor:pointer;"
-              onclick="loadEventual({{ loop.index0 }}, {{ year }})">
+          <td class="text-right amount eventual-clickable" data-month-idx="{{ loop.index0 }}" style="color:var(--red);cursor:pointer;">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
-          <td class="text-right amount" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;">{{ m.net|brl }}</td>
-          <td class="text-right amount" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};">{{ m.cumulative|brl }}</td>
+          {% if m.net >= 0 %}
+          <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.net|brl }}</td>
+          {% else %}
+          <td class="text-right amount" style="color:var(--red);font-weight:700;">{{ m.net|brl }}</td>
+          {% endif %}
+          {% if m.cumulative >= 0 %}
+          <td class="text-right amount" style="color:var(--green);">{{ m.cumulative|brl }}</td>
+          {% else %}
+          <td class="text-right amount" style="color:var(--red);">{{ m.cumulative|brl }}</td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -171,7 +130,11 @@ function loadEventual(idx, year) {
           <td class="text-right amount" style="color:var(--gold);"><strong>{{ totals.fixed|brl }}</strong></td>
           <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.eventual|brl }}</strong></td>
           <td class="text-right amount text-dim"><strong>{{ totals.total_expense|brl }}</strong></td>
-          <td class="text-right amount" style="color:{{ 'var(--green)' if totals.net >= 0 else 'var(--red)' }};"><strong>{{ totals.net|brl }}</strong></td>
+          {% if totals.net >= 0 %}
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.net|brl }}</strong></td>
+          {% else %}
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.net|brl }}</strong></td>
+          {% endif %}
           <td></td>
         </tr>
       </tfoot>
@@ -179,3 +142,68 @@ function loadEventual(idx, year) {
   </div>
 </div>
 
+<!-- Modal de eventuais -->
+<div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;">Gastos eventuais</h3>
+      <button id="ev-close" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">x</button>
+    </div>
+    <table style="width:100%;">
+      <tbody id="ev-list"></tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Total</strong></td>
+          <td class="text-right mono" id="ev-total" style="color:var(--red);font-weight:700;"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<script>
+var CASHFLOW_YEAR = {{ year }};
+
+document.getElementById('ev-close').addEventListener('click', function() {
+  document.getElementById('ev-modal').style.display = 'none';
+});
+
+document.getElementById('ev-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
+
+document.querySelectorAll('.eventual-clickable').forEach(function(td) {
+  td.addEventListener('click', function() {
+    var idx = parseInt(td.getAttribute('data-month-idx'));
+    fetch('/fluxo/eventual-json?year=' + CASHFLOW_YEAR)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var items = data[idx] || [];
+        var list = document.getElementById('ev-list');
+        var total = document.getElementById('ev-total');
+        list.innerHTML = '';
+        var sum = 0;
+        items.forEach(function(item) {
+          sum += item.amount;
+          var tr = document.createElement('tr');
+          tr.style.borderTop = '1px solid var(--border)';
+          var td1 = document.createElement('td');
+          td1.style.padding = '6px 4px';
+          td1.textContent = item.desc;
+          var td2 = document.createElement('td');
+          td2.className = 'text-right mono';
+          td2.style.padding = '6px 4px';
+          td2.style.color = 'var(--red)';
+          td2.textContent = item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2});
+          tr.appendChild(td1);
+          tr.appendChild(td2);
+          list.appendChild(tr);
+        });
+        total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2});
+        document.getElementById('ev-modal').style.display = 'flex';
+      });
+  });
+});
+</script>
+
+{% endblock %}
