@@ -74,7 +74,7 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro ao corrigir excedentes: {e}")
 
-        # 3c. Limpa gastos de parcelados gerados errado e reprojeta
+        # 3c. Limpa excedentes incorretos e reprojeta
         try:
             from app.models import CardEntry, Expense, ExpenseShare
             from decimal import Decimal as _Dec
@@ -91,80 +91,95 @@ def bootstrap():
                 day = min(dt.day, calendar.monthrange(year, month)[1])
                 return _date(year, month, day)
 
-            # 1. Remove gastos gerados errado (formato "- parcela X/N")
+            # Remove gastos errados formato "- parcela X/N"
             errados = Expense.query.filter(
                 Expense.description.like("% - parcela %/%")
             ).all()
-            removed = 0
             for exp in errados:
                 ExpenseShare.query.filter_by(expense_id=exp.id).delete()
                 db.session.delete(exp)
-                removed += 1
-            if removed:
+            if errados:
                 db.session.commit()
-                print(f"[migrate] {removed} gasto(s) de parcela incorreto(s) removido(s)")
+                print(f"[migrate] {len(errados)} gasto(s) incorreto(s) removido(s)")
 
-            # 2. Remove excedentes de parcelados duplicados (mesmo desc+data)
-            seen = set()
-            duplicados = Expense.query.filter(
+            # Remove excedentes de parcelados com nome "excedente Mês" gerados individualmente
+            # (os que têm spent_at diferente de hoje e foram gerados pela lógica errada)
+            excedentes_errados = Expense.query.filter(
                 Expense.description.like("% - excedente %"),
                 Expense.kind == "pontual"
-            ).order_by(Expense.id).all()
-            for exp in duplicados:
-                key = (exp.payer_id, exp.description, str(exp.spent_at))
-                if key in seen:
-                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                    db.session.delete(exp)
-                else:
-                    seen.add(key)
-            db.session.commit()
+            ).all()
+            for exp in excedentes_errados:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+            if excedentes_errados:
+                db.session.commit()
+                print(f"[migrate] {len(excedentes_errados)} excedente(s) antigo(s) removido(s)")
 
-            # 3. Projeta corretamente
-            parcelados = CardEntry.query.filter_by(kind="parcelado", status="ativo").all()
+            # Reprojeta corretamente via _check_excedente para cada expense_id único
+            expense_ids = set(
+                e.expense_id for e in CardEntry.query.filter(
+                    CardEntry.expense_id != None, CardEntry.status == "ativo"
+                ).all()
+            )
+            today = _date.today()
             generated = 0
-            for entry in parcelados:
-                if not entry.installments or entry.installments <= 1:
+            for eid in expense_ids:
+                exp = Expense.query.get(eid)
+                if not exp:
                     continue
-                first_date = _add_months(entry.entry_date, 1 - (entry.installment_no or 1))
-                payer = entry.user_id
-                for i in range(1, entry.installments + 1):
-                    parcel_date = _add_months(first_date, i - 1)
-                    mes_nome = MESES[parcel_date.month - 1]
-                    desc = f"{entry.description} - excedente {mes_nome}"
-                    existing = Expense.query.filter(
-                        Expense.payer_id == payer,
-                        Expense.description == desc,
-                        Expense.kind == "pontual",
-                        Expense.spent_at == parcel_date,
-                    ).first()
-                    if existing:
-                        continue
-                    novo = Expense(
-                        payer_id=payer,
-                        description=desc,
-                        amount=entry.amount,
-                        kind="pontual",
-                        share_mode="solo",
-                        category=entry.category or "Outros",
-                        spent_at=parcel_date,
-                    )
-                    db.session.add(novo)
-                    db.session.flush()
-                    db.session.add(ExpenseShare(
-                        expense_id=novo.id,
-                        user_id=payer,
-                        share_amount=_Dec(str(float(entry.amount))),
-                        share_percent=_Dec("100"),
-                    ))
-                    generated += 1
+                planejado = float(exp.amount)
+                payer = exp.payer_id
+                parcelados = CardEntry.query.filter_by(
+                    expense_id=eid, kind="parcelado", status="ativo"
+                ).all()
+                if not parcelados:
+                    total = sum(float(e.amount) for e in CardEntry.query.filter_by(
+                        expense_id=eid, status="ativo").all())
+                    excedente = round(total - planejado, 2)
+                    if excedente > 0:
+                        mes_nome = MESES[today.month - 1]
+                        desc = f"{exp.description} - excedente {mes_nome}"
+                        novo = Expense(payer_id=payer, description=desc,
+                            amount=excedente, kind="pontual", share_mode="solo",
+                            category=exp.category, spent_at=today)
+                        db.session.add(novo)
+                        db.session.flush()
+                        db.session.add(ExpenseShare(expense_id=novo.id, user_id=payer,
+                            share_amount=_Dec(str(excedente)), share_percent=_Dec("100")))
+                        generated += 1
+                else:
+                    month_totals = {}
+                    for entry in parcelados:
+                        if not entry.installments:
+                            continue
+                        first_date = _add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+                        for i in range(1, entry.installments + 1):
+                            d = _add_months(first_date, i - 1)
+                            key = (d.year, d.month)
+                            month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
+                    for (year, month), total in month_totals.items():
+                        excedente = round(total - planejado, 2)
+                        if excedente <= 0:
+                            continue
+                        mes_nome = MESES[month - 1]
+                        desc = f"{exp.description} - excedente {mes_nome}"
+                        dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+                        novo = Expense(payer_id=payer, description=desc,
+                            amount=excedente, kind="pontual", share_mode="solo",
+                            category=exp.category, spent_at=dt)
+                        db.session.add(novo)
+                        db.session.flush()
+                        db.session.add(ExpenseShare(expense_id=novo.id, user_id=payer,
+                            share_amount=_Dec(str(excedente)), share_percent=_Dec("100")))
+                        generated += 1
             if generated:
                 db.session.commit()
-                print(f"[migrate] {generated} excedente(s) de parcelados projetados corretamente")
+                print(f"[migrate] {generated} excedente(s) reprojetado(s) corretamente")
         except Exception as e:
             db.session.rollback()
-            print(f"[migrate] erro ao corrigir parcelados: {e}")
+            print(f"[migrate] erro ao reprojetar excedentes: {e}")
 
-        # 4. Admin
+                # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
         try:
