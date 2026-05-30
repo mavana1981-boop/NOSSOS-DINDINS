@@ -228,7 +228,7 @@ def list_cards():
     from collections import defaultdict
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}})
     for card in cards:
-        entries = CardEntry.query.filter_by(card_id=card.id, status="ativo").all()
+        entries = CardEntry.query.filter(CardEntry.card_id == card.id, (CardEntry.status == "ativo") | (CardEntry.status == None)).all()
         for entry in entries:
             if entry.expense_id and entry.expense:
                 key = entry.expense.description
