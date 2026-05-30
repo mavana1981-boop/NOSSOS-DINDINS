@@ -49,6 +49,17 @@ def bootstrap():
         except Exception:
             pass
 
+        # 3b2. Corrige card_entries com status NULL para ativo
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text(
+                    "UPDATE card_entries SET status = 'ativo' WHERE status IS NULL"
+                ))
+                conn.commit()
+                print("[migrate] card_entries sem status corrigidos para ativo")
+        except Exception as e:
+            print(f"[migrate] erro ao corrigir status: {e}")
+
         # 3c. Corrige excedentes de parcelados
         try:
             from app.models import CardEntry, Expense, ExpenseShare
