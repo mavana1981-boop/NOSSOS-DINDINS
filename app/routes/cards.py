@@ -226,17 +226,23 @@ def list_cards():
 
     # Consolidado: soma lançamentos por nome do gasto, agrupando entre todos os cartões
     from collections import defaultdict
-    consolidated = defaultdict(lambda: {"total": 0.0, "cards": {}})
+    consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}})
     for card in cards:
-        entries = CardEntry.query.filter_by(card_id=card.id).all()
+        entries = CardEntry.query.filter_by(card_id=card.id, status="ativo").all()
         for entry in entries:
-            key = entry.expense.description if (entry.expense_id and entry.expense) else entry.description
+            if entry.expense_id and entry.expense:
+                key = entry.expense.description
+                consolidated[key]["planned"] = float(entry.expense.amount)
+            else:
+                key = entry.description
             consolidated[key]["total"] += float(entry.amount)
             consolidated[key]["cards"][card.name] = \
                 consolidated[key]["cards"].get(card.name, 0.0) + float(entry.amount)
 
     consolidated_sorted = sorted(
-        [{"name": k, "total": v["total"], "cards": v["cards"]}
+        [{"name": k, "total": v["total"], "planned": v["planned"],
+          "pct": round(v["total"]/v["planned"]*100,1) if v["planned"] > 0 else None,
+          "cards": v["cards"]}
          for k, v in consolidated.items()],
         key=lambda x: x["total"], reverse=True
     )
