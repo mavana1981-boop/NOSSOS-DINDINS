@@ -74,6 +74,61 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro ao corrigir excedentes: {e}")
 
+        # 3c. Gera gastos eventuais para parcelados existentes
+        try:
+            from app.models import CardEntry, Expense, ExpenseShare
+            from decimal import Decimal as _Dec
+            from datetime import date as _date
+            import calendar
+
+            def _add_months(dt, n):
+                month = dt.month - 1 + n
+                year = dt.year + month // 12
+                month = month % 12 + 1
+                day = min(dt.day, calendar.monthrange(year, month)[1])
+                return _date(year, month, day)
+
+            parcelados = CardEntry.query.filter_by(kind="parcelado", status="ativo").all()
+            generated = 0
+            for entry in parcelados:
+                if not entry.installments or entry.installments <= 1:
+                    continue
+                first_date = _add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+                payer = entry.user_id
+                for i in range(1, entry.installments + 1):
+                    parcel_date = _add_months(first_date, i - 1)
+                    desc = f"{entry.description} - parcela {i}/{entry.installments}"
+                    existing = Expense.query.filter(
+                        Expense.payer_id == payer,
+                        Expense.description == desc,
+                        Expense.kind == "pontual"
+                    ).first()
+                    if existing:
+                        continue
+                    novo = Expense(
+                        payer_id=payer,
+                        description=desc,
+                        amount=entry.amount,
+                        kind="pontual",
+                        share_mode="solo",
+                        category=entry.category or "Outros",
+                        spent_at=parcel_date,
+                    )
+                    db.session.add(novo)
+                    db.session.flush()
+                    db.session.add(ExpenseShare(
+                        expense_id=novo.id,
+                        user_id=payer,
+                        share_amount=_Dec(str(float(entry.amount))),
+                        share_percent=_Dec("100"),
+                    ))
+                    generated += 1
+            if generated:
+                db.session.commit()
+                print(f"[migrate] {generated} parcela(s) gerada(s) em Gastos")
+        except Exception as e:
+            print(f"[migrate] erro ao gerar parcelas: {e}")
+
         # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
