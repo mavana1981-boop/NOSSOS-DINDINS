@@ -226,24 +226,31 @@ def list_cards():
 
     # Consolidado: soma lançamentos por nome do gasto, agrupando entre todos os cartões
     from collections import defaultdict
+    # Consolidado: todos lançamentos do usuário agrupados por gasto vinculado
+    card_ids = [card.id for card in cards]
+    card_map = {card.id: card.name for card in cards}
+    all_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all() if card_ids else []
+
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
-    for card in cards:
-        card_entries = CardEntry.query.filter(CardEntry.card_id == card.id, (CardEntry.status == "ativo") | (CardEntry.status == None)).all()
-        for entry in card_entries:
-            if entry.expense_id and entry.expense:
-                key = entry.expense.description
-                consolidated[key]["planned"] = float(entry.expense.amount)
-            else:
-                key = entry.description
-            consolidated[key]["total"] += float(entry.amount)
-            consolidated[key]["cards"][card.name] = \
-                consolidated[key]["cards"].get(card.name, 0.0) + float(entry.amount)
-            consolidated[key]["entries"].append({
-                "desc": entry.description,
-                "card": card.name,
-                "amount": float(entry.amount),
-                "date": entry.entry_date.strftime("%d/%m/%Y") if entry.entry_date else ""
-            })
+    for entry in all_entries:
+        if entry.expense_id and entry.expense:
+            key = entry.expense.description
+            consolidated[key]["planned"] = float(entry.expense.amount)
+        else:
+            key = entry.description
+        card_name = card_map.get(entry.card_id, "?")
+        consolidated[key]["total"] += float(entry.amount)
+        consolidated[key]["cards"][card_name] = \
+            consolidated[key]["cards"].get(card_name, 0.0) + float(entry.amount)
+        consolidated[key]["entries"].append({
+            "desc": entry.description,
+            "card": card_name,
+            "amount": float(entry.amount),
+            "date": entry.entry_date.strftime("%d/%m/%Y") if entry.entry_date else ""
+        })
 
     consolidated_sorted = sorted(
         [{"name": k, "total": v["total"], "planned": v["planned"],
