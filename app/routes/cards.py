@@ -30,7 +30,7 @@ def _get_user_fixed_expenses():
 # ── Excedente ─────────────────────────────────────────────────────────────────
 
 def _check_excedente(expense_id):
-    """Verifica excedente do mês atual e projeta excedentes futuros para parcelados."""
+    """Verifica excedente do mês atual. Para parcelados, projeta meses futuros."""
     from datetime import date as _date
     from app.models import ExpenseShare as _Share
     from decimal import Decimal as _Dec
@@ -86,23 +86,21 @@ def _check_excedente(expense_id):
     payer = exp.payer_id
     today = _date.today()
 
-    # Busca todos os parcelados vinculados a este gasto
+    # Verifica mês atual com todos os lançamentos
+    total_atual = sum(float(e.amount) for e in CardEntry.query.filter_by(
+        expense_id=exp.id, status="ativo").all())
+    mes_nome = MESES[today.month - 1]
+    desc_atual = f"{exp.description} - excedente {mes_nome}"
+    excedente_atual = round(total_atual - planejado, 2)
+    set_excedente(payer, desc_atual, max(excedente_atual, 0), exp.category, today)
+
+    # Para parcelados: projeta excedentes nos meses futuros
     parcelados = CardEntry.query.filter_by(
         expense_id=exp.id, kind="parcelado", status="ativo"
     ).all()
-
     if not parcelados:
-        # Sem parcelados: verifica só mês atual com todos lançamentos
-        total = sum(float(e.amount) for e in CardEntry.query.filter_by(
-            expense_id=exp.id, status="ativo").all())
-        mes_nome = MESES[today.month - 1]
-        desc = f"{exp.description} - excedente {mes_nome}"
-        excedente = round(total - planejado, 2)
-        set_excedente(payer, desc, max(excedente, 0), exp.category, today)
         return
 
-    # Com parcelados: projeta mês a mês
-    # Monta mapa de {(year,month): total_parcelado_projetado}
     month_totals = {}
     for entry in parcelados:
         if not entry.installments:
@@ -110,23 +108,15 @@ def _check_excedente(expense_id):
         first_date = add_months(entry.entry_date, 1 - (entry.installment_no or 1))
         for i in range(1, entry.installments + 1):
             d = add_months(first_date, i - 1)
+            if d.year == today.year and d.month == today.month:
+                continue  # mês atual já tratado acima
             key = (d.year, d.month)
             month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
 
-    # Também soma lançamentos não-parcelados do mês atual
-    nao_parcelados = sum(
-        float(e.amount) for e in CardEntry.query.filter_by(
-            expense_id=exp.id, status="ativo"
-        ).all() if e.kind != "parcelado"
-    )
-
     for (year, month), total in month_totals.items():
-        if year == today.year and month == today.month:
-            total += nao_parcelados
         excedente = round(total - planejado, 2)
         mes_nome = MESES[month - 1]
         desc = f"{exp.description} - excedente {mes_nome}"
-        import datetime
         dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
         set_excedente(payer, desc, max(excedente, 0), exp.category, dt)
 
