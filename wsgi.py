@@ -74,7 +74,7 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro ao corrigir excedentes: {e}")
 
-        # 3c. Projeta excedentes de parcelados existentes
+        # 3c. Limpa gastos de parcelados gerados errado e reprojeta
         try:
             from app.models import CardEntry, Expense, ExpenseShare
             from decimal import Decimal as _Dec
@@ -91,6 +91,35 @@ def bootstrap():
                 day = min(dt.day, calendar.monthrange(year, month)[1])
                 return _date(year, month, day)
 
+            # 1. Remove gastos gerados errado (formato "- parcela X/N")
+            errados = Expense.query.filter(
+                Expense.description.like("% - parcela %/%")
+            ).all()
+            removed = 0
+            for exp in errados:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+                removed += 1
+            if removed:
+                db.session.commit()
+                print(f"[migrate] {removed} gasto(s) de parcela incorreto(s) removido(s)")
+
+            # 2. Remove excedentes de parcelados duplicados (mesmo desc+data)
+            seen = set()
+            duplicados = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).order_by(Expense.id).all()
+            for exp in duplicados:
+                key = (exp.payer_id, exp.description, str(exp.spent_at))
+                if key in seen:
+                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                    db.session.delete(exp)
+                else:
+                    seen.add(key)
+            db.session.commit()
+
+            # 3. Projeta corretamente
             parcelados = CardEntry.query.filter_by(kind="parcelado", status="ativo").all()
             generated = 0
             for entry in parcelados:
@@ -130,9 +159,10 @@ def bootstrap():
                     generated += 1
             if generated:
                 db.session.commit()
-                print(f"[migrate] {generated} excedente(s) de parcelados projetados")
+                print(f"[migrate] {generated} excedente(s) de parcelados projetados corretamente")
         except Exception as e:
-            print(f"[migrate] erro ao projetar parcelados: {e}")
+            db.session.rollback()
+            print(f"[migrate] erro ao corrigir parcelados: {e}")
 
         # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
