@@ -1,5 +1,49 @@
 {% extends "base.html" %}
-{% block title %}Fluxo de Caixa {{ year }}{% endblock %}
+{% block title %}Fluxo de Caixa {{ year }}<!-- Modal eventual -->
+<div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;
+    max-width:480px;width:90%;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 id="ev-title" style="margin:0;">Gastos eventuais</h3>
+      <button onclick="document.getElementById('ev-modal').style.display='none'"
+        style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">x</button>
+    </div>
+    <table style="width:100%;"><tbody id="ev-list"></tbody>
+      <tfoot><tr style="border-top:2px solid var(--border-strong);">
+        <td><strong>Total</strong></td>
+        <td class="text-right mono" id="ev-total" style="color:var(--red);font-weight:700;"></td>
+      </tr></tfoot>
+    </table>
+  </div>
+</div>
+<script>
+function loadEventual(idx, year) {
+  fetch('/fluxo/eventual-json?year=' + year)
+    .then(r => r.json())
+    .then(data => {
+      var items = data[idx] || [];
+      var list = document.getElementById('ev-list');
+      var total = document.getElementById('ev-total');
+      list.innerHTML = '';
+      var sum = 0;
+      items.forEach(function(item) {
+        sum += item.amount;
+        var tr = document.createElement('tr');
+        tr.style.borderTop = '1px solid var(--border)';
+        tr.innerHTML = '<td style="padding:6px 4px;">' + item.desc + '</td>' +
+          '<td class="text-right mono" style="padding:6px 4px;color:var(--red);">' +
+          item.amount.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</td>';
+        list.appendChild(tr);
+      });
+      total.textContent = sum.toLocaleString('pt-BR',{minimumFractionDigits:2});
+      var modal = document.getElementById('ev-modal');
+      modal.style.display = 'flex';
+      modal.onclick = function(e) { if(e.target===modal) modal.style.display='none'; };
+    });
+}
+</script>
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -109,8 +153,8 @@
           <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
           <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
           <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
-          <td class="text-right amount eventual-cell" style="color:var(--red);cursor:pointer;"
-              data-idx="{{ loop.index0 }}">
+          <td class="text-right amount" style="color:var(--red);cursor:pointer;"
+              onclick="loadEventual({{ loop.index0 }}, {{ year }})">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
@@ -135,63 +179,4 @@
     </table>
   </div>
 </div>
-
-<script id="eventual-json" type="application/json">{{ eventual_data }}</script>
-
-<!-- Modal eventual -->
-<div id="eventual-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
-  background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
-  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;
-    max-width:480px;width:90%;max-height:80vh;overflow-y:auto;position:relative;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h3 style="margin:0;">Gastos eventuais</h3>
-      <button onclick="closeEventual()" style="background:none;border:none;font-size:1.4rem;
-        cursor:pointer;color:var(--text-faint);">×</button>
-    </div>
-    <table style="width:100%;">
-      <tbody id="eventual-list"></tbody>
-      <tfoot>
-        <tr style="border-top:2px solid var(--border-strong);">
-          <td><strong>Total</strong></td>
-          <td class="text-right mono" id="eventual-total" style="font-weight:700;color:var(--red);"></td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-</div>
-
-<script>
-var EVENTUAL_DATA = JSON.parse(document.getElementById('eventual-json').textContent);
-
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('.eventual-cell').forEach(function(td) {
-    td.addEventListener('click', function() {
-      const items = EVENTUAL_DATA[parseInt(td.getAttribute('data-idx'))] || [];
-      const list = document.getElementById('eventual-list');
-      const total = document.getElementById('eventual-total');
-      list.innerHTML = '';
-      let sum = 0;
-      items.forEach(function(item) {
-        sum += item.amount;
-        const tr = document.createElement('tr');
-        tr.style.borderTop = '1px solid var(--border)';
-        tr.innerHTML = '<td style="padding:6px 4px;">' + item.desc + '</td>' +
-          '<td class="text-right mono" style="padding:6px 4px;color:var(--red);">' +
-          item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) +
-          '</td>';
-        list.appendChild(tr);
-      });
-      total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-      const modal = document.getElementById('eventual-modal');
-      modal.style.display = 'flex';
-      modal.onclick = function(e) { if (e.target === modal) closeEventual(); };
-    });
-  });
-});
-
-function showEventual(idx, items) {}
-function closeEventual() {
-  document.getElementById('eventual-modal').style.display = 'none';
-}
-</script>
 
