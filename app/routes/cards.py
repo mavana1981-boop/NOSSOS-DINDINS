@@ -119,61 +119,6 @@ def fix_excedentes():
     return f"<pre>Corrigidos {fixed} de {len(excedentes)} excedentes.</pre>"
 
 
-def _generate_installment_expenses(entry):
-    """Gera gastos eventuais no menu Gastos para cada parcela de um lançamento parcelado."""
-    if entry.kind != "parcelado" or not entry.installments or entry.installments <= 1:
-        return
-    from app.models import ExpenseShare as _Share
-    from decimal import Decimal as _Dec
-    from datetime import date as _date
-    import calendar
-
-    def add_months(dt, n):
-        month = dt.month - 1 + n
-        year = dt.year + month // 12
-        month = month % 12 + 1
-        day = min(dt.day, calendar.monthrange(year, month)[1])
-        return _date(year, month, day)
-
-    # Data da parcela atual
-    base_date = entry.entry_date
-    # Calcula data da parcela 1
-    first_date = add_months(base_date, 1 - (entry.installment_no or 1))
-    payer = entry.user_id
-
-    for i in range(1, entry.installments + 1):
-        parcel_date = add_months(first_date, i - 1)
-        desc = f"{entry.description} - parcela {i}/{entry.installments}"
-
-        # Evita duplicar
-        existing = Expense.query.filter(
-            Expense.payer_id == payer,
-            Expense.description == desc,
-            Expense.kind == "pontual"
-        ).first()
-        if existing:
-            continue
-
-        novo = Expense(
-            payer_id=payer,
-            description=desc,
-            amount=entry.amount,
-            kind="pontual",
-            share_mode="solo",
-            category=entry.category or "Outros",
-            spent_at=parcel_date,
-        )
-        db.session.add(novo)
-        db.session.flush()
-        db.session.add(_Share(
-            expense_id=novo.id,
-            user_id=payer,
-            share_amount=_Dec(str(float(entry.amount))),
-            share_percent=_Dec("100"),
-        ))
-
-    db.session.commit()
-
 
 # ── Cartões ───────────────────────────────────────────────────────────────────
 
@@ -425,8 +370,8 @@ def _save_entry(entry, card):
     if entry.expense_id:
         _check_excedente(entry.expense_id)
 
-    # Gera gastos eventuais para parcelas
-    _generate_installment_expenses(entry)
+    # Projeta parcelas futuras como eventuais
+    _project_parcelado_excedentes(entry)
 
     flash("Lançamento salvo.", "success")
     return redirect(url_for("cards.detail_card", card_id=card.id))
@@ -666,7 +611,7 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     if entry.expense_id:
         _check_excedente(entry.expense_id)
 
-    _generate_installment_expenses(entry)
+    _project_parcelado_excedentes(entry)
 
     flash("Lançamento aprovado.", "success")
     return redirect(url_for("cards.batch_review",
