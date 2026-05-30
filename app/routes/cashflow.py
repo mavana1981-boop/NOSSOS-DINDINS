@@ -42,11 +42,17 @@ def index():
         1,
     )
 
-    from markupsafe import Markup
-    import json
-    eventual_data = Markup(json.dumps([m.get("eventual_items", []) for m in months]))
     return render_template("cashflow.html",
                            year=year, months=months, totals=totals,
                            max_value=max_value,
-                           eventual_data=eventual_data,
                            current_year=date.today().year)
+
+
+@cashflow_bp.route("/eventual-json")
+@login_required
+def eventual_json():
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    months = get_yearly_cashflow(current_user.id, year)
+    data = [m.get("eventual_items", []) for m in months]
+    return jsonify(data)
