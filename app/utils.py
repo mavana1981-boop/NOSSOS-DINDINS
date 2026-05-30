@@ -150,6 +150,7 @@ def get_yearly_cashflow(user_id, year):
         income_total = income_recurring + income_eventual
         fixed_total = 0.0
         eventual_total = 0.0
+        eventual_items = []
         for exp, share in expenses:
             if not exp.is_active_on(year, m):
                 continue
@@ -161,6 +162,10 @@ def get_yearly_cashflow(user_id, year):
                 fixed_total += v
             else:
                 eventual_total += v
+                eventual_items.append({
+                    "desc": exp.description,
+                    "amount": v,
+                })
         net = income_total - fixed_total - eventual_total
         cumulative += net
         result.append({
@@ -171,6 +176,7 @@ def get_yearly_cashflow(user_id, year):
             "income_eventual": income_eventual,
             "fixed_expense": fixed_total,
             "eventual_expense": eventual_total,
+            "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
             "total_expense": fixed_total + eventual_total,
             "net": net,
             "cumulative": cumulative,
