@@ -49,50 +49,119 @@ def bootstrap():
         except Exception:
             pass
 
-        # 3c. Limpa excedentes indevidos via SQL direto
+        # 3c. Corrige excedentes de parcelados
         try:
-            with db.engine.connect() as conn:
-                # Remove expense_shares de excedentes não-parcelados
-                conn.execute(text("""
-                    DELETE FROM expense_shares
-                    WHERE expense_id IN (
-                        SELECT e.id FROM expenses e
-                        WHERE e.description LIKE '% - excedente %'
-                        AND e.kind = 'pontual'
-                        AND e.id NOT IN (
-                            SELECT DISTINCT ce.expense_id FROM card_entries ce
-                            WHERE ce.kind = 'parcelado'
-                            AND ce.status = 'ativo'
-                            AND ce.expense_id IS NOT NULL
-                        )
+            from app.models import CardEntry, Expense, ExpenseShare
+            from decimal import Decimal as _Dec
+            from datetime import date as _date
+            import calendar
+
+            MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                     "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+
+            def _add_months(dt, n):
+                month = dt.month - 1 + n
+                year = dt.year + month // 12
+                month = month % 12 + 1
+                day = min(dt.day, calendar.monthrange(year, month)[1])
+                return _date(year, month, day)
+
+            today = _date.today()
+
+            # IDs de expenses que têm parcelados vinculados
+            expense_ids_parcelados = set(
+                e.expense_id for e in CardEntry.query.filter(
+                    CardEntry.expense_id != None,
+                    CardEntry.kind == "parcelado",
+                    CardEntry.status == "ativo"
+                ).all()
+            )
+
+            # Remove APENAS excedentes cujo expense pai NÃO tem parcelados
+            # (foram gerados indevidamente para gastos normais como Restaurante)
+            todos_excedentes = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).all()
+
+            removed = 0
+            for exp in todos_excedentes:
+                # Descobre qual expense pai gerou este excedente pelo nome
+                # Ex: "Restaurante - excedente Maio" -> pai é "Restaurante"
+                pai_desc = exp.description.split(" - excedente ")[0]
+                pai = Expense.query.filter(
+                    Expense.payer_id == exp.payer_id,
+                    Expense.description == pai_desc,
+                ).first()
+                if pai and pai.id not in expense_ids_parcelados:
+                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                    db.session.delete(exp)
+                    removed += 1
+
+            if removed:
+                db.session.commit()
+                print(f"[migrate] {removed} excedente(s) indevido(s) removido(s)")
+
+            # Projeta excedentes para parcelados
+            generated = 0
+            for eid in expense_ids_parcelados:
+                exp = Expense.query.get(eid)
+                if not exp:
+                    continue
+                planejado = float(exp.amount)
+                payer = exp.payer_id
+
+                parcelados = CardEntry.query.filter_by(
+                    expense_id=eid, kind="parcelado", status="ativo"
+                ).all()
+
+                month_totals = {}
+                for entry in parcelados:
+                    if not entry.installments:
+                        continue
+                    first_date = _add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+                    for i in range(1, entry.installments + 1):
+                        d = _add_months(first_date, i - 1)
+                        key = (d.year, d.month)
+                        month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
+
+                for (year, month), total in month_totals.items():
+                    excedente = round(total - planejado, 2)
+                    if excedente <= 0:
+                        continue
+                    mes_nome = MESES[month - 1]
+                    desc = f"{exp.description} - excedente {mes_nome}"
+                    dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+                    # Só cria se não existe
+                    existing = Expense.query.filter(
+                        Expense.payer_id == payer,
+                        Expense.description == desc,
+                        Expense.kind == "pontual",
+                        Expense.spent_at == dt,
+                    ).first()
+                    if existing:
+                        continue
+                    novo = Expense(
+                        payer_id=payer, description=desc, amount=excedente,
+                        kind="pontual", share_mode="solo",
+                        category=exp.category, spent_at=dt
                     )
-                """))
-                # Remove os gastos excedentes não-parcelados
-                conn.execute(text("""
-                    DELETE FROM expenses
-                    WHERE description LIKE '% - excedente %'
-                    AND kind = 'pontual'
-                    AND id NOT IN (
-                        SELECT DISTINCT ce.expense_id FROM card_entries ce
-                        WHERE ce.kind = 'parcelado'
-                        AND ce.status = 'ativo'
-                        AND ce.expense_id IS NOT NULL
-                    )
-                """))
-                # Remove formato errado "- parcela X/N"
-                conn.execute(text("""
-                    DELETE FROM expense_shares
-                    WHERE expense_id IN (
-                        SELECT id FROM expenses WHERE description LIKE '% - parcela %/%'
-                    )
-                """))
-                conn.execute(text("""
-                    DELETE FROM expenses WHERE description LIKE '% - parcela %/%'
-                """))
-                conn.commit()
-                print("[migrate] excedentes indevidos removidos via SQL")
+                    db.session.add(novo)
+                    db.session.flush()
+                    db.session.add(ExpenseShare(
+                        expense_id=novo.id, user_id=payer,
+                        share_amount=_Dec(str(excedente)),
+                        share_percent=_Dec("100")
+                    ))
+                    generated += 1
+
+            if generated:
+                db.session.commit()
+                print(f"[migrate] {generated} excedente(s) de parcelados projetados")
+
         except Exception as e:
-            print(f"[migrate] erro SQL limpeza: {e}")
+            db.session.rollback()
+            print(f"[migrate] erro excedentes: {e}")
 
                 # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
