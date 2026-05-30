@@ -124,28 +124,95 @@ def _check_excedente(expense_id):
 @cards_bp.route("/fix-excedentes")
 @login_required
 def fix_excedentes():
-    """Rota temporária: adiciona ExpenseShare nos excedentes que não têm."""
+    """Limpa excedentes não-parcelados gerados indevidamente e reprojeta só parcelados."""
     from app.models import ExpenseShare as _Share
     from decimal import Decimal as _Dec
+    from datetime import date as _date
+    import calendar
     if not current_user.is_admin:
         abort(403)
-    excedentes = Expense.query.filter(
+
+    MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+
+    def add_months(dt, n):
+        month = dt.month - 1 + n
+        year = dt.year + month // 12
+        month = month % 12 + 1
+        day = min(dt.day, calendar.monthrange(year, month)[1])
+        return _date(year, month, day)
+
+    # IDs de gastos que têm parcelados vinculados
+    parcelado_expense_ids = set(
+        e.expense_id for e in CardEntry.query.filter(
+            CardEntry.expense_id != None,
+            CardEntry.kind == "parcelado",
+            CardEntry.status == "ativo"
+        ).all()
+    )
+
+    # Remove TODOS os excedentes gerados automaticamente
+    todos = Expense.query.filter(
         Expense.description.like("% - excedente %"),
         Expense.kind == "pontual"
     ).all()
-    fixed = 0
-    for exp in excedentes:
-        share = _Share.query.filter_by(expense_id=exp.id).first()
-        if not share:
-            db.session.add(_Share(
-                expense_id=exp.id,
-                user_id=exp.payer_id,
-                share_amount=_Dec(str(float(exp.amount))),
-                share_percent=_Dec("100"),
-            ))
-            fixed += 1
+    removed = len(todos)
+    for exp in todos:
+        _Share.query.filter_by(expense_id=exp.id).delete()
+        db.session.delete(exp)
     db.session.commit()
-    return f"<pre>Corrigidos {fixed} de {len(excedentes)} excedentes.</pre>"
+
+    # Recria só para parcelados
+    today = _date.today()
+    generated = 0
+    for eid in parcelado_expense_ids:
+        exp = Expense.query.get(eid)
+        if not exp:
+            continue
+        planejado = float(exp.amount)
+        payer = exp.payer_id
+        parcelados = CardEntry.query.filter_by(
+            expense_id=eid, kind="parcelado", status="ativo"
+        ).all()
+        month_totals = {}
+        for entry in parcelados:
+            if not entry.installments:
+                continue
+            first_date = add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+            for i in range(1, entry.installments + 1):
+                d = add_months(first_date, i - 1)
+                key = (d.year, d.month)
+                month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
+        for (year, month), total in month_totals.items():
+            excedente = round(total - planejado, 2)
+            if excedente <= 0:
+                continue
+            mes_nome = MESES[month - 1]
+            desc = f"{exp.description} - excedente {mes_nome}"
+            dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+            novo = Expense(
+                payer_id=payer, description=desc, amount=excedente,
+                kind="pontual", share_mode="solo",
+                category=exp.category, spent_at=dt
+            )
+            db.session.add(novo)
+            db.session.flush()
+            db.session.add(_Share(
+                expense_id=novo.id, user_id=payer,
+                share_amount=_Dec(str(excedente)),
+                share_percent=_Dec("100")
+            ))
+            generated += 1
+    db.session.commit()
+
+    # Remove também gastos formato "- parcela X/N"
+    errados = Expense.query.filter(Expense.description.like("% - parcela %/%")).all()
+    for exp in errados:
+        _Share.query.filter_by(expense_id=exp.id).delete()
+        db.session.delete(exp)
+    db.session.commit()
+
+    return f"<pre>Removidos: {removed} excedentes antigos\nGerados: {generated} excedentes de parcelados\nErrados removidos: {len(errados)}</pre>"
 
 
 
