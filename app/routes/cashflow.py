@@ -17,6 +17,8 @@ def index():
     if jan_next:
         jan = dict(jan_next[0])
         jan["is_next_year"] = True
+        if "eventual_items" not in jan:
+            jan["eventual_items"] = []
         # Acumulado continua a partir do acumulado de dezembro
         dec_cumulative = months[-1]["cumulative"] if months else 0.0
         jan["cumulative"] = dec_cumulative + jan["net"]
