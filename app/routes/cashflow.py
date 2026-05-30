@@ -42,8 +42,9 @@ def index():
         1,
     )
 
+    from markupsafe import Markup
     import json
-    eventual_data = json.dumps([m.get("eventual_items", []) for m in months])
+    eventual_data = Markup(json.dumps([m.get("eventual_items", []) for m in months]))
     return render_template("cashflow.html",
                            year=year, months=months, totals=totals,
                            max_value=max_value,
