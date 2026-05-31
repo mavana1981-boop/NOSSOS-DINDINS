@@ -23,47 +23,52 @@ def _parse_decimal(s):
 
 def _sync_card_entry(expense, old_card_id=None):
     """
-    Sincroniza o lançamento no cartão conforme o vínculo do gasto.
-    - Se tinha cartão antigo diferente do novo: remove entrada antiga
-    - Se tem cartão novo: cria ou atualiza entrada
-    - Se removeu cartão: remove entrada existente
+    Sincroniza APENAS o lançamento automático no cartão.
+    NUNCA toca em lançamentos avulsos (importados ou cadastrados manualmente).
+    Lançamentos automáticos são identificados pelo notes "Lançamento automático".
     """
-    # Remove entrada do cartão antigo se mudou de cartão
+    def is_auto(entry):
+        return entry.notes and "Lançamento automático" in entry.notes
+
+    # Remove lançamento automático do cartão antigo se mudou de cartão
     if old_card_id and old_card_id != expense.card_id:
         old_entry = CardEntry.query.filter_by(
             expense_id=expense.id, card_id=old_card_id
         ).first()
-        if old_entry:
+        if old_entry and is_auto(old_entry):
             db.session.delete(old_entry)
 
-    # Remove entrada se cartão foi desvinculado
+    # Se cartão foi desvinculado, remove apenas lançamento automático
     if not expense.card_id:
-        entries = CardEntry.query.filter_by(expense_id=expense.id).all()
-        for e in entries:
-            db.session.delete(e)
+        for e in CardEntry.query.filter_by(expense_id=expense.id).all():
+            if is_auto(e):
+                db.session.delete(e)
         return
 
-    # Cria ou atualiza entrada no cartão atual
-    entry = CardEntry.query.filter_by(
-        expense_id=expense.id, card_id=expense.card_id
-    ).first()
+    # Busca lançamento automático existente neste cartão
+    auto_entry = None
+    for e in CardEntry.query.filter_by(expense_id=expense.id, card_id=expense.card_id).all():
+        if is_auto(e):
+            auto_entry = e
+            break
 
-    if entry is None:
-        entry = CardEntry(
+    if auto_entry is None:
+        auto_entry = CardEntry(
             card_id=expense.card_id,
             user_id=expense.payer_id,
             expense_id=expense.id,
+            notes=f"Lançamento automático — {expense.kind}",
         )
-        db.session.add(entry)
+        db.session.add(auto_entry)
 
-    entry.description = expense.description
-    entry.amount = expense.amount
-    entry.entry_date = expense.spent_at
-    entry.category = expense.category
-    entry.installments = expense.recurrence_months or 1
-    entry.installment_no = 1
-    entry.status = "ativo"
-    entry.notes = f"Lançamento automático — {expense.kind}"
+    auto_entry.description = expense.description
+    auto_entry.amount = expense.amount
+    auto_entry.entry_date = expense.spent_at
+    auto_entry.category = expense.category
+    auto_entry.installments = expense.recurrence_months or 1
+    auto_entry.installment_no = 1
+    auto_entry.status = "ativo"
+    auto_entry.notes = f"Lançamento automático — {expense.kind}"
 
 
 @expenses_bp.route("/")
