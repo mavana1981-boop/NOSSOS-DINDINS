@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 {% block title %}{{ card.name }}<script>
 function atualizarBarra() {
@@ -178,13 +177,13 @@ function excluirSelecionados() {
           <td>
             <button type="button" class="btn btn-ghost btn-sm"
                     onclick="toggleEntries(this)">▼ ver</button>
+            <!-- Barra seleção em massa por gasto - FORA do entries-list -->
+            <div class="bulk-bar-exp" style="display:none;padding:6px 4px;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;" id="bulk-exp-bar-{{ expense_id }}">
+              <span class="text-small text-dim bulk-exp-count">0 selecionados</span>
+              <button class="btn btn-danger btn-sm" onclick="excluirSelecionadosExp({{ expense_id }})">× Excluir selecionados</button>
+              <button class="btn btn-ghost btn-sm" onclick="desmarcarExp({{ expense_id }})">Desmarcar</button>
+            </div>
             <div class="entries-list" style="display:none;margin-top:6px;">
-              <!-- Barra seleção em massa por gasto -->
-              <div class="bulk-bar-exp" style="display:none;padding:6px 0;gap:8px;align-items:center;flex-wrap:wrap;" id="bulk-exp-bar-{{ expense_id }}">
-                <span class="text-small text-dim bulk-exp-count">0 selecionados</span>
-                <button class="btn btn-danger btn-sm" onclick="excluirSelecionadosExp({{ expense_id }})">× Excluir selecionados</button>
-                <button class="btn btn-ghost btn-sm" onclick="desmarcarExp({{ expense_id }})">Desmarcar</button>
-              </div>
               <div style="padding:4px 0;border-bottom:1px solid var(--border);">
                 <label style="font-size:0.75rem;color:var(--text-faint);cursor:pointer;">
                   <input type="checkbox" id="chk-all-exp-{{ expense_id }}"
