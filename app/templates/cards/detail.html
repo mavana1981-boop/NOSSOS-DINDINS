@@ -1,5 +1,47 @@
 {% extends "base.html" %}
-{% block title %}{{ card.name }}{% endblock %}
+{% block title %}{{ card.name }}<script>
+function atualizarBarra() {
+  var selecionados = document.querySelectorAll('.entry-chk:checked');
+  var bar = document.getElementById('bulk-bar');
+  var count = document.getElementById('bulk-count');
+  bar.style.display = selecionados.length > 0 ? 'flex' : 'none';
+  count.textContent = selecionados.length + ' selecionado(s)';
+  document.getElementById('chk-all').indeterminate =
+    selecionados.length > 0 && selecionados.length < document.querySelectorAll('.entry-chk').length;
+}
+
+function toggleAll(chk) {
+  document.querySelectorAll('.entry-chk').forEach(function(c) { c.checked = chk.checked; });
+  atualizarBarra();
+}
+
+function desmarcarTodos() {
+  document.querySelectorAll('.entry-chk').forEach(function(c) { c.checked = false; });
+  document.getElementById('chk-all').checked = false;
+  atualizarBarra();
+}
+
+function excluirSelecionados() {
+  var selecionados = document.querySelectorAll('.entry-chk:checked');
+  if (selecionados.length === 0) return;
+  if (!confirm('Excluir ' + selecionados.length + ' lançamento(s)?')) return;
+
+  var urls = [];
+  selecionados.forEach(function(chk) { urls.push(chk.dataset.url); });
+
+  var btn = document.querySelector('#bulk-bar .btn-danger');
+  btn.disabled = true;
+  btn.textContent = 'Excluindo...';
+
+  var done = 0;
+  function next() {
+    if (done >= urls.length) { window.location.reload(); return; }
+    fetch(urls[done++], { method: 'POST' }).then(next);
+  }
+  next();
+}
+</script>
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -138,21 +180,31 @@
     <h3>Lançamentos avulsos</h3>
     <span class="text-faint text-small">sem vínculo com gasto fixo</span>
   </div>
+
+  <!-- Barra de seleção em massa -->
+  <div id="bulk-bar" style="display:none;background:var(--bg);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <span id="bulk-count" class="text-small text-dim">0 selecionados</span>
+    <button class="btn btn-danger btn-sm" onclick="excluirSelecionados()">× Excluir selecionados</button>
+    <button class="btn btn-ghost btn-sm" onclick="desmarcarTodos()">Desmarcar todos</button>
+  </div>
+
   <div class="table-wrap">
-    <table class="tbl sortable-table">
+    <table class="tbl sortable-table" id="unlinked-table">
       <thead>
         <tr>
-          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
-          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
-          <th class="th-sort" data-col="2" style="cursor:pointer;">Tipo ↕</th>
-          <th class="th-sort" data-col="3" style="cursor:pointer;">Categoria ↕</th>
-          <th class="th-sort text-right" data-col="4" style="cursor:pointer;">Valor ↕</th>
+          <th style="width:32px;"><input type="checkbox" id="chk-all" onclick="toggleAll(this)"></th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Data ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Descrição ↕</th>
+          <th class="th-sort" data-col="3" style="cursor:pointer;">Tipo ↕</th>
+          <th class="th-sort" data-col="4" style="cursor:pointer;">Categoria ↕</th>
+          <th class="th-sort text-right" data-col="5" style="cursor:pointer;">Valor ↕</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for entry in unlinked %}
         <tr>
+          <td><input type="checkbox" class="entry-chk" data-id="{{ entry.id }}" data-url="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}" onchange="atualizarBarra()"></td>
           <td class="text-dim" data-val="{{ entry.entry_date.isoformat() }}">{{ entry.entry_date|data_br }}</td>
           <td data-val="{{ entry.description }}">
             {{ entry.description }}
