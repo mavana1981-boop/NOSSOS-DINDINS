@@ -108,11 +108,24 @@ def index():
         planned = float(exp.amount)
         pct = min(round(spent_this_month / planned * 100, 1) if planned > 0 else 0, 100)
 
+        # Excedente atual: gasto efetuado vs esperado até agora (planejado * desired_pct)
+        esperado_ate_hoje = round(planned * desired_pct / 100, 2)
+        excedente_atual = round(spent_this_month - esperado_ate_hoje, 2)
+
+        # Gasto por dia disponível: (planejado - gasto) / dias até dia 16
+        dias_ate_fechamento = (cycle_end - today).days
+        saldo_disponivel = round(planned - spent_this_month, 2)
+        gasto_dia_disponivel = round(saldo_disponivel / dias_ate_fechamento, 2) if dias_ate_fechamento > 0 else 0.0
+
         household_expenses.append({
             "expense": exp,
             "household": hh,
             "spent": spent_this_month,
             "pct": pct,
+            "excedente_atual": excedente_atual,
+            "esperado_ate_hoje": esperado_ate_hoje,
+            "gasto_dia_disponivel": gasto_dia_disponivel,
+            "dias_ate_fechamento": dias_ate_fechamento,
         })
         household_total_planned += planned
         household_total_spent += spent_this_month
