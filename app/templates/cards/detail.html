@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 {% block title %}{{ card.name }}<script>
 function atualizarBarra() {
@@ -19,6 +20,42 @@ function desmarcarTodos() {
   document.querySelectorAll('.entry-chk').forEach(function(c) { c.checked = false; });
   document.getElementById('chk-all').checked = false;
   atualizarBarra();
+}
+
+function atualizarBarraExp(groupId) {
+  var chks = document.querySelectorAll('.entry-chk-exp[data-group="' + groupId + '"]:checked');
+  var total = document.querySelectorAll('.entry-chk-exp[data-group="' + groupId + '"]');
+  var bar = document.getElementById('bulk-exp-bar-' + groupId);
+  bar.style.display = chks.length > 0 ? 'flex' : 'none';
+  bar.querySelector('.bulk-exp-count').textContent = chks.length + ' selecionado(s)';
+  var allChk = document.getElementById('chk-all-exp-' + groupId);
+  if (allChk) allChk.indeterminate = chks.length > 0 && chks.length < total.length;
+}
+
+function toggleAllExp(chk, groupId) {
+  document.querySelectorAll('.entry-chk-exp[data-group="' + groupId + '"]').forEach(function(c) { c.checked = chk.checked; });
+  atualizarBarraExp(groupId);
+}
+
+function desmarcarExp(groupId) {
+  document.querySelectorAll('.entry-chk-exp[data-group="' + groupId + '"]').forEach(function(c) { c.checked = false; });
+  var allChk = document.getElementById('chk-all-exp-' + groupId);
+  if (allChk) allChk.checked = false;
+  atualizarBarraExp(groupId);
+}
+
+function excluirSelecionadosExp(groupId) {
+  var selecionados = document.querySelectorAll('.entry-chk-exp[data-group="' + groupId + '"]:checked');
+  if (selecionados.length === 0) return;
+  if (!confirm('Excluir ' + selecionados.length + ' lançamento(s)?')) return;
+  var urls = [];
+  selecionados.forEach(function(chk) { urls.push(chk.dataset.url); });
+  var done = 0;
+  function next() {
+    if (done >= urls.length) { window.location.reload(); return; }
+    fetch(urls[done++], { method: 'POST' }).then(next);
+  }
+  next();
 }
 
 function excluirSelecionados() {
@@ -142,16 +179,33 @@ function excluirSelecionados() {
             <button type="button" class="btn btn-ghost btn-sm"
                     onclick="toggleEntries(this)">▼ ver</button>
             <div class="entries-list" style="display:none;margin-top:6px;">
+              <!-- Barra seleção em massa por gasto -->
+              <div class="bulk-bar-exp" style="display:none;padding:6px 0;gap:8px;align-items:center;flex-wrap:wrap;" id="bulk-exp-bar-{{ expense_id }}">
+                <span class="text-small text-dim bulk-exp-count">0 selecionados</span>
+                <button class="btn btn-danger btn-sm" onclick="excluirSelecionadosExp({{ expense_id }})">× Excluir selecionados</button>
+                <button class="btn btn-ghost btn-sm" onclick="desmarcarExp({{ expense_id }})">Desmarcar</button>
+              </div>
+              <div style="padding:4px 0;border-bottom:1px solid var(--border);">
+                <label style="font-size:0.75rem;color:var(--text-faint);cursor:pointer;">
+                  <input type="checkbox" id="chk-all-exp-{{ expense_id }}"
+                    onchange="toggleAllExp(this, {{ expense_id }})"> Selecionar todos
+                </label>
+              </div>
               {% for entry in data.entries %}
               <div class="flex-between" style="padding:5px 0;border-bottom:1px solid var(--border);">
-                <div>
-                  <span class="text-small">{{ entry.description }}</span>
-                  {% if entry.kind == 'parcelado' %}
-                    <span class="badge badge-shared" style="font-size:0.62rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
-                  {% elif entry.kind == 'recorrente' %}
-                    <span class="badge badge-shared" style="font-size:0.62rem;">fixo</span>
-                  {% endif %}
-                  <div class="text-faint" style="font-size:0.72rem;">{{ entry.entry_date|data_br }}</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input type="checkbox" class="entry-chk-exp" data-group="{{ expense_id }}"
+                    data-url="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}"
+                    onchange="atualizarBarraExp({{ expense_id }})">
+                  <div>
+                    <span class="text-small">{{ entry.description }}</span>
+                    {% if entry.kind == 'parcelado' %}
+                      <span class="badge badge-shared" style="font-size:0.62rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
+                    {% elif entry.kind == 'recorrente' %}
+                      <span class="badge badge-shared" style="font-size:0.62rem;">fixo</span>
+                    {% endif %}
+                    <div class="text-faint" style="font-size:0.72rem;">{{ entry.entry_date|data_br }}</div>
+                  </div>
                 </div>
                 <div class="flex flex-gap">
                   <span class="mono text-small" style="color:var(--red);">{{ entry.amount|brl }}</span>
