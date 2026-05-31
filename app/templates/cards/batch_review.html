@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 {% block title %}Revisar lançamentos — {{ card.name }}{% endblock %}
 {% block content %}
@@ -25,6 +24,37 @@
     Revise cada lançamento abaixo. Você pode editar a descrição, vincular a um gasto fixo, 
     definir a categoria e aprovar — ou excluir se for inválido.
     Lançamentos aprovados entram no controle normal do cartão.
+  </div>
+</div>
+
+<!-- Painel: categorizar e aprovar todos -->
+<div class="card mb-3" style="border-left:4px solid var(--accent);">
+  <div style="font-weight:600;margin-bottom:12px;">Aprovar todos com uma categoria</div>
+  <div class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:12px;">
+    <div class="form-group mb-0" style="flex:1;min-width:180px;">
+      <label class="form-label">Gasto fixo (opcional)</label>
+      <select class="form-control" id="bulk-expense">
+        <option value="">— Avulso —</option>
+        {% for exp in fixed_expenses %}
+        <option value="{{ exp.id }}">{{ exp.description }} — {{ exp.amount|brl }}/mês</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0" style="flex:1;min-width:160px;">
+      <label class="form-label">Categoria para todos</label>
+      <select class="form-control" id="bulk-category">
+        {% set cats = ['A classificar','Alimentação','Transporte','Saúde','Educação',
+                       'Moradia','Lazer','Vestuário','Beleza','Serviços','Contas','Outros'] %}
+        {% for cat in cats %}
+        <option>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <button class="btn btn-primary" onclick="aplicarCategoriaTodos()">
+        ✓ Aplicar e aprovar todos
+      </button>
+    </div>
   </div>
 </div>
 
@@ -115,14 +145,59 @@ document.querySelectorAll('.sel-expense').forEach(sel => {
   sel.addEventListener('change', function() {
     const catId = this.dataset.categoryTarget;
     const catSel = document.getElementById(catId);
-    const opt = this.options[this.selectedIndex];
-    if (this.value && opt.dataset.name) {
-      // Tenta encontrar a categoria pelo nome do gasto fixo
-      for (let i = 0; i < catSel.options.length; i++) {
-        catSel.selectedIndex = 0; // reset para "A classificar"
-      }
-    }
+    if (!this.value) catSel.selectedIndex = 0;
   });
 });
+
+// Aplicar categoria a todos e aprovar em massa
+function aplicarCategoriaTodos() {
+  var expense_id = document.getElementById('bulk-expense').value;
+  var category = document.getElementById('bulk-category').value;
+  if (!confirm('Aplicar categoria "' + category + '" e aprovar todos os lançamentos?')) return;
+
+  // Atualiza cada select individualmente
+  document.querySelectorAll('.sel-expense').forEach(function(sel) {
+    if (expense_id) sel.value = expense_id;
+  });
+  document.querySelectorAll('[id^="cat-"]').forEach(function(sel) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].text === category) { sel.selectedIndex = i; break; }
+    }
+  });
+
+  // Submete todos os formulários de aprovação sequencialmente via fetch
+  var forms = document.querySelectorAll('form[action*="aprovar"]:not([action*="aprovar-todos"])');
+  var entries = [];
+  forms.forEach(function(form) {
+    entries.push({
+      action: form.action,
+      expense_id: form.querySelector('[name="expense_id"]') ? form.querySelector('[name="expense_id"]').value : expense_id,
+      category: category,
+      description: form.querySelector('[name="description"]').value
+    });
+  });
+
+  if (entries.length === 0) { window.location.reload(); return; }
+
+  var done = 0;
+  var btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Aprovando...';
+
+  function next() {
+    if (done >= entries.length) {
+      window.location.reload();
+      return;
+    }
+    var e = entries[done++];
+    var fd = new FormData();
+    fd.append('expense_id', e.expense_id || '');
+    fd.append('category', e.category);
+    fd.append('description', e.description);
+    fetch(e.action, { method: 'POST', body: fd })
+      .then(function() { next(); });
+  }
+  next();
+}
 </script>
 {% endblock %}
