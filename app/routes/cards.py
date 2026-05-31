@@ -125,6 +125,30 @@ def _check_excedente(expense_id):
         set_excedente(payer, desc, max(excedente, 0), exp.category, dt)
 
 
+@cards_bp.route("/admin/backup-csv")
+@login_required
+def backup_csv():
+    """Exporta card_entries como CSV para download."""
+    import csv, io
+    from flask import Response
+    if not current_user.is_admin:
+        abort(403)
+    entries = CardEntry.query.all()
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["id","card_id","user_id","description","amount","entry_date",
+                "expense_id","category","kind","installments","installment_no",
+                "status","batch_id","notes","created_at"])
+    for e in entries:
+        w.writerow([e.id, e.card_id, e.user_id, e.description, e.amount,
+                    e.entry_date, e.expense_id, e.category, e.kind,
+                    e.installments, e.installment_no, e.status, e.batch_id,
+                    e.notes, e.created_at])
+    output.seek(0)
+    return Response(output.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=card_entries_backup.csv"})
+
+
 @cards_bp.route("/admin/fix-excedentes")
 @login_required
 def fix_excedentes():
