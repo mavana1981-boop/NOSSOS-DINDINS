@@ -302,7 +302,8 @@ function excluirSelecionados() {
 
 <script>
 function toggleEntries(btn) {
-  const list = btn.nextElementSibling;
+  const td = btn.closest('td');
+  const list = td.querySelector('.entries-list');
   const open = list.style.display !== 'none';
   list.style.display = open ? 'none' : 'block';
   btn.textContent = open ? '▼ ver' : '▲ ocultar';
