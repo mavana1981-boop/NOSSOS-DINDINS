@@ -162,6 +162,27 @@
         <div class="progress-bar {{ 'complete' if item.pct >= 100 }}"
              style="width:{{ item.pct }}%;background:{{ 'var(--green)' if item.pct >= 100 else 'linear-gradient(90deg,var(--gold),var(--accent))' }};"></div>
       </div>
+      <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;">
+        {% if item.excedente_atual > 0 %}
+        <span style="font-size:0.72rem;color:var(--red);">
+          ▲ excedente: {{ item.excedente_atual|brl }}
+          <span class="text-faint">(esperado {{ item.esperado_ate_hoje|brl }})</span>
+        </span>
+        {% elif item.excedente_atual < 0 %}
+        <span style="font-size:0.72rem;color:var(--green);">
+          ▼ abaixo do esperado: {{ (item.excedente_atual * -1)|brl }}
+        </span>
+        {% else %}
+        <span style="font-size:0.72rem;color:var(--text-faint);">no ritmo esperado</span>
+        {% endif %}
+        {% if item.gasto_dia_disponivel > 0 %}
+        <span style="font-size:0.72rem;color:var(--text-faint);">
+          {{ item.gasto_dia_disponivel|brl }}/dia disponível · {{ item.dias_ate_fechamento }} dias até fechamento
+        </span>
+        {% elif item.gasto_dia_disponivel <= 0 %}
+        <span style="font-size:0.72rem;color:var(--red);">sem saldo disponível</span>
+        {% endif %}
+      </div>
     </div>
     {% endfor %}
   </div>
