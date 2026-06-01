@@ -1,64 +1,189 @@
-from datetime import date, datetime
-from apscheduler.schedulers.background import BackgroundScheduler
+import os
+import uuid
+import base64
+from io import BytesIO
+from decimal import Decimal
+from datetime import datetime
+from PIL import Image
+from flask import current_app
+from flask_login import current_user
+from sqlalchemy import func
+from app import db
+
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
-def _process_auto_contributions(app):
-    """Executa aportes automáticos do dia para todos os projetos."""
-    from app import db
-    from app.models import Project, ProjectMember, Contribution, AutoTransfer
-
-    with app.app_context():
-        today = date.today()
-        projects = Project.query.filter(
-            Project.is_completed.is_(False),
-            Project.auto_day == today.day,
-            Project.monthly_auto > 0,
-        ).all()
-
-        for p in projects:
-            # Idempotência: só roda uma vez por mês
-            existing = AutoTransfer.query.filter_by(
-                project_id=p.id, year=today.year, month=today.month
-            ).first()
-            if existing:
-                continue
-
-            for m in p.members:
-                if m.monthly_share and float(m.monthly_share) > 0:
-                    c = Contribution(
-                        project_id=p.id,
-                        user_id=m.user_id,
-                        amount=m.monthly_share,
-                        contributed_at=today,
-                        note=f"Aporte automático {today.month:02d}/{today.year}",
-                        is_auto=True,
-                    )
-                    db.session.add(c)
-
-            db.session.add(AutoTransfer(project_id=p.id, year=today.year, month=today.month))
-            try:
-                db.session.commit()
-                print(f"[auto] aporte projeto {p.id} mês {today.month}/{today.year}")
-            except Exception as e:
-                db.session.rollback()
-                print(f"[auto] falha projeto {p.id}: {e}")
+def allowed_image(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 
-def start_scheduler(app):
-    if app.config.get("TESTING"):
-        return
-    scheduler = BackgroundScheduler(daemon=True, timezone="America/Sao_Paulo")
-    # Roda todos os dias às 03:00 - varre projetos do dia
-    scheduler.add_job(
-        func=lambda: _process_auto_contributions(app),
-        trigger="cron",
-        hour=3,
-        minute=0,
-        id="auto_contrib",
-        replace_existing=True,
-    )
+def save_profile_photo(file_storage):
+    """Converte foto para base64 e retorna data URI para salvar no banco.
+    A foto fica persistida no PostgreSQL — nunca se perde no deploy."""
+    if not file_storage or not file_storage.filename:
+        return None
+    if not allowed_image(file_storage.filename):
+        return None
     try:
-        scheduler.start()
-        print("[scheduler] iniciado")
+        img = Image.open(file_storage)
+        img = img.convert("RGB")
+        w, h = img.size
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        img = img.crop((left, top, left + side, top + side))
+        img = img.resize((256, 256), Image.LANCZOS)
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=80, optimize=True)
+        b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{b64}"
     except Exception as e:
-        print(f"[scheduler] erro: {e}")
+        print(f"Erro processando imagem: {e}")
+        return None
+
+
+def format_brl(value):
+    if value is None:
+        return "R$ 0,00"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "R$ 0,00"
+    s = f"{v:,.2f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
+
+
+def format_date_br(d):
+    if not d:
+        return ""
+    if isinstance(d, datetime):
+        d = d.date()
+    return d.strftime("%d/%m/%Y")
+
+
+def register_filters(app):
+    app.jinja_env.filters["brl"] = format_brl
+    app.jinja_env.filters["data_br"] = format_date_br
+
+
+def register_context(app):
+    @app.context_processor
+    def inject_globals():
+        return {
+            "current_year": datetime.now().year,
+            "app_name": "Nosso Dindin",
+        }
+
+
+def get_user_balance_with(user_id, other_user_id):
+    from app.models import Expense, ExpenseShare
+    a = db.session.query(func.coalesce(func.sum(ExpenseShare.share_amount), 0))\
+        .join(Expense, Expense.id == ExpenseShare.expense_id)\
+        .filter(Expense.payer_id == user_id,
+                ExpenseShare.user_id == other_user_id).scalar() or 0
+    b = db.session.query(func.coalesce(func.sum(ExpenseShare.share_amount), 0))\
+        .join(Expense, Expense.id == ExpenseShare.expense_id)\
+        .filter(Expense.payer_id == other_user_id,
+                ExpenseShare.user_id == user_id).scalar() or 0
+    return float(a) - float(b)
+
+
+def get_user_monthly_summary(user_id, year, month):
+    from app.models import Income, Expense, ExpenseShare
+    from datetime import date as _date
+    incomes = Income.query.filter_by(user_id=user_id).all()
+    income_total = 0.0
+    last_day = _date(year, month, 28)
+    for i in incomes:
+        if i.received_at.year == year and i.received_at.month == month:
+            income_total += float(i.amount)
+        elif i.is_recurring and i.received_at <= last_day:
+            if (year, month) >= (i.received_at.year, i.received_at.month):
+                income_total += float(i.amount)
+    expenses = db.session.query(Expense, ExpenseShare)\
+        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+        .filter(ExpenseShare.user_id == user_id).all()
+    debt_total = 0.0
+    for exp, share in expenses:
+        if exp.is_active_on(year, month):
+            debt_total += float(share.share_amount)
+    return {
+        "income": income_total,
+        "expense": debt_total,
+        "balance": income_total - debt_total,
+    }
+
+
+def get_credits_debits(user_id):
+    from app.models import User
+    others = User.query.filter(User.id != user_id).all()
+    result = []
+    for o in others:
+        bal = get_user_balance_with(user_id, o.id)
+        if abs(bal) > 0.005:
+            result.append({"user": o, "balance": bal})
+    return result
+
+
+def get_yearly_cashflow(user_id, year):
+    from app.models import Income, Expense, ExpenseShare
+    from datetime import date as _date
+    months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                 "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    expenses = db.session.query(Expense, ExpenseShare)\
+        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+        .filter(ExpenseShare.user_id == user_id).all()
+    incomes = Income.query.filter_by(user_id=user_id).all()
+    result = []
+    cumulative = 0.0
+    for m in range(1, 13):
+        last_day = _date(year, m, 28)
+        income_recurring = 0.0
+        income_eventual = 0.0
+        for i in incomes:
+            if i.is_recurring and i.received_at <= last_day:
+                if (year, m) >= (i.received_at.year, i.received_at.month):
+                    income_recurring += float(i.amount)
+            elif i.received_at.year == year and i.received_at.month == m:
+                income_eventual += float(i.amount)
+        income_total = income_recurring + income_eventual
+        fixed_total = 0.0
+        eventual_total = 0.0
+        eventual_items = []
+        for exp, share in expenses:
+            if not exp.is_active_on(year, m):
+                continue
+            # Exclui gastos eventuais (pontual) anteriores a junho/2026
+            if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
+                continue
+            v = float(share.share_amount)
+            if exp.kind == "recorrente":
+                fixed_total += v
+            else:
+                eventual_total += v
+                eventual_items.append({
+                    "desc": exp.description,
+                    "amount": round(float(v), 2),
+                })
+        net = income_total - fixed_total - eventual_total
+        # Maio/2026: zera saldo e acumulado (mês de referência inicial)
+        if year == 2026 and m == 5:
+            net = 0.0
+            cumulative = 0.0
+        else:
+            cumulative += net
+        result.append({
+            "month": m,
+            "month_name": months_pt[m - 1],
+            "income": income_total,
+            "income_recurring": income_recurring,
+            "income_eventual": income_eventual,
+            "fixed_expense": fixed_total,
+            "eventual_expense": eventual_total,
+            "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
+            "total_expense": fixed_total + eventual_total,
+            "net": net,
+            "cumulative": cumulative,
+        })
+    return result
