@@ -6,13 +6,58 @@ from app.utils import get_yearly_cashflow
 cashflow_bp = Blueprint("cashflow", __name__)
 
 
+def _limpar_excedentes_invalidos():
+    """Remove excedentes duplicados e órfãos do banco."""
+    from app import db
+    from app.models import Expense, ExpenseShare
+    try:
+        todos = Expense.query.filter(
+            Expense.description.like("% - excedente %"),
+            Expense.kind == "pontual"
+        ).order_by(Expense.id).all()
+
+        # Duplicatas
+        seen = {}
+        for exp in todos:
+            key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
+            if key in seen:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+            else:
+                seen[key] = exp.id
+
+        # Órfãos
+        todos2 = Expense.query.filter(
+            Expense.description.like("% - excedente %"),
+            Expense.kind == "pontual"
+        ).all()
+        for exp in todos2:
+            parts = exp.description.split(" - excedente ")
+            if len(parts) < 2:
+                continue
+            nome_base = parts[0].strip()
+            original = Expense.query.filter(
+                Expense.payer_id == exp.payer_id,
+                Expense.description == nome_base,
+                Expense.id != exp.id
+            ).first()
+            if not original:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[cashflow] erro limpeza excedentes: {e}")
+
+
 @cashflow_bp.route("/")
 @login_required
 def index():
     from app import db
-    # Fecha e reabre sessão para garantir dados frescos do banco
     db.session.remove()
     year = request.args.get("year", type=int) or date.today().year
+    _limpar_excedentes_invalidos()
     months = get_yearly_cashflow(current_user.id, year)
 
     # Adiciona Janeiro do ano seguinte com acumulado continuado
