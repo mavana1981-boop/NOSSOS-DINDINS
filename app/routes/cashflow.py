@@ -48,6 +48,41 @@ def index():
                            current_year=date.today().year)
 
 
+@cashflow_bp.route("/ajustar", methods=["POST"])
+@login_required
+def ajustar():
+    """Salva ajuste manual de saldo/acumulado."""
+    from flask import request as req, jsonify
+    from app.models import CashflowOverride
+    from decimal import Decimal, InvalidOperation
+    year = req.form.get("year", type=int)
+    month = req.form.get("month", type=int)
+    field = req.form.get("field")  # "net" ou "cumulative"
+    value = req.form.get("value", "").strip()
+
+    def parse(s):
+        try:
+            return Decimal(str(s).replace(".", "").replace(",", "."))
+        except (InvalidOperation, ValueError):
+            return None
+
+    v = parse(value)
+    override = CashflowOverride.query.filter_by(
+        user_id=current_user.id, year=year, month=month
+    ).first()
+    if override is None:
+        override = CashflowOverride(user_id=current_user.id, year=year, month=month)
+        db.session.add(override)
+
+    if field == "net":
+        override.net_override = v
+    elif field == "cumulative":
+        override.cumulative_override = v
+
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
 @cashflow_bp.route("/eventual-json")
 @login_required
 def eventual_json():
