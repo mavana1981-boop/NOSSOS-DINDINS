@@ -278,6 +278,30 @@ def _save_expense(expense, users, user_cards):
     return redirect(url_for("expenses.list_expenses"))
 
 
+@expenses_bp.route("/debug-faculdade")
+@login_required
+def debug_faculdade():
+    from flask import jsonify
+    if not current_user.is_admin:
+        abort(403)
+    exps = Expense.query.filter(
+        Expense.description.ilike("%faculdade%"),
+        Expense.payer_id == current_user.id
+    ).all()
+    result = []
+    for e in exps:
+        result.append({
+            "id": e.id,
+            "description": e.description,
+            "kind": e.kind,
+            "amount": float(e.amount),
+            "spent_at": str(e.spent_at),
+            "recurrence_months": e.recurrence_months,
+            "shares": [{"user_id": s.user_id, "amount": float(s.share_amount)} for s in e.shares]
+        })
+    return jsonify(result)
+
+
 @expenses_bp.route("/<int:expense_id>/excluir", methods=["POST"])
 @login_required
 def delete_expense(expense_id):
