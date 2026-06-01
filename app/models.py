@@ -206,6 +206,21 @@ class AutoTransfer(db.Model):
     __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
 
 
+class CashflowOverride(db.Model):
+    """Ajuste manual de saldo/acumulado no fluxo de caixa."""
+    __tablename__ = "cashflow_overrides"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    net_override = db.Column(db.Numeric(12, 2), nullable=True)
+    cumulative_override = db.Column(db.Numeric(12, 2), nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)
+    user = db.relationship("User", backref="cashflow_overrides")
+
+
 class Investment(db.Model):
     __tablename__ = "investments"
     id = db.Column(db.Integer, primary_key=True)
