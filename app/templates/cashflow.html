@@ -108,16 +108,16 @@
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
-          {% if m.net >= 0 %}
-          <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.net|brl }}</td>
-          {% else %}
-          <td class="text-right amount" style="color:var(--red);font-weight:700;">{{ m.net|brl }}</td>
-          {% endif %}
-          {% if m.cumulative >= 0 %}
-          <td class="text-right amount" style="color:var(--green);">{{ m.cumulative|brl }}</td>
-          {% else %}
-          <td class="text-right amount" style="color:var(--red);">{{ m.cumulative|brl }}</td>
-          {% endif %}
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
+              title="Clique para editar"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}">
+            {{ m.net|brl }}
+          </td>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
+              title="Clique para editar"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}">
+            {{ m.cumulative|brl }}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -163,6 +163,39 @@
 
 <script>
 var CASHFLOW_YEAR = {{ year }};
+
+// Edição inline de saldo e acumulado
+document.querySelectorAll('.editable-cell').forEach(function(td) {
+  td.addEventListener('click', function() {
+    if (td.querySelector('input')) return;
+    var val = td.getAttribute('data-value') || '0';
+    var numVal = parseFloat(val).toFixed(2).replace('.', ',');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = numVal;
+    input.style.cssText = 'width:100%;text-align:right;background:var(--bg);border:1px solid var(--accent);border-radius:4px;padding:2px 4px;color:inherit;font-family:inherit;font-size:inherit;';
+    td.innerHTML = '';
+    td.appendChild(input);
+    input.focus();
+    input.select();
+
+    function salvar() {
+      var v = input.value.replace(/\./g,'').replace(',','.');
+      var fd = new FormData();
+      fd.append('year', td.getAttribute('data-year'));
+      fd.append('month', td.getAttribute('data-month'));
+      fd.append('field', td.getAttribute('data-field'));
+      fd.append('value', v);
+      fetch('/fluxo/ajustar', {method:'POST', body:fd})
+        .then(function() { window.location.reload(); });
+    }
+    input.addEventListener('blur', salvar);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { input.blur(); }
+      if (e.key === 'Escape') { window.location.reload(); }
+    });
+  });
+});
 
 document.getElementById('ev-close').addEventListener('click', function() {
   document.getElementById('ev-modal').style.display = 'none';
