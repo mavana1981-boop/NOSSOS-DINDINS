@@ -47,11 +47,14 @@ def _check_excedente(expense_id):
         return _date(year, month, day)
 
     def set_excedente(payer, desc, amount, cat, dt):
+        # Busca por mês/ano, não data exata — evita duplicatas quando o dia muda
+        from sqlalchemy import extract
         antigo = Expense.query.filter(
             Expense.payer_id == payer,
             Expense.description == desc,
             Expense.kind == "pontual",
-            Expense.spent_at == dt,
+            extract('year', Expense.spent_at) == dt.year,
+            extract('month', Expense.spent_at) == dt.month,
         ).first()
         if amount <= 0:
             if antigo:
@@ -121,7 +124,9 @@ def _check_excedente(expense_id):
         excedente = round(total - planejado, 2)
         mes_nome = MESES[month - 1]
         desc = f"{exp.description} - excedente {mes_nome}"
-        dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+        # Usa dia 1 para meses futuros — data fixa evita duplicatas
+        day = today.day if (year == today.year and month == today.month) else 1
+        dt = _date(year, month, min(day, calendar.monthrange(year, month)[1]))
         set_excedente(payer, desc, max(excedente, 0), exp.category, dt)
 
 
