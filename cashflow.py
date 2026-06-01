@@ -1,110 +1,147 @@
-{% extends "base.html" %}
-{% block title %}{{ 'Editar' if inv else 'Novo' }} investimento{% endblock %}
-{% block content %}
+from datetime import date
+from flask import Blueprint, render_template, request
+from flask_login import login_required, current_user
+from app.utils import get_yearly_cashflow
 
-<div class="page-header">
-  <div class="page-title-wrap">
-    <h1>{{ 'Editar' if inv else 'Novo' }} investimento</h1>
-    <p>Registre um ativo e associe-o a um objetivo financeiro.</p>
-  </div>
-  <a href="{{ url_for('investments.list_investments') }}" class="btn btn-ghost">← Voltar</a>
-</div>
+cashflow_bp = Blueprint("cashflow", __name__)
 
-<div class="card" style="max-width:680px;">
-  <form method="POST">
-    <div class="form-group">
-      <label class="form-label">Descrição *</label>
-      <input class="form-control" name="description" required
-             value="{{ inv.description if inv }}"
-             placeholder="ex: Tesouro IPCA+ 2029, PETR4, CDB Banco X">
-    </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Objetivo *</label>
-        <select class="form-control" name="objective">
-          {% for o in objectives %}
-            <option {% if inv and inv.objective == o %}selected{% endif %}>{{ o }}</option>
-          {% endfor %}
-        </select>
-        <div class="form-help">Ou digita abaixo para criar novo objetivo:</div>
-        <input class="form-control mt-1" name="objective_custom" id="obj-custom"
-               placeholder="Novo objetivo (substitui seleção acima)"
-               style="font-size:0.85rem;">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Categoria</label>
-        <select class="form-control" name="category">
-          {% for c in categories %}
-            <option {% if inv and inv.category == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
+@cashflow_bp.route("/")
+@login_required
+def index():
+    from app import db
+    # Força expiração do cache da sessão SQLAlchemy para buscar dados frescos
+    db.session.expire_all()
+    year = request.args.get("year", type=int) or date.today().year
+    months = get_yearly_cashflow(current_user.id, year)
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Valor aportado (R$) *</label>
-        <input class="form-control mono" name="amount" required inputmode="decimal"
-               value="{% if inv %}{{ '%.2f'|format(inv.amount|float) }}{% endif %}"
-               placeholder="0,00">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Valor atual (R$)</label>
-        <input class="form-control mono" name="current_value" inputmode="decimal"
-               value="{% if inv and inv.current_value %}{{ '%.2f'|format(inv.current_value|float) }}{% endif %}"
-               placeholder="Deixe vazio se igual ao aportado">
-        <div class="form-help">Atualize manualmente quando quiser registrar o saldo atual.</div>
-      </div>
-    </div>
+    # Adiciona Janeiro do ano seguinte com acumulado continuado
+    jan_next = get_yearly_cashflow(current_user.id, year + 1)
+    if jan_next:
+        jan = dict(jan_next[0])
+        jan["is_next_year"] = True
+        if "eventual_items" not in jan:
+            jan["eventual_items"] = []
+        # Acumulado continua a partir do acumulado de dezembro
+        dec_cumulative = months[-1]["cumulative"] if months else 0.0
+        jan["cumulative"] = dec_cumulative + jan["net"]
+        months = months + [jan]
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Data do aporte *</label>
-        <input class="form-control" type="date" name="invested_at"
-               value="{{ inv.invested_at.isoformat() if inv else '' }}">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Instituição</label>
-        <input class="form-control" name="institution"
-               value="{{ inv.institution if inv }}"
-               placeholder="ex: XP, Nubank, BTG">
-      </div>
-    </div>
+    # Totais apenas dos 12 meses do ano atual
+    months12 = months[:12]
+    totals = {
+        "income": sum(m["income"] for m in months12),
+        "income_recurring": sum(m["income_recurring"] for m in months12),
+        "income_eventual": sum(m["income_eventual"] for m in months12),
+        "fixed": sum(m["fixed_expense"] for m in months12),
+        "eventual": sum(m["eventual_expense"] for m in months12),
+        "net": sum(m["net"] for m in months12),
+    }
+    totals["total_expense"] = totals["fixed"] + totals["eventual"]
 
-    <div class="form-group">
-      <label class="form-label">Observações</label>
-      <textarea class="form-control" name="notes">{{ inv.notes if inv }}</textarea>
-    </div>
+    max_value = max(
+        max((m["income"] for m in months), default=0),
+        max((m["total_expense"] for m in months), default=0),
+        1,
+    )
 
-    <div class="form-group">
-      <label class="form-check">
-        <input type="checkbox" name="is_active"
-               {% if not inv or inv.is_active %}checked{% endif %}>
-        <span>Ativo (desmarcado = encerrado/resgatado)</span>
-      </label>
-    </div>
+    return render_template("cashflow.html",
+                           year=year, months=months, totals=totals,
+                           max_value=max_value,
+                           current_year=date.today().year)
 
-    <div class="divider"></div>
-    <div class="flex flex-gap">
-      <button class="btn btn-primary">Salvar</button>
-      <a href="{{ url_for('investments.list_investments') }}" class="btn btn-ghost">Cancelar</a>
-    </div>
-  </form>
-</div>
 
-<script>
-// Se o usuário digitar um objetivo customizado, ele substitui o select
-document.querySelector('input[name="objective_custom"]').addEventListener('input', function() {
-  const sel = document.querySelector('select[name="objective"]');
-  if (this.value.trim()) {
-    sel.name = '_objective_disabled';
-    this.name = 'objective';
-  } else {
-    sel.name = 'objective';
-    this.name = 'objective_custom';
-  }
-});
-</script>
+@cashflow_bp.route("/ajustar", methods=["POST"])
+@login_required
+def ajustar():
+    """Salva ajuste manual de saldo/acumulado."""
+    from flask import request as req, jsonify
+    from app.models import CashflowOverride
+    from decimal import Decimal, InvalidOperation
+    year = req.form.get("year", type=int)
+    month = req.form.get("month", type=int)
+    field = req.form.get("field")  # "net" ou "cumulative"
+    value = req.form.get("value", "").strip()
 
-{% endblock %}
+    def parse(s):
+        try:
+            return Decimal(str(s).replace(".", "").replace(",", "."))
+        except (InvalidOperation, ValueError):
+            return None
+
+    v = parse(value)
+    override = CashflowOverride.query.filter_by(
+        user_id=current_user.id, year=year, month=month
+    ).first()
+    if override is None:
+        override = CashflowOverride(user_id=current_user.id, year=year, month=month)
+        db.session.add(override)
+
+    if field == "net":
+        override.net_override = v
+    elif field == "cumulative":
+        override.cumulative_override = v
+
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@cashflow_bp.route("/eventual-json")
+@login_required
+def eventual_json():
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    months = get_yearly_cashflow(current_user.id, year)
+    data = [m.get("eventual_items", []) for m in months]
+    return jsonify(data)
+
+
+@cashflow_bp.route("/fixed-json")
+@login_required
+def fixed_json():
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    months = get_yearly_cashflow(current_user.id, year)
+    data = [m.get("fixed_items", []) for m in months]
+    return jsonify(data)
+
+
+@cashflow_bp.route("/items-json")
+@login_required
+def items_json():
+    """Retorna todos os itens detalhados por mês e tipo."""
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    col = req.args.get("col", "eventual")
+    months = get_yearly_cashflow(current_user.id, year)
+    key_map = {
+        "eventual": "eventual_items",
+        "fixed": "fixed_items",
+        "income_recurring": "income_recurring_items",
+        "income_eventual": "income_eventual_items",
+    }
+    key = key_map.get(col, "eventual_items")
+    data = [m.get(key, []) for m in months]
+    return jsonify(data)
+
+
+@cashflow_bp.route("/debug-fixos")
+@login_required
+def debug_fixos():
+    """Mostra todos os gastos fixos e seus dados para debug."""
+    from flask import jsonify
+    from app.models import Expense, ExpenseShare
+    expenses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(ExpenseShare.user_id == current_user.id).all()
+    result = []
+    for exp, share in expenses:
+        result.append({
+            "id": exp.id,
+            "desc": exp.description,
+            "kind": exp.kind,
+            "spent_at": str(exp.spent_at),
+            "amount": float(exp.amount),
+            "recurrence_months": exp.recurrence_months,
+            "active_jun": exp.is_active_on(2026, 6),
+            "active_jul": exp.is_active_on(2026, 7),
+        })
+    return jsonify(sorted(result, key=lambda x: x["desc"]))
