@@ -127,13 +127,33 @@ def get_credits_debits(user_id):
 
 
 def get_yearly_cashflow(user_id, year):
-    from app.models import Income, Expense, ExpenseShare
+    from app.models import Income, Expense, ExpenseShare, CashflowOverride
+    overrides = {(o.year, o.month): o for o in
+                 CashflowOverride.query.filter_by(user_id=user_id).all()}
     from datetime import date as _date
     months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
                  "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    from sqlalchemy import or_ as _or
     expenses = db.session.query(Expense, ExpenseShare)\
         .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-        .filter(ExpenseShare.user_id == user_id).all()
+        .filter(_or(
+            ExpenseShare.user_id == user_id,
+            Expense.payer_id == user_id
+        )).all()
+    # Remove duplicatas mantendo o share do próprio usuário
+    seen = {}
+    for exp, share in expenses:
+        if exp.id not in seen or share.user_id == user_id:
+            seen[exp.id] = (exp, share)
+    expenses = list(seen.values())
+
+    # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
+    repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
+            Expense.payer_id == user_id,
+            Expense.share_mode.in_(["integral", "split"]),
+            ExpenseShare.user_id != user_id
+        ).all()
+
     incomes = Income.query.filter_by(user_id=user_id).all()
     result = []
     cumulative = 0.0
@@ -141,16 +161,31 @@ def get_yearly_cashflow(user_id, year):
         last_day = _date(year, m, 28)
         income_recurring = 0.0
         income_eventual = 0.0
+        income_recurring_items = []
+        income_eventual_items = []
         for i in incomes:
             if i.is_recurring and i.received_at <= last_day:
                 if (year, m) >= (i.received_at.year, i.received_at.month):
                     income_recurring += float(i.amount)
+                    income_recurring_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
             elif i.received_at.year == year and i.received_at.month == m:
                 income_eventual += float(i.amount)
+                income_eventual_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
+        # Repasses: gastos pagos pelo usuário que serão devolvidos por outro
+        for exp, share in repasses:
+            if not exp.is_active_on(year, m):
+                continue
+            v = round(float(share.share_amount), 2)
+            income_eventual += v
+            income_eventual_items.append({
+                "desc": f"Repasse: {exp.description}",
+                "amount": v
+            })
         income_total = income_recurring + income_eventual
         fixed_total = 0.0
         eventual_total = 0.0
         eventual_items = []
+        fixed_items = []
         for exp, share in expenses:
             if not exp.is_active_on(year, m):
                 continue
@@ -160,6 +195,10 @@ def get_yearly_cashflow(user_id, year):
             v = float(share.share_amount)
             if exp.kind == "recorrente":
                 fixed_total += v
+                fixed_items.append({
+                    "desc": exp.description,
+                    "amount": round(float(v), 2),
+                })
             else:
                 eventual_total += v
                 eventual_items.append({
@@ -173,6 +212,14 @@ def get_yearly_cashflow(user_id, year):
             cumulative = 0.0
         else:
             cumulative += net
+
+        # Aplica override manual se existir
+        override = overrides.get((year, m))
+        net_final = float(override.net_override) if override and override.net_override is not None else net
+        cumulative_final = float(override.cumulative_override) if override and override.cumulative_override is not None else cumulative
+        if override and override.cumulative_override is not None:
+            cumulative = cumulative_final  # propaga para próximo mês
+
         result.append({
             "month": m,
             "month_name": months_pt[m - 1],
@@ -182,8 +229,11 @@ def get_yearly_cashflow(user_id, year):
             "fixed_expense": fixed_total,
             "eventual_expense": eventual_total,
             "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
+            "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
+            "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
+            "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
             "total_expense": fixed_total + eventual_total,
-            "net": net,
-            "cumulative": cumulative,
+            "net": net_final,
+            "cumulative": cumulative_final,
         })
     return result
