@@ -191,7 +191,8 @@ def bootstrap():
             seen = {}
             removed_dup = 0
             for exp in todos:
-                key = (exp.payer_id, exp.description, str(exp.spent_at))
+                # Agrupa por mês/ano, não data exata
+                key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
                 if key in seen:
                     ExpenseShare.query.filter_by(expense_id=exp.id).delete()
                     db.session.delete(exp)
