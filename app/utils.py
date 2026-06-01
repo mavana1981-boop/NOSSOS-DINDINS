@@ -153,10 +153,7 @@ def get_yearly_cashflow(user_id, year):
             Expense.share_mode.in_(["integral", "split"]),
             ExpenseShare.user_id != user_id
         ).all()
-    import sys
-    print(f"[debug-repasses] user_id={user_id} total={len(repasses)}", file=sys.stderr)
-    for exp, share in repasses:
-        print(f"  -> {exp.description} kind={exp.kind} share_mode={exp.share_mode} share_uid={share.user_id} amount={share.share_amount}", file=sys.stderr)
+
 
     incomes = Income.query.filter_by(user_id=user_id).all()
     result = []
@@ -183,8 +180,13 @@ def get_yearly_cashflow(user_id, year):
             if v <= 0:
                 continue
             income_eventual += v
+            # Calcula parcela atual se recorrente com prazo definido
+            parc_label = ""
+            if exp.kind == "recorrente" and exp.recurrence_months:
+                months_diff = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                parc_label = f" ({months_diff}/{exp.recurrence_months})"
             income_eventual_items.append({
-                "desc": f"Repasse: {exp.description}",
+                "desc": f"Repasse: {exp.description}{parc_label}",
                 "amount": v
             })
         income_total = income_recurring + income_eventual
