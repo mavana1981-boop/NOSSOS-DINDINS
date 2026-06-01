@@ -139,36 +139,26 @@ def get_yearly_cashflow(user_id, year):
     from datetime import date as _date
     months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
                  "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-    # Busca IDÊNTICA ao menu gastos: payer OU share do usuário
     from decimal import Decimal as _Dec
 
-    # 1. Todos os gastos onde o user é pagador
-    exps_payer = Expense.query.filter(Expense.payer_id == user_id).all()
+    # Busca EXATAMENTE igual ao menu Gastos: payer_id == user
+    # O valor usado é sempre o amount do Expense (o que o user pagou)
+    all_expenses = Expense.query.filter(
+        Expense.payer_id == user_id
+    ).all()
 
-    # 2. Gastos compartilhados com o user (ele não é o pagador)
-    exps_share = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
-            ExpenseShare.user_id == user_id,
-            Expense.payer_id != user_id
-        ).all()
-
-    # Monta lista (exp, share) — para pagador usa share real ou sintético
+    # Converte para lista (exp, valor) — valor é o que impacta o fluxo do user
     expenses = []
-    seen_ids = set()
-    for exp in exps_payer:
-        if exp.id in seen_ids:
-            continue
-        seen_ids.add(exp.id)
-        share = ExpenseShare.query.filter_by(expense_id=exp.id, user_id=user_id).first()
-        if share is None:
-            class _S:
-                share_amount = _Dec(str(exp.amount))
-                user_id_val = user_id
-            share = _S()
-        expenses.append((exp, share))
-    for exp, share in exps_share:
-        if exp.id not in seen_ids:
-            seen_ids.add(exp.id)
-            expenses.append((exp, share))
+    for exp in all_expenses:
+        # Para split: o custo do user é o share_amount dele
+        if exp.share_mode in ("split", "integral"):
+            share = ExpenseShare.query.filter_by(
+                expense_id=exp.id, user_id=user_id
+            ).first()
+            valor = float(share.share_amount) if share else float(exp.amount)
+        else:
+            valor = float(exp.amount)
+        expenses.append((exp, valor))
 
     # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
     repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
@@ -217,13 +207,13 @@ def get_yearly_cashflow(user_id, year):
         eventual_total = 0.0
         eventual_items = []
         fixed_items = []
-        for exp, share in expenses:
+        for exp, valor in expenses:
             if not exp.is_active_on(year, m):
                 continue
             # Exclui gastos eventuais (pontual) anteriores a junho/2026
             if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
                 continue
-            v = float(share.share_amount)
+            v = float(valor)
             if exp.kind == "recorrente":
                 fixed_total += v
                 fixed_items.append({
