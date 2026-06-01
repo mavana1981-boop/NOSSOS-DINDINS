@@ -7,13 +7,18 @@
     <h1>Fluxo de Caixa</h1>
     <p>Visão mês a mês de <strong>{{ year }}</strong></p>
   </div>
-  <div class="flex flex-gap">
+</div>
+
+<!-- Navegação de ano + Atualizar -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+  <div style="display:flex;gap:8px;align-items:center;">
     <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
-    <span class="btn btn-ghost" style="pointer-events:none;color:var(--accent);">{{ year }}</span>
+    <span style="font-size:1.1rem;font-weight:700;color:var(--accent);padding:0 4px;">{{ year }}</span>
     <a href="{{ url_for('cashflow.index', year=year+1) }}" class="btn btn-ghost">{{ year+1 }} →</a>
-    <a href="{{ url_for('cashflow.index', year=year) }}" class="btn btn-ghost" title="Recarregar dados do banco"
-       style="color:var(--text-faint);">↺ Atualizar</a>
   </div>
+  <a href="{{ url_for('cashflow.index', year=year) }}" class="btn btn-primary" style="font-size:0.85rem;">
+    ↺ Atualizar fluxo
+  </a>
 </div>
 
 <!-- Totais do ano -->
