@@ -103,6 +103,25 @@ def fixed_json():
     return jsonify(data)
 
 
+@cashflow_bp.route("/items-json")
+@login_required
+def items_json():
+    """Retorna todos os itens detalhados por mês e tipo."""
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    col = req.args.get("col", "eventual")
+    months = get_yearly_cashflow(current_user.id, year)
+    key_map = {
+        "eventual": "eventual_items",
+        "fixed": "fixed_items",
+        "income_recurring": "income_recurring_items",
+        "income_eventual": "income_eventual_items",
+    }
+    key = key_map.get(col, "eventual_items")
+    data = [m.get(key, []) for m in months]
+    return jsonify(data)
+
+
 @cashflow_bp.route("/debug-fixos")
 @login_required
 def debug_fixos():
