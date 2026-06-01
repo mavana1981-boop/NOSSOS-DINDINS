@@ -133,9 +133,19 @@ def get_yearly_cashflow(user_id, year):
     from datetime import date as _date
     months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
                  "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    from sqlalchemy import or_ as _or
     expenses = db.session.query(Expense, ExpenseShare)\
         .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-        .filter(ExpenseShare.user_id == user_id).all()
+        .filter(_or(
+            ExpenseShare.user_id == user_id,
+            Expense.payer_id == user_id
+        )).all()
+    # Remove duplicatas mantendo o share do próprio usuário
+    seen = {}
+    for exp, share in expenses:
+        if exp.id not in seen or share.user_id == user_id:
+            seen[exp.id] = (exp, share)
+    expenses = list(seen.values())
     incomes = Income.query.filter_by(user_id=user_id).all()
     result = []
     cumulative = 0.0
@@ -153,6 +163,7 @@ def get_yearly_cashflow(user_id, year):
         fixed_total = 0.0
         eventual_total = 0.0
         eventual_items = []
+        fixed_items = []
         for exp, share in expenses:
             if not exp.is_active_on(year, m):
                 continue
@@ -162,6 +173,10 @@ def get_yearly_cashflow(user_id, year):
             v = float(share.share_amount)
             if exp.kind == "recorrente":
                 fixed_total += v
+                fixed_items.append({
+                    "desc": exp.description,
+                    "amount": round(float(v), 2),
+                })
             else:
                 eventual_total += v
                 eventual_items.append({
@@ -192,6 +207,7 @@ def get_yearly_cashflow(user_id, year):
             "fixed_expense": fixed_total,
             "eventual_expense": eventual_total,
             "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
+            "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
             "total_expense": fixed_total + eventual_total,
             "net": net_final,
             "cumulative": cumulative_final,
