@@ -100,11 +100,13 @@
         <tr>
           <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
         {% endif %}
-          <td class="text-right amount" style="color:var(--green);">{{ m.income_recurring|brl }}</td>
-          <td class="text-right amount" style="color:var(--blue);">{{ m.income_eventual|brl }}</td>
+          <td class="text-right amount cf-cell" data-col="income_recurring" data-idx="{{ loop.index0 }}" style="color:var(--green);cursor:pointer;"><span style="text-decoration:underline dotted;">{{ m.income_recurring|brl }}</span></td>
+          <td class="text-right amount cf-cell" data-col="income_eventual" data-idx="{{ loop.index0 }}" style="color:var(--blue);cursor:pointer;"><span style="text-decoration:underline dotted;">{{ m.income_eventual|brl }}</span></td>
           <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
-          <td class="text-right amount" style="color:var(--gold);">{{ m.fixed_expense|brl }}</td>
-          <td class="text-right amount eventual-clickable" data-month-idx="{{ loop.index0 }}" style="color:var(--red);cursor:pointer;">
+          <td class="text-right amount cf-cell" data-col="fixed" data-idx="{{ loop.index0 }}" style="color:var(--gold);cursor:pointer;">
+            <span style="text-decoration:underline dotted;">{{ m.fixed_expense|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell" data-col="eventual" data-idx="{{ loop.index0 }}" style="color:var(--red);cursor:pointer;">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
@@ -205,35 +207,41 @@ document.getElementById('ev-modal').addEventListener('click', function(e) {
   if (e.target === this) this.style.display = 'none';
 });
 
-document.querySelectorAll('.eventual-clickable').forEach(function(td) {
+var COL_LABELS = {
+  "income_recurring": {title: "Renda fixa", color: "var(--green)"},
+  "income_eventual":  {title: "Renda eventual", color: "var(--blue)"},
+  "fixed":            {title: "Gastos fixos", color: "var(--gold)"},
+  "eventual":         {title: "Gastos eventuais", color: "var(--red)"},
+};
+
+document.querySelectorAll('.cf-cell').forEach(function(td) {
   td.addEventListener('click', function() {
-    var idx = parseInt(td.getAttribute('data-month-idx'));
-    fetch('/fluxo/eventual-json?year=' + CASHFLOW_YEAR)
+    var col = td.getAttribute('data-col');
+    var idx = parseInt(td.getAttribute('data-idx') || '0');
+    var meta = COL_LABELS[col] || {title: col, color: 'inherit'};
+    fetch('/fluxo/items-json?year=' + CASHFLOW_YEAR + '&col=' + col)
       .then(function(r) { return r.json(); })
       .then(function(data) {
         var items = data[idx] || [];
         var list = document.getElementById('ev-list');
         var total = document.getElementById('ev-total');
+        document.getElementById('ev-modal').querySelector('h3').textContent = meta.title;
         list.innerHTML = '';
         var sum = 0;
         items.forEach(function(item) {
           sum += item.amount;
           var tr = document.createElement('tr');
           tr.style.borderTop = '1px solid var(--border)';
-          var td1 = document.createElement('td');
-          td1.style.padding = '6px 4px';
-          td1.textContent = item.desc;
-          var td2 = document.createElement('td');
-          td2.className = 'text-right mono';
-          td2.style.padding = '6px 4px';
-          td2.style.color = 'var(--red)';
+          var td1 = document.createElement('td'); td1.style.padding = '6px 4px'; td1.textContent = item.desc;
+          var td2 = document.createElement('td'); td2.className = 'text-right mono';
+          td2.style.padding = '6px 4px'; td2.style.color = meta.color;
           td2.textContent = item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2});
-          tr.appendChild(td1);
-          tr.appendChild(td2);
-          list.appendChild(tr);
+          tr.appendChild(td1); tr.appendChild(td2); list.appendChild(tr);
         });
         total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2});
-        document.getElementById('ev-modal').style.display = 'flex';
+        var modal = document.getElementById('ev-modal');
+        modal.style.display = 'flex';
+        modal.onclick = function(e) { if(e.target===modal) modal.style.display='none'; };
       });
   });
 });
