@@ -91,3 +91,35 @@ def eventual_json():
     months = get_yearly_cashflow(current_user.id, year)
     data = [m.get("eventual_items", []) for m in months]
     return jsonify(data)
+
+
+@cashflow_bp.route("/fixed-json")
+@login_required
+def fixed_json():
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    months = get_yearly_cashflow(current_user.id, year)
+    data = [m.get("fixed_items", []) for m in months]
+    return jsonify(data)
+
+
+@cashflow_bp.route("/debug-fixos")
+@login_required
+def debug_fixos():
+    """Mostra todos os gastos fixos e seus dados para debug."""
+    from flask import jsonify
+    from app.models import Expense, ExpenseShare
+    expenses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(ExpenseShare.user_id == current_user.id).all()
+    result = []
+    for exp, share in expenses:
+        result.append({
+            "id": exp.id,
+            "desc": exp.description,
+            "kind": exp.kind,
+            "spent_at": str(exp.spent_at),
+            "amount": float(exp.amount),
+            "recurrence_months": exp.recurrence_months,
+            "active_jun": exp.is_active_on(2026, 6),
+            "active_jul": exp.is_active_on(2026, 7),
+        })
+    return jsonify(sorted(result, key=lambda x: x["desc"]))
