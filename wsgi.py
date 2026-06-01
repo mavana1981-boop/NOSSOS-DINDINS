@@ -49,78 +49,6 @@ def bootstrap():
         except Exception:
             pass
 
-        # 3b0. Gera excedentes para todos os gastos que ultrapassam o planejado
-        try:
-            from app.models import CardEntry, Expense, ExpenseShare
-            from decimal import Decimal as _Dec
-            from datetime import date as _date
-
-            MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-                     "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-            today = _date.today()
-            mes_nome = MESES[today.month - 1]
-
-            # Todos expense_ids com lançamentos
-            expense_ids = set(
-                e.expense_id for e in CardEntry.query.filter(
-                    CardEntry.expense_id != None
-                ).all()
-            )
-
-            generated = 0
-            for eid in expense_ids:
-                exp = Expense.query.get(eid)
-                if not exp:
-                    continue
-                planejado = float(exp.amount)
-                total = sum(
-                    float(e.amount) for e in CardEntry.query.filter(
-                        CardEntry.expense_id == eid,
-                        (CardEntry.status == "ativo") | (CardEntry.status == None)
-                    ).all()
-                )
-                excedente = round(total - planejado, 2)
-                if excedente <= 0:
-                    continue
-                desc = f"{exp.description} - excedente {mes_nome}"
-                existing = Expense.query.filter(
-                    Expense.payer_id == exp.payer_id,
-                    Expense.description == desc,
-                    Expense.kind == "pontual",
-                    Expense.spent_at == today,
-                ).first()
-                if existing:
-                    if round(float(existing.amount), 2) != excedente:
-                        existing.amount = excedente
-                        db.session.commit()
-                else:
-                    novo = Expense(
-                        payer_id=exp.payer_id,
-                        description=desc,
-                        amount=excedente,
-                        kind="pontual",
-                        share_mode="solo",
-                        category=exp.category,
-                        spent_at=today,
-                    )
-                    db.session.add(novo)
-                    db.session.flush()
-                    db.session.add(ExpenseShare(
-                        expense_id=novo.id,
-                        user_id=exp.payer_id,
-                        share_amount=_Dec(str(excedente)),
-                        share_percent=_Dec("100"),
-                    ))
-                    db.session.commit()
-                    generated += 1
-                    print(f"[migrate] excedente criado: {desc} R$ {excedente:.2f}")
-
-            if generated:
-                print(f"[migrate] {generated} excedente(s) de gastos gerados")
-        except Exception as e:
-            db.session.rollback()
-            print(f"[migrate] erro ao gerar excedentes: {e}")
-
         # 3b1. DEBUG: mostra card_entries de Assinaturas
         try:
             from app.models import Expense, CardEntry
@@ -155,7 +83,7 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro ao corrigir status: {e}")
 
-        # 3c. Corrige excedentes de parcelados
+        # 3b-3c. Excedentes de parcelados — limpeza e recriação idempotente
         try:
             from app.models import CardEntry, Expense, ExpenseShare
             from decimal import Decimal as _Dec
@@ -172,10 +100,21 @@ def bootstrap():
                 day = min(dt.day, calendar.monthrange(year, month)[1])
                 return _date(year, month, day)
 
-            today = _date.today()
+            # 1. Apaga TODOS os excedentes existentes (limpeza total)
+            todos = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).all()
+            for exp in todos:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+            if todos:
+                db.session.commit()
+                print(f"[migrate] {len(todos)} excedente(s) antigo(s) removido(s)")
 
-            # IDs de expenses que têm parcelados vinculados
-            expense_ids_parcelados = set(
+            # 2. Recria excedentes apenas para parcelados, agrupando por expense+mês
+            today = _date.today()
+            expense_ids = set(
                 e.expense_id for e in CardEntry.query.filter(
                     CardEntry.expense_id != None,
                     CardEntry.kind == "parcelado",
@@ -183,57 +122,28 @@ def bootstrap():
                 ).all()
             )
 
-            # Remove duplicados: mantém só o menor id por (payer_id, description, spent_at)
-            todos = Expense.query.filter(
-                Expense.description.like("% - excedente %"),
-                Expense.kind == "pontual"
-            ).order_by(Expense.id).all()
-            seen = {}
-            removed_dup = 0
-            for exp in todos:
-                # Agrupa por mês/ano, não data exata
-                key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
-                if key in seen:
-                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                    db.session.delete(exp)
-                    removed_dup += 1
-                else:
-                    seen[key] = exp.id
-            if removed_dup:
-                db.session.commit()
-                print(f"[migrate] {removed_dup} excedente(s) duplicado(s) removido(s)")
-
-            # Remove excedentes de "Celular Denise" se existirem
-            cel_denise = Expense.query.filter(
-                Expense.description.like("Celular Denise - excedente %"),
-                Expense.kind == "pontual"
-            ).all()
-            for exp in cel_denise:
-                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                db.session.delete(exp)
-            if cel_denise:
-                db.session.commit()
-                print(f"[migrate] {len(cel_denise)} excedente(s) Celular Denise removido(s)")
-
-            # Projeta excedentes para parcelados
             generated = 0
-            for eid in expense_ids_parcelados:
+            for eid in expense_ids:
                 exp = Expense.query.get(eid)
                 if not exp:
                     continue
+                if "celular denise" in exp.description.lower():
+                    continue
+
                 planejado = float(exp.amount)
                 payer = exp.payer_id
 
+                # Agrupa parcelas por mês
                 parcelados = CardEntry.query.filter_by(
                     expense_id=eid, kind="parcelado", status="ativo"
                 ).all()
 
                 month_totals = {}
                 for entry in parcelados:
-                    if not entry.installments:
+                    if not entry.installments or entry.installments <= 1:
                         continue
                     first_date = _add_months(entry.entry_date, 1 - (entry.installment_no or 1))
-                    for i in range(1, entry.installments + 1):
+                    for i in range(entry.installment_no or 1, entry.installments + 1):
                         d = _add_months(first_date, i - 1)
                         key = (d.year, d.month)
                         month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
@@ -244,19 +154,7 @@ def bootstrap():
                         continue
                     mes_nome = MESES[month - 1]
                     desc = f"{exp.description} - excedente {mes_nome}"
-                    dt = _date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
-                    # Só cria se não existe
-                    existing = Expense.query.filter(
-                        Expense.payer_id == payer,
-                        Expense.description == desc,
-                        Expense.kind == "pontual",
-                        Expense.spent_at == dt,
-                    ).first()
-                    if existing:
-                        continue
-                    # Não projeta excedente para Celular Denise
-                    if "celular denise" in desc.lower():
-                        continue
+                    dt = _date(year, month, 1)  # dia 1 fixo — evita duplicatas
                     novo = Expense(
                         payer_id=payer, description=desc, amount=excedente,
                         kind="pontual", share_mode="solo",
@@ -279,7 +177,7 @@ def bootstrap():
             db.session.rollback()
             print(f"[migrate] erro excedentes: {e}")
 
-                # 4. Admin
+        # 4. Admin
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
         try:
