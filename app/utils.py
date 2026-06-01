@@ -127,7 +127,13 @@ def get_credits_debits(user_id):
 
 
 def get_yearly_cashflow(user_id, year):
+    from app import db as _db
     from app.models import Income, Expense, ExpenseShare, CashflowOverride
+    # Garante sessão limpa — fecha transação antiga se houver
+    try:
+        _db.session.commit()
+    except Exception:
+        _db.session.rollback()
     overrides = {(o.year, o.month): o for o in
                  CashflowOverride.query.filter_by(user_id=user_id).all()}
     from datetime import date as _date
