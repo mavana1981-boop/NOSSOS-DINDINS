@@ -127,7 +127,9 @@ def get_credits_debits(user_id):
 
 
 def get_yearly_cashflow(user_id, year):
-    from app.models import Income, Expense, ExpenseShare
+    from app.models import Income, Expense, ExpenseShare, CashflowOverride
+    overrides = {(o.year, o.month): o for o in
+                 CashflowOverride.query.filter_by(user_id=user_id).all()}
     from datetime import date as _date
     months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
                  "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
@@ -167,7 +169,20 @@ def get_yearly_cashflow(user_id, year):
                     "amount": round(float(v), 2),
                 })
         net = income_total - fixed_total - eventual_total
-        cumulative += net
+        # Maio/2026: zera saldo e acumulado (mês de referência inicial)
+        if year == 2026 and m == 5:
+            net = 0.0
+            cumulative = 0.0
+        else:
+            cumulative += net
+
+        # Aplica override manual se existir
+        override = overrides.get((year, m))
+        net_final = float(override.net_override) if override and override.net_override is not None else net
+        cumulative_final = float(override.cumulative_override) if override and override.cumulative_override is not None else cumulative
+        if override and override.cumulative_override is not None:
+            cumulative = cumulative_final  # propaga para próximo mês
+
         result.append({
             "month": m,
             "month_name": months_pt[m - 1],
@@ -178,7 +193,7 @@ def get_yearly_cashflow(user_id, year):
             "eventual_expense": eventual_total,
             "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
             "total_expense": fixed_total + eventual_total,
-            "net": net,
-            "cumulative": cumulative,
+            "net": net_final,
+            "cumulative": cumulative_final,
         })
     return result
