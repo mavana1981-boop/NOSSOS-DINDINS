@@ -153,12 +153,16 @@ def get_yearly_cashflow(user_id, year):
         last_day = _date(year, m, 28)
         income_recurring = 0.0
         income_eventual = 0.0
+        income_recurring_items = []
+        income_eventual_items = []
         for i in incomes:
             if i.is_recurring and i.received_at <= last_day:
                 if (year, m) >= (i.received_at.year, i.received_at.month):
                     income_recurring += float(i.amount)
+                    income_recurring_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
             elif i.received_at.year == year and i.received_at.month == m:
                 income_eventual += float(i.amount)
+                income_eventual_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
         income_total = income_recurring + income_eventual
         fixed_total = 0.0
         eventual_total = 0.0
@@ -208,6 +212,8 @@ def get_yearly_cashflow(user_id, year):
             "eventual_expense": eventual_total,
             "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
             "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
+            "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
+            "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
             "total_expense": fixed_total + eventual_total,
             "net": net_final,
             "cumulative": cumulative_final,
