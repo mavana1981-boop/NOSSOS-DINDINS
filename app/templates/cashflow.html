@@ -50,26 +50,37 @@
 
 <!-- Gráfico de barras -->
 <div class="card mt-2">
-  <div style="display:flex;gap:4px;align-items:flex-end;height:120px;padding:8px 0;">
+  <div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:8px 0;">
     {% for m in months %}
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;justify-content:flex-end;">
-      <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:1px;">
-        <div style="background:var(--green);border-radius:2px 2px 0 0;
-             height: {{ (m.income_recurring / max_value * 100)|round if max_value else 0 }}%;"
-             title="Renda fixa: {{ m.income_recurring|brl }}"></div>
-        <div style="background:var(--blue);border-radius:2px 2px 0 0;
-             height: {{ (m.income_eventual / max_value * 100)|round if max_value else 0 }}%;"
-             title="Renda eventual: {{ m.income_eventual|brl }}"></div>
-        <div style="background:var(--gold);border-radius:2px 2px 0 0;
-             height: {{ (m.fixed_expense / max_value * 100)|round if max_value else 0 }}%;"
-             title="Fixos: {{ m.fixed_expense|brl }}"></div>
-        <div style="background:var(--red);border-radius:2px 2px 0 0;
-             height: {{ (m.total_expense / max_value * 100)|round if max_value else 0 }}%;"
-             title="Total gastos: {{ m.total_expense|brl }}"></div>
+    {% set inc_h = ((m.income / max_value * 100)|round)|int if max_value else 0 %}
+    {% set exp_h = ((m.total_expense / max_value * 100)|round)|int if max_value else 0 %}
+    {% set inc_rec_pct = ((m.income_recurring / m.income * 100)|round)|int if m.income > 0 else 100 %}
+    <div style="flex:1;display:flex;flex-direction:row;align-items:flex-end;gap:1px;height:100%;">
+      <!-- Barra de renda -->
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;">
+        <div style="width:100%;height:{{ inc_h }}%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden;"
+             title="Renda: {{ m.income|brl }}">
+          <div style="background:var(--green);height:{{ inc_rec_pct }}%;"></div>
+          <div style="background:var(--blue);height:{{ 100 - inc_rec_pct }}%;"></div>
+        </div>
       </div>
-      <strong style="font-size:0.65rem;">{{ m.month_name }}</strong>
+      <!-- Barra de gastos -->
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;">
+        <div style="width:100%;height:{{ exp_h }}%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden;"
+             title="Gastos: {{ m.total_expense|brl }}">
+          {% set fix_pct = ((m.fixed_expense / m.total_expense * 100)|round)|int if m.total_expense > 0 else 100 %}
+          <div style="background:var(--gold);height:{{ fix_pct }}%;"></div>
+          <div style="background:var(--red);height:{{ 100 - fix_pct }}%;"></div>
+        </div>
+      </div>
     </div>
     {% endfor %}
+  </div>
+  <div style="display:flex;gap:16px;margin-top:6px;font-size:0.72rem;color:var(--text-faint);">
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);display:inline-block;border-radius:2px;"></span>Renda fixa</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--blue);display:inline-block;border-radius:2px;"></span>Renda eventual</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--gold);display:inline-block;border-radius:2px;"></span>Fixos</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--red);display:inline-block;border-radius:2px;"></span>Eventuais</span>
   </div>
 </div>
 
