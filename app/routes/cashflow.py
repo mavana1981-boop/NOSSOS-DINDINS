@@ -9,6 +9,9 @@ cashflow_bp = Blueprint("cashflow", __name__)
 @cashflow_bp.route("/")
 @login_required
 def index():
+    from app import db
+    # Força expiração do cache da sessão SQLAlchemy para buscar dados frescos
+    db.session.expire_all()
     year = request.args.get("year", type=int) or date.today().year
     months = get_yearly_cashflow(current_user.id, year)
 
