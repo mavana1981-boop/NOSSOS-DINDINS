@@ -146,6 +146,18 @@ def get_yearly_cashflow(user_id, year):
         if exp.id not in seen or share.user_id == user_id:
             seen[exp.id] = (exp, share)
     expenses = list(seen.values())
+
+    # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
+    repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
+            Expense.payer_id == user_id,
+            Expense.share_mode.in_(["integral", "split"]),
+            ExpenseShare.user_id != user_id
+        ).all()
+    import sys
+    print(f"[debug-repasses] user_id={user_id} total={len(repasses)}", file=sys.stderr)
+    for exp, share in repasses:
+        print(f"  -> {exp.description} kind={exp.kind} share_mode={exp.share_mode} share_uid={share.user_id} amount={share.share_amount}", file=sys.stderr)
+
     incomes = Income.query.filter_by(user_id=user_id).all()
     result = []
     cumulative = 0.0
@@ -163,6 +175,18 @@ def get_yearly_cashflow(user_id, year):
             elif i.received_at.year == year and i.received_at.month == m:
                 income_eventual += float(i.amount)
                 income_eventual_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
+        # Repasses: gastos pagos pelo usuário que serão devolvidos por outro
+        for exp, share in repasses:
+            if not exp.is_active_on(year, m):
+                continue
+            v = round(float(share.share_amount), 2)
+            if v <= 0:
+                continue
+            income_eventual += v
+            income_eventual_items.append({
+                "desc": f"Repasse: {exp.description}",
+                "amount": v
+            })
         income_total = income_recurring + income_eventual
         fixed_total = 0.0
         eventual_total = 0.0
