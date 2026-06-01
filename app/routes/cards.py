@@ -414,13 +414,6 @@ def detail_card(card_id):
         else:
             unlinked.append(e)
 
-    # Verifica excedentes de todos os gastos vinculados a este cartão
-    expense_ids_checked = set()
-    for e in entries:
-        if e.expense_id and e.expense_id not in expense_ids_checked:
-            _check_excedente(e.expense_id)
-            expense_ids_checked.add(e.expense_id)
-
     return render_template("cards/detail.html",
                            card=card,
                            entries=entries,
