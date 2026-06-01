@@ -11,6 +11,8 @@
     <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
     <span class="btn btn-ghost" style="pointer-events:none;color:var(--accent);">{{ year }}</span>
     <a href="{{ url_for('cashflow.index', year=year+1) }}" class="btn btn-ghost">{{ year+1 }} →</a>
+    <a href="{{ url_for('cashflow.index', year=year) }}" class="btn btn-ghost" title="Recarregar dados do banco"
+       style="color:var(--text-faint);">↺ Atualizar</a>
   </div>
 </div>
 
