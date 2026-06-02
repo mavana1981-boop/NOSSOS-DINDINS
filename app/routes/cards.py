@@ -484,6 +484,11 @@ def delete_entry(card_id, entry_id):
     if expense_id:
         _check_excedente(expense_id)
     flash("Lançamento removido.", "info")
+    # Retorna JSON se chamado via fetch (Ajax), redirect se form normal
+    from flask import request as _req
+    if _req.headers.get("Accept") == "application/json" or        _req.headers.get("X-Requested-With") == "XMLHttpRequest":
+        from flask import jsonify
+        return jsonify({"ok": True})
     return redirect(url_for("cards.detail_card", card_id=card_id))
 
 
