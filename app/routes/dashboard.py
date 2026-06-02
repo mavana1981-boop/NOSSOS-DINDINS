@@ -46,6 +46,15 @@ def index():
             .filter(Expense.payer_id == other.id,
                     ExpenseShare.user_id == current_user.id).all()
         entries = []
+        from datetime import date as _d
+        today = _d.today()
+        def _parc(exp):
+            if exp.kind != "recorrente" or not exp.recurrence_months:
+                return ""
+            md = (today.year - exp.spent_at.year) * 12 + (today.month - exp.spent_at.month) + 1
+            md = max(1, min(md, exp.recurrence_months))
+            return f"{md}/{exp.recurrence_months}"
+
         for exp, share in eu_paguei:
             entries.append({
                 "description": exp.description,
@@ -55,6 +64,7 @@ def index():
                 "category": exp.category,
                 "kind": exp.kind,
                 "recurrence_months": exp.recurrence_months,
+                "parcela": _parc(exp),
             })
         for exp, share in outro_pagou:
             entries.append({
@@ -65,6 +75,7 @@ def index():
                 "category": exp.category,
                 "kind": exp.kind,
                 "recurrence_months": exp.recurrence_months,
+                "parcela": _parc(exp),
             })
         entries.sort(key=lambda x: x["date"], reverse=True)
         credits_debits_detail.append({
