@@ -97,12 +97,14 @@ def index():
 
 
 @cashflow_bp.route("/ajustar", methods=["POST"])
-@login_required
 def ajustar():
-    """Salva ajuste manual de saldo/acumulado."""
+    """Salva ajuste manual de qualquer coluna do fluxo."""
+    from flask_login import current_user
     from flask import request as req, jsonify
     from app.models import CashflowOverride
     from decimal import Decimal, InvalidOperation
+    if not current_user.is_authenticated:
+        return jsonify({"ok": False, "error": "sessao_expirada"}), 401
     year = req.form.get("year", type=int)
     month = req.form.get("month", type=int)
     field = req.form.get("field")  # "net" ou "cumulative"
