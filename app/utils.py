@@ -250,11 +250,6 @@ def get_yearly_cashflow(user_id, year):
         eventual_items = []
         fixed_items = []
 
-        # Parcelados do cartão → gasto eventual por mês
-        for item in parcelados_por_mes.get((year, m), []):
-            eventual_total += item["amount"]
-            eventual_items.append(item)
-
         # Débitos do usuário (repassados por outra pessoa) → gasto eventual
         for exp, share in debitos:
             if not exp.is_active_on(year, m):
