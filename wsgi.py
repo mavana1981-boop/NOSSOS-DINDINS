@@ -33,6 +33,10 @@ def bootstrap():
             return
 
         # 2. Colunas novas em tabelas existentes — APÓS create_all
+        _ensure_column("cashflow_overrides", "income_recurring_override", "NUMERIC(12,2)")
+        _ensure_column("cashflow_overrides", "income_eventual_override",  "NUMERIC(12,2)")
+        _ensure_column("cashflow_overrides", "fixed_override",            "NUMERIC(12,2)")
+        _ensure_column("cashflow_overrides", "eventual_override",         "NUMERIC(12,2)")
         _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("expenses", "recurrence_months", "INTEGER")
         _ensure_column("expenses", "card_id",           "INTEGER REFERENCES cards(id) ON DELETE SET NULL")
@@ -83,16 +87,16 @@ def bootstrap():
         except Exception as e:
             print(f"[migrate] erro ao corrigir status: {e}")
 
-        # 3b-3c. Limpa excedentes duplicados (não cria novos — evita conflito entre workers)
+        # 3b-3c. Limpa excedentes duplicados e órfãos
         try:
             from app.models import Expense, ExpenseShare
-            from sqlalchemy import extract
 
-            # Remove duplicatas: mantém só o mais antigo por (payer, desc, mês, ano)
             todos = Expense.query.filter(
                 Expense.description.like("% - excedente %"),
                 Expense.kind == "pontual"
             ).order_by(Expense.id).all()
+
+            # 1. Remove duplicatas
             seen = {}
             removed = 0
             for exp in todos:
@@ -106,6 +110,31 @@ def bootstrap():
             if removed:
                 db.session.commit()
                 print(f"[migrate] {removed} excedente(s) duplicado(s) removido(s)")
+
+            # 2. Remove órfãos — excedentes cujo gasto original foi excluído
+            todos2 = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).all()
+            orphans = 0
+            for exp in todos2:
+                parts = exp.description.split(" - excedente ")
+                if len(parts) < 2:
+                    continue
+                nome_base = parts[0].strip()
+                original = Expense.query.filter(
+                    Expense.payer_id == exp.payer_id,
+                    Expense.description == nome_base,
+                    Expense.id != exp.id
+                ).first()
+                if not original:
+                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                    db.session.delete(exp)
+                    orphans += 1
+            if orphans:
+                db.session.commit()
+                print(f"[migrate] {orphans} excedente(s) órfão(s) removido(s)")
+
         except Exception as e:
             db.session.rollback()
             print(f"[migrate] erro limpeza excedentes: {e}")
