@@ -102,6 +102,7 @@ def ajustar():
     from flask_login import current_user
     from flask import request as req, jsonify
     from app.models import CashflowOverride
+    from app import db
     from decimal import Decimal, InvalidOperation
     if not current_user.is_authenticated:
         return jsonify({"ok": False, "error": "sessao_expirada"}), 401
