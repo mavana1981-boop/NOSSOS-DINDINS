@@ -220,13 +220,30 @@ function abrirEdicao(td) {
     fd.append('month', td.getAttribute('data-month'));
     fd.append('field', td.getAttribute('data-field'));
     fd.append('value', v);
-    fetch('/fluxo/ajustar', {method:'POST', body:fd})
-      .then(function(r) { return r.json(); })
+    fetch('/fluxo/ajustar', {method:'POST', body:fd, credentials:'same-origin'})
+      .then(function(r) {
+        var ct = r.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          if (r.status === 401 || r.url.includes('login')) {
+            alert('Sessão expirada. Faça login novamente.');
+            window.location.href = '/login';
+          } else {
+            r.text().then(function(t) { alert('Erro do servidor: ' + t.substring(0,200)); });
+          }
+          return null;
+        }
+        return r.json();
+      })
       .then(function(j) {
+        if (!j) return;
         if(j.ok) { window.location.reload(); }
+        else if(j.error === 'sessao_expirada') {
+          alert('Sessão expirada. Faça login novamente.');
+          window.location.href = '/auth/login';
+        }
         else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); window.location.reload(); }
       })
-      .catch(function(err) { alert('Falha: ' + err); window.location.reload(); });
+      .catch(function(err) { alert('Falha de rede: ' + err); window.location.reload(); });
   }
   input.addEventListener('blur', salvar);
   input.addEventListener('keydown', function(e) {
