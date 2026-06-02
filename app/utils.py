@@ -290,6 +290,31 @@ def get_yearly_cashflow(user_id, year):
                     "desc": exp.description + parc_fix,
                     "amount": round(float(v), 2),
                 })
+                # Se tem parcelas do cartão neste mês, verifica se somam menos que o planejado
+                if exp.id:
+                    from app.models import CardEntry as _CE
+                    import calendar as _cal2
+                    parc_mes = _CE.query.filter_by(
+                        expense_id=exp.id, kind="parcelado", status="ativo"
+                    ).all()
+                    total_parc_mes = 0.0
+                    for ce in parc_mes:
+                        # Calcula qual parcela cai neste mês
+                        if not ce.installments or not ce.installment_no:
+                            continue
+                        first = _add_months(ce.entry_date, 1 - ce.installment_no)
+                        for i in range(ce.installment_no, ce.installments + 1):
+                            d = _add_months(first, i - 1)
+                            if d.year == year and d.month == m:
+                                total_parc_mes += float(ce.amount)
+                                break
+                    if 0 < total_parc_mes < v:
+                        sobra = round(v - total_parc_mes, 2)
+                        income_eventual += sobra
+                        income_eventual_items.append({
+                            "desc": f"Sobra parcelado: {exp.description}",
+                            "amount": sobra,
+                        })
             else:
                 eventual_total += v
                 eventual_items.append({
