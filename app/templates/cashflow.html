@@ -24,33 +24,29 @@
 <!-- 4 cards principais -->
 <div class="grid grid-4 mb-3">
   <div class="card">
-    <div class="stat-label">Renda fixa no mês</div>
-    {% set cur = months[current_month_idx] if current_month_idx is defined else months[0] %}
-    <div class="stat-value positive">{{ totals.income_recurring|brl }}</div>
-    <div class="text-faint text-small">total {{ year }}</div>
+    <div class="stat-label">Renda fixa — {{ current_month.month_name }}</div>
+    <div class="stat-value positive">{{ current_month.income_recurring|brl }}</div>
   </div>
   <div class="card">
-    <div class="stat-label">Renda eventual no mês</div>
-    <div class="stat-value" style="color:var(--blue);">{{ totals.income_eventual|brl }}</div>
-    <div class="text-faint text-small">total {{ year }}</div>
+    <div class="stat-label">Renda eventual — {{ current_month.month_name }}</div>
+    <div class="stat-value" style="color:var(--blue);">{{ current_month.income_eventual|brl }}</div>
   </div>
   <div class="card">
-    <div class="stat-label">Saldo do mês</div>
-    {% if totals.net >= 0 %}
-    <div class="stat-value positive">{{ totals.net|brl }}</div>
+    <div class="stat-label">Saldo — {{ current_month.month_name }}</div>
+    {% if current_month.net >= 0 %}
+    <div class="stat-value positive">{{ current_month.net|brl }}</div>
     {% else %}
-    <div class="stat-value negative">{{ totals.net|brl }}</div>
+    <div class="stat-value negative">{{ current_month.net|brl }}</div>
     {% endif %}
-    <div class="text-faint text-small">total {{ year }}</div>
   </div>
   <div class="card">
     <div class="stat-label">Saldo do ano</div>
-    {% set last_cumulative = months[-1].cumulative if months else 0 %}
-    {% if last_cumulative >= 0 %}
-    <div class="stat-value positive">{{ last_cumulative|brl }}</div>
+    {% if saldo_ano >= 0 %}
+    <div class="stat-value positive">{{ saldo_ano|brl }}</div>
     {% else %}
-    <div class="stat-value negative">{{ last_cumulative|brl }}</div>
+    <div class="stat-value negative">{{ saldo_ano|brl }}</div>
     {% endif %}
+    <div class="text-faint text-small">acumulado dez/{{ year }}</div>
   </div>
 </div>
 
