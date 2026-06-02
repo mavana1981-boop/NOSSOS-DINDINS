@@ -56,6 +56,8 @@ def index():
             return f"{md}/{exp.recurrence_months}"
 
         for exp, share in eu_paguei:
+            if not exp.is_active_on(today.year, today.month):
+                continue
             entries.append({
                 "description": exp.description,
                 "date": exp.spent_at,
@@ -67,6 +69,8 @@ def index():
                 "parcela": _parc(exp),
             })
         for exp, share in outro_pagou:
+            if not exp.is_active_on(today.year, today.month):
+                continue
             entries.append({
                 "description": exp.description,
                 "date": exp.spent_at,
@@ -178,4 +182,5 @@ def index():
         household_pct=household_pct,
         desired_pct=desired_pct,
         today=today,
+        mes_atual=today.strftime("%B/%Y").capitalize(),
     )
