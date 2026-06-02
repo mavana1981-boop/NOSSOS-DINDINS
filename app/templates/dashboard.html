@@ -67,9 +67,9 @@
           <div>
             <div class="text-small" style="font-weight:500;">
               {{ entry.description }}
-              {% if entry.kind == 'recorrente' and entry.recurrence_months %}
+              {% if entry.parcela %}
                 <span class="badge badge-shared" style="font-size:0.62rem;margin-left:4px;">
-                  parcelado {{ entry.recurrence_months }}×
+                  {{ entry.parcela }}×
                 </span>
               {% elif entry.kind == 'recorrente' %}
                 <span class="badge badge-shared" style="font-size:0.62rem;margin-left:4px;">fixo</span>
