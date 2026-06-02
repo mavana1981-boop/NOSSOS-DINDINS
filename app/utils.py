@@ -290,31 +290,50 @@ def get_yearly_cashflow(user_id, year):
                     "desc": exp.description + parc_fix,
                     "amount": round(float(v), 2),
                 })
-                # Se tem parcelas do cartão neste mês, verifica se somam menos que o planejado
-                if exp.id:
-                    from app.models import CardEntry as _CE
-                    import calendar as _cal2
-                    parc_mes = _CE.query.filter_by(
-                        expense_id=exp.id, kind="parcelado", status="ativo"
-                    ).all()
-                    total_parc_mes = 0.0
-                    for ce in parc_mes:
-                        # Calcula qual parcela cai neste mês
-                        if not ce.installments or not ce.installment_no:
-                            continue
-                        first = _add_months(ce.entry_date, 1 - ce.installment_no)
-                        for i in range(ce.installment_no, ce.installments + 1):
-                            d = _add_months(first, i - 1)
-                            if d.year == year and d.month == m:
-                                total_parc_mes += float(ce.amount)
-                                break
-                    if 0 < total_parc_mes < v:
-                        sobra = round(v - total_parc_mes, 2)
-                        income_eventual += sobra
-                        income_eventual_items.append({
-                            "desc": f"Sobra parcelado: {exp.description}",
-                            "amount": sobra,
-                        })
+                # Verifica sobra de cartão: parcelados vs planejado (ou todos lançamentos p/ ML)
+                if exp.id and exp.card_id:
+                    from app.models import CardEntry as _CE, Card as _Card
+                    _card = _Card.query.get(exp.card_id)
+                    _is_ml = _card and "mercado livre" in (_card.name or "").lower()
+
+                    if _is_ml:
+                        # Mercado Livre: compara TODOS os lançamentos do mês no cartão
+                        _entries_mes = _CE.query.filter_by(
+                            card_id=exp.card_id, status="ativo"
+                        ).all()
+                        total_lancado = sum(
+                            float(ce.amount) for ce in _entries_mes
+                            if ce.entry_date.year == year and ce.entry_date.month == m
+                        )
+                        if 0 < total_lancado < v:
+                            sobra = round(v - total_lancado, 2)
+                            income_eventual += sobra
+                            income_eventual_items.append({
+                                "desc": f"Sobra ML: {exp.description}",
+                                "amount": sobra,
+                            })
+                    else:
+                        # Outros cartões: compara parcelados do mês vs planejado
+                        parc_mes = _CE.query.filter_by(
+                            expense_id=exp.id, kind="parcelado", status="ativo"
+                        ).all()
+                        total_parc_mes = 0.0
+                        for ce in parc_mes:
+                            if not ce.installments or not ce.installment_no:
+                                continue
+                            first = _add_months(ce.entry_date, 1 - ce.installment_no)
+                            for i in range(ce.installment_no, ce.installments + 1):
+                                d = _add_months(first, i - 1)
+                                if d.year == year and d.month == m:
+                                    total_parc_mes += float(ce.amount)
+                                    break
+                        if 0 < total_parc_mes < v:
+                            sobra = round(v - total_parc_mes, 2)
+                            income_eventual += sobra
+                            income_eventual_items.append({
+                                "desc": f"Sobra parcelado: {exp.description}",
+                                "amount": sobra,
+                            })
             else:
                 eventual_total += v
                 eventual_items.append({
