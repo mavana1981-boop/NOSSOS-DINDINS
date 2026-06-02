@@ -52,7 +52,7 @@ function excluirSelecionadosExp(groupId) {
   var done = 0;
   function next() {
     if (done >= urls.length) { window.location.reload(); return; }
-    fetch(urls[done++], { method: 'POST' }).then(next);
+    fetch(urls[done++], { method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json'} }).then(next).catch(next);
   }
   next();
 }
@@ -72,7 +72,7 @@ function excluirSelecionados() {
   var done = 0;
   function next() {
     if (done >= urls.length) { window.location.reload(); return; }
-    fetch(urls[done++], { method: 'POST' }).then(next);
+    fetch(urls[done++], { method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json'} }).then(next).catch(next);
   }
   next();
 }
