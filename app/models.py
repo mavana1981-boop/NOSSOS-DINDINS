@@ -207,7 +207,7 @@ class AutoTransfer(db.Model):
 
 
 class CashflowOverride(db.Model):
-    """Ajuste manual de saldo/acumulado no fluxo de caixa."""
+    """Ajuste manual de qualquer coluna do fluxo de caixa."""
     __tablename__ = "cashflow_overrides"
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -215,6 +215,10 @@ class CashflowOverride(db.Model):
     month = db.Column(db.Integer, nullable=False)
     net_override = db.Column(db.Numeric(12, 2), nullable=True)
     cumulative_override = db.Column(db.Numeric(12, 2), nullable=True)
+    income_recurring_override = db.Column(db.Numeric(12, 2), nullable=True)
+    income_eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
+    fixed_override = db.Column(db.Numeric(12, 2), nullable=True)
+    eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)
