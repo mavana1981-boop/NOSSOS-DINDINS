@@ -222,8 +222,11 @@ function abrirEdicao(td) {
     fd.append('value', v);
     fetch('/fluxo/ajustar', {method:'POST', body:fd})
       .then(function(r) { return r.json(); })
-      .then(function(j) { if(j.ok) window.location.reload(); else alert('Erro ao salvar'); })
-      .catch(function() { window.location.reload(); });
+      .then(function(j) {
+        if(j.ok) { window.location.reload(); }
+        else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); window.location.reload(); }
+      })
+      .catch(function(err) { alert('Falha: ' + err); window.location.reload(); });
   }
   input.addEventListener('blur', salvar);
   input.addEventListener('keydown', function(e) {
