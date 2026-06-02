@@ -134,8 +134,13 @@ def ajustar():
     if col:
         setattr(override, col, v)
 
-    db.session.commit()
-    return jsonify({"ok": True})
+    try:
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
 @cashflow_bp.route("/debug-junho")
