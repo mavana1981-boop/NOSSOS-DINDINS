@@ -295,12 +295,6 @@ def get_yearly_cashflow(user_id, year):
                     "amount": round(float(v), 2),
                 })
         net = income_total - fixed_total - eventual_total
-        # Maio/2026: zera saldo e acumulado (mês de referência inicial)
-        if year == 2026 and m == 5:
-            net = 0.0
-            cumulative = 0.0
-        else:
-            cumulative += net
 
         # Aplica overrides manuais
         override = overrides.get((year, m))
@@ -313,12 +307,20 @@ def get_yearly_cashflow(user_id, year):
         fixed_total_f      = _ov("fixed_override",            fixed_total)
         eventual_total_f   = _ov("eventual_override",         eventual_total)
         net_calc = (income_recurring_f + income_eventual_f) - (fixed_total_f + eventual_total_f)
-        net_final        = _ov("net_override", net_calc)
-        cumulative_final = _ov("cumulative_override", cumulative + net_final)
-        if override and override.cumulative_override is not None:
+
+        # Maio/2026: ponto de referência — zera saldo, acumulado e renda eventual
+        if year == 2026 and m == 5:
+            income_eventual_f  = _ov("income_eventual_override", 0.0)
+            net_final        = _ov("net_override", 0.0)
+            cumulative_final = _ov("cumulative_override", 0.0)
             cumulative = cumulative_final
         else:
-            cumulative += net_final
+            net_final        = _ov("net_override", net_calc)
+            cumulative_final = _ov("cumulative_override", cumulative + net_final)
+            if override and override.cumulative_override is not None:
+                cumulative = cumulative_final
+            else:
+                cumulative += net_final
 
         result.append({
             "month": m,
