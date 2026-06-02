@@ -78,10 +78,21 @@ def index():
         max((m["total_expense"] for m in months), default=0),
         1,
     )
+    # Dados do mês atual para os cards
+    today = date.today()
+    current_month = next(
+        (m for m in months if m["month"] == today.month and not m.get("is_next_year")),
+        months[0] if months else {}
+    )
+    # Saldo do ano = acumulado de dezembro
+    dec = next((m for m in months12 if m["month"] == 12), months12[-1] if months12 else {})
+
     return render_template("cashflow.html",
                            year=year, months=months, totals=totals,
                            max_value=max_value,
-                           current_year=date.today().year)
+                           current_year=today.year,
+                           current_month=current_month,
+                           saldo_ano=dec.get("cumulative", 0))
 
 
 @cashflow_bp.route("/ajustar", methods=["POST"])
