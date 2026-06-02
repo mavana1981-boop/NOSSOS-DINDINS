@@ -122,13 +122,51 @@ def ajustar():
         override = CashflowOverride(user_id=current_user.id, year=year, month=month)
         db.session.add(override)
 
-    if field == "net":
-        override.net_override = v
-    elif field == "cumulative":
-        override.cumulative_override = v
+    field_map = {
+        "net": "net_override",
+        "cumulative": "cumulative_override",
+        "income_recurring": "income_recurring_override",
+        "income_eventual": "income_eventual_override",
+        "fixed": "fixed_override",
+        "eventual": "eventual_override",
+    }
+    col = field_map.get(field)
+    if col:
+        setattr(override, col, v)
 
     db.session.commit()
     return jsonify({"ok": True})
+
+
+@cashflow_bp.route("/debug-junho")
+@login_required
+def debug_junho():
+    from flask import jsonify
+    from app.models import Expense, ExpenseShare
+    from sqlalchemy import extract
+    shares = ExpenseShare.query.filter_by(user_id=current_user.id).all()
+    result = []
+    for s in shares:
+        exp = Expense.query.get(s.expense_id)
+        if not exp:
+            continue
+        if not (exp.spent_at.year == 2026 and exp.spent_at.month == 6):
+            if exp.kind != "pontual":
+                continue
+            if not exp.is_active_on(2026, 6):
+                continue
+        if exp.kind == "pontual" and not (exp.spent_at.year == 2026 and exp.spent_at.month == 6):
+            continue
+        result.append({
+            "id": exp.id,
+            "desc": exp.description,
+            "kind": exp.kind,
+            "amount": float(exp.amount),
+            "share_amount": float(s.share_amount),
+            "spent_at": str(exp.spent_at),
+            "share_mode": exp.share_mode,
+        })
+    return jsonify(sorted(result, key=lambda x: x["desc"]))
 
 
 @cashflow_bp.route("/eventual-json")
