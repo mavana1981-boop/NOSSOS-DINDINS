@@ -77,16 +77,23 @@ def register_context(app):
 
 
 def get_user_balance_with(user_id, other_user_id):
+    """Saldo apenas com gastos vigentes no mês atual."""
     from app.models import Expense, ExpenseShare
-    a = db.session.query(func.coalesce(func.sum(ExpenseShare.share_amount), 0))\
-        .join(Expense, Expense.id == ExpenseShare.expense_id)\
-        .filter(Expense.payer_id == user_id,
-                ExpenseShare.user_id == other_user_id).scalar() or 0
-    b = db.session.query(func.coalesce(func.sum(ExpenseShare.share_amount), 0))\
-        .join(Expense, Expense.id == ExpenseShare.expense_id)\
-        .filter(Expense.payer_id == other_user_id,
-                ExpenseShare.user_id == user_id).scalar() or 0
-    return float(a) - float(b)
+    from datetime import date as _d
+    today = _d.today()
+    year, month = today.year, today.month
+
+    def _sum_active(payer_id, share_uid):
+        exps = db.session.query(Expense, ExpenseShare)\
+            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+            .filter(Expense.payer_id == payer_id,
+                    ExpenseShare.user_id == share_uid).all()
+        return sum(float(share.share_amount) for exp, share in exps
+                   if exp.is_active_on(year, month))
+
+    a = _sum_active(user_id, other_user_id)
+    b = _sum_active(other_user_id, user_id)
+    return a - b
 
 
 def get_user_monthly_summary(user_id, year, month):
