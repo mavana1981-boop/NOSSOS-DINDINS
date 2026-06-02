@@ -127,25 +127,72 @@ def get_credits_debits(user_id):
 
 
 def get_yearly_cashflow(user_id, year):
+    from app import db as _db
     from app.models import Income, Expense, ExpenseShare, CashflowOverride
+    # Garante sessão limpa — fecha transação antiga se houver
+    try:
+        _db.session.commit()
+    except Exception:
+        _db.session.rollback()
     overrides = {(o.year, o.month): o for o in
                  CashflowOverride.query.filter_by(user_id=user_id).all()}
     from datetime import date as _date
     months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
                  "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-    from sqlalchemy import or_ as _or
-    expenses = db.session.query(Expense, ExpenseShare)\
-        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-        .filter(_or(
-            ExpenseShare.user_id == user_id,
-            Expense.payer_id == user_id
-        )).all()
-    # Remove duplicatas mantendo o share do próprio usuário
-    seen = {}
-    for exp, share in expenses:
-        if exp.id not in seen or share.user_id == user_id:
-            seen[exp.id] = (exp, share)
-    expenses = list(seen.values())
+    from decimal import Decimal as _Dec
+
+    # Busca EXATAMENTE igual ao menu Gastos: payer_id == user
+    # O valor usado é sempre o amount do Expense (o que o user pagou)
+    all_expenses = Expense.query.filter(
+        Expense.payer_id == user_id
+    ).all()
+
+    # Converte para lista (exp, valor) — valor é o que impacta o fluxo do user
+    expenses = []
+    for exp in all_expenses:
+        # Para split: o custo do user é o share_amount dele
+        if exp.share_mode in ("split", "integral"):
+            share = ExpenseShare.query.filter_by(
+                expense_id=exp.id, user_id=user_id
+            ).first()
+            valor = float(share.share_amount) if share else float(exp.amount)
+        else:
+            valor = float(exp.amount)
+        expenses.append((exp, valor))
+
+    # Lançamentos parcelados no cartão do usuário → gasto eventual por mês
+    from app.models import CardEntry
+    import calendar as _cal
+
+    def _add_months(dt, n):
+        month = dt.month - 1 + n
+        year2 = dt.year + month // 12
+        month = month % 12 + 1
+        day = min(dt.day, _cal.monthrange(year2, month)[1])
+        return _date(year2, month, day)
+
+    parcelados = CardEntry.query.filter_by(
+        user_id=user_id,
+        kind="parcelado",
+        status="ativo"
+    ).all()
+
+    # Agrupa valor por (ano, mês) para cada parcela futura
+    parcelados_por_mes = {}
+    for entry in parcelados:
+        if not entry.installments or entry.installment_no is None:
+            continue
+        first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
+        for i in range(entry.installment_no, entry.installments + 1):
+            d = _add_months(first_date, i - 1)
+            key = (d.year, d.month)
+            if key not in parcelados_por_mes:
+                parcelados_por_mes[key] = []
+            parc_label = f" ({i}/{entry.installments})"
+            parcelados_por_mes[key].append({
+                "desc": f"{entry.description}{parc_label}",
+                "amount": round(float(entry.amount), 2)
+            })
 
     # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
     repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
@@ -153,6 +200,15 @@ def get_yearly_cashflow(user_id, year):
             Expense.share_mode.in_(["integral", "split"]),
             ExpenseShare.user_id != user_id
         ).all()
+
+    # Gastos repassados AO usuário por outra pessoa (o user é devedor)
+    # Aparecem como gasto eventual no fluxo do usuário
+    debitos = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
+            ExpenseShare.user_id == user_id,
+            Expense.payer_id != user_id,
+            Expense.share_mode.in_(["integral", "split"])
+        ).all()
+
 
     incomes = Income.query.filter_by(user_id=user_id).all()
     result = []
@@ -176,9 +232,16 @@ def get_yearly_cashflow(user_id, year):
             if not exp.is_active_on(year, m):
                 continue
             v = round(float(share.share_amount), 2)
+            if v <= 0:
+                continue
             income_eventual += v
+            # Calcula parcela atual se recorrente com prazo definido
+            parc_label = ""
+            if exp.kind == "recorrente" and exp.recurrence_months:
+                months_diff = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                parc_label = f" ({months_diff}/{exp.recurrence_months})"
             income_eventual_items.append({
-                "desc": f"Repasse: {exp.description}",
+                "desc": f"Repasse: {exp.description}{parc_label}",
                 "amount": v
             })
         income_total = income_recurring + income_eventual
@@ -186,13 +249,35 @@ def get_yearly_cashflow(user_id, year):
         eventual_total = 0.0
         eventual_items = []
         fixed_items = []
-        for exp, share in expenses:
+
+        # Parcelados do cartão → gasto eventual por mês
+        for item in parcelados_por_mes.get((year, m), []):
+            eventual_total += item["amount"]
+            eventual_items.append(item)
+
+        # Débitos do usuário (repassados por outra pessoa) → gasto eventual
+        for exp, share in debitos:
+            if not exp.is_active_on(year, m):
+                continue
+            v = round(float(share.share_amount), 2)
+            if v <= 0:
+                continue
+            parc_label = ""
+            if exp.kind == "recorrente" and exp.recurrence_months:
+                months_diff = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                parc_label = f" ({months_diff}/{exp.recurrence_months})"
+            eventual_total += v
+            eventual_items.append({
+                "desc": f"Débito: {exp.description}{parc_label}",
+                "amount": v
+            })
+        for exp, valor in expenses:
             if not exp.is_active_on(year, m):
                 continue
             # Exclui gastos eventuais (pontual) anteriores a junho/2026
             if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
                 continue
-            v = float(share.share_amount)
+            v = float(valor)
             if exp.kind == "recorrente":
                 fixed_total += v
                 fixed_items.append({
