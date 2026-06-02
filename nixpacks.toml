@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc"]
+nixPkgs = ["python313", "gcc"]
 
 [start]
 cmd = "gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120"
