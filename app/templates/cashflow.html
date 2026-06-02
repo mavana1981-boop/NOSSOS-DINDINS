@@ -95,7 +95,10 @@
 
 <!-- Tabela detalhada -->
 <div class="card mt-3">
-  <div class="card-title"><h3>Detalhamento mês a mês</h3></div>
+  <div class="card-title">
+    <h3>Detalhamento mês a mês</h3>
+    <span class="text-faint text-small">clique = detalhar · duplo clique = editar</span>
+  </div>
   <div class="table-wrap">
     <table class="tbl">
       <thead>
@@ -196,36 +199,43 @@
 <script>
 var CASHFLOW_YEAR = {{ year }};
 
-// Edição inline de saldo e acumulado
-document.querySelectorAll('.editable-cell').forEach(function(td) {
-  td.addEventListener('click', function() {
-    if (td.querySelector('input')) return;
-    var val = td.getAttribute('data-value') || '0';
-    var numVal = parseFloat(val).toFixed(2).replace('.', ',');
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.value = numVal;
-    input.style.cssText = 'width:100%;text-align:right;background:var(--bg);border:1px solid var(--accent);border-radius:4px;padding:2px 4px;color:inherit;font-family:inherit;font-size:inherit;';
-    td.innerHTML = '';
-    td.appendChild(input);
-    input.focus();
-    input.select();
+// Edição inline — duplo clique em qualquer célula editável
+function abrirEdicao(td) {
+  if (td.querySelector('input')) return;
+  var val = td.getAttribute('data-value') || '0';
+  var numVal = parseFloat(val).toFixed(2).replace('.', ',');
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.value = numVal;
+  input.style.cssText = 'width:100%;text-align:right;background:var(--bg);border:2px solid var(--accent);border-radius:4px;padding:2px 4px;color:inherit;font-family:inherit;font-size:inherit;';
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
 
-    function salvar() {
-      var v = input.value.replace(/\./g,'').replace(',','.');
-      var fd = new FormData();
-      fd.append('year', td.getAttribute('data-year'));
-      fd.append('month', td.getAttribute('data-month'));
-      fd.append('field', td.getAttribute('data-field'));
-      fd.append('value', v);
-      fetch('/fluxo/ajustar', {method:'POST', body:fd})
-        .then(function() { window.location.reload(); });
-    }
-    input.addEventListener('blur', salvar);
-    input.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { input.blur(); }
-      if (e.key === 'Escape') { window.location.reload(); }
-    });
+  function salvar() {
+    var v = input.value.replace(/\./g,'').replace(',','.');
+    var fd = new FormData();
+    fd.append('year', td.getAttribute('data-year'));
+    fd.append('month', td.getAttribute('data-month'));
+    fd.append('field', td.getAttribute('data-field'));
+    fd.append('value', v);
+    fetch('/fluxo/ajustar', {method:'POST', body:fd})
+      .then(function(r) { return r.json(); })
+      .then(function(j) { if(j.ok) window.location.reload(); else alert('Erro ao salvar'); })
+      .catch(function() { window.location.reload(); });
+  }
+  input.addEventListener('blur', salvar);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { window.location.reload(); }
+  });
+}
+
+document.querySelectorAll('.editable-cell').forEach(function(td) {
+  td.addEventListener('dblclick', function(e) {
+    e.stopPropagation();
+    abrirEdicao(td);
   });
 });
 
@@ -246,6 +256,7 @@ var COL_LABELS = {
 
 document.querySelectorAll('.cf-cell').forEach(function(td) {
   td.addEventListener('click', function() {
+    if (td.querySelector('input')) return; // em edição, ignora
     var col = td.getAttribute('data-col');
     var idx = parseInt(td.getAttribute('data-idx') || '0');
     var meta = COL_LABELS[col] || {title: col, color: 'inherit'};
