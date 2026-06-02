@@ -160,11 +160,53 @@ def get_yearly_cashflow(user_id, year):
             valor = float(exp.amount)
         expenses.append((exp, valor))
 
+    # Lançamentos parcelados no cartão do usuário → gasto eventual por mês
+    from app.models import CardEntry
+    import calendar as _cal
+
+    def _add_months(dt, n):
+        month = dt.month - 1 + n
+        year2 = dt.year + month // 12
+        month = month % 12 + 1
+        day = min(dt.day, _cal.monthrange(year2, month)[1])
+        return _date(year2, month, day)
+
+    parcelados = CardEntry.query.filter_by(
+        user_id=user_id,
+        kind="parcelado",
+        status="ativo"
+    ).all()
+
+    # Agrupa valor por (ano, mês) para cada parcela futura
+    parcelados_por_mes = {}
+    for entry in parcelados:
+        if not entry.installments or entry.installment_no is None:
+            continue
+        first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
+        for i in range(entry.installment_no, entry.installments + 1):
+            d = _add_months(first_date, i - 1)
+            key = (d.year, d.month)
+            if key not in parcelados_por_mes:
+                parcelados_por_mes[key] = []
+            parc_label = f" ({i}/{entry.installments})"
+            parcelados_por_mes[key].append({
+                "desc": f"{entry.description}{parc_label}",
+                "amount": round(float(entry.amount), 2)
+            })
+
     # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
     repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
             Expense.payer_id == user_id,
             Expense.share_mode.in_(["integral", "split"]),
             ExpenseShare.user_id != user_id
+        ).all()
+
+    # Gastos repassados AO usuário por outra pessoa (o user é devedor)
+    # Aparecem como gasto eventual no fluxo do usuário
+    debitos = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
+            ExpenseShare.user_id == user_id,
+            Expense.payer_id != user_id,
+            Expense.share_mode.in_(["integral", "split"])
         ).all()
 
 
@@ -207,6 +249,28 @@ def get_yearly_cashflow(user_id, year):
         eventual_total = 0.0
         eventual_items = []
         fixed_items = []
+
+        # Parcelados do cartão → gasto eventual por mês
+        for item in parcelados_por_mes.get((year, m), []):
+            eventual_total += item["amount"]
+            eventual_items.append(item)
+
+        # Débitos do usuário (repassados por outra pessoa) → gasto eventual
+        for exp, share in debitos:
+            if not exp.is_active_on(year, m):
+                continue
+            v = round(float(share.share_amount), 2)
+            if v <= 0:
+                continue
+            parc_label = ""
+            if exp.kind == "recorrente" and exp.recurrence_months:
+                months_diff = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                parc_label = f" ({months_diff}/{exp.recurrence_months})"
+            eventual_total += v
+            eventual_items.append({
+                "desc": f"Débito: {exp.description}{parc_label}",
+                "amount": v
+            })
         for exp, valor in expenses:
             if not exp.is_active_on(year, m):
                 continue
@@ -216,8 +280,12 @@ def get_yearly_cashflow(user_id, year):
             v = float(valor)
             if exp.kind == "recorrente":
                 fixed_total += v
+                parc_fix = ""
+                if exp.recurrence_months:
+                    md = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                    parc_fix = f" ({md}/{exp.recurrence_months})"
                 fixed_items.append({
-                    "desc": exp.description,
+                    "desc": exp.description + parc_fix,
                     "amount": round(float(v), 2),
                 })
             else:
@@ -234,27 +302,38 @@ def get_yearly_cashflow(user_id, year):
         else:
             cumulative += net
 
-        # Aplica override manual se existir
+        # Aplica overrides manuais
         override = overrides.get((year, m))
-        net_final = float(override.net_override) if override and override.net_override is not None else net
-        cumulative_final = float(override.cumulative_override) if override and override.cumulative_override is not None else cumulative
+        def _ov(attr, default):
+            v = getattr(override, attr, None) if override else None
+            return float(v) if v is not None else default
+
+        income_recurring_f = _ov("income_recurring_override", income_recurring)
+        income_eventual_f  = _ov("income_eventual_override",  income_eventual)
+        fixed_total_f      = _ov("fixed_override",            fixed_total)
+        eventual_total_f   = _ov("eventual_override",         eventual_total)
+        net_calc = (income_recurring_f + income_eventual_f) - (fixed_total_f + eventual_total_f)
+        net_final        = _ov("net_override", net_calc)
+        cumulative_final = _ov("cumulative_override", cumulative + net_final)
         if override and override.cumulative_override is not None:
-            cumulative = cumulative_final  # propaga para próximo mês
+            cumulative = cumulative_final
+        else:
+            cumulative += net_final
 
         result.append({
             "month": m,
             "month_name": months_pt[m - 1],
-            "income": income_total,
-            "income_recurring": income_recurring,
-            "income_eventual": income_eventual,
-            "fixed_expense": fixed_total,
-            "eventual_expense": eventual_total,
+            "income_recurring": income_recurring_f,
+            "income_eventual": income_eventual_f,
+            "income": income_recurring_f + income_eventual_f,
+            "fixed_expense": fixed_total_f,
+            "eventual_expense": eventual_total_f,
+            "total_expense": fixed_total_f + eventual_total_f,
+            "net": net_final,
+            "cumulative": cumulative_final,
             "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
             "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
             "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
             "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
-            "total_expense": fixed_total + eventual_total,
-            "net": net_final,
-            "cumulative": cumulative_final,
         })
     return result
