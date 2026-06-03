@@ -51,10 +51,45 @@
       <label class="form-label">Valor máx.</label>
       <input class="form-control mono" name="val_max" value="{{ val_max }}" placeholder="0,00" style="width:100px;">
     </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Mês de impacto</label>
+      <input class="form-control" type="month" name="mes" value="{{ mes_filter }}" style="width:145px;">
+    </div>
     <button class="btn btn-primary btn-sm" style="margin-top:auto;">Filtrar</button>
     <a href="{{ url_for('expenses.list_expenses') }}" class="btn btn-ghost btn-sm" style="margin-top:auto;">Limpar</a>
   </form>
 </div>
+
+{% if mes_filter and parcelados_no_mes %}
+<div class="card mb-3" style="border-left:4px solid var(--blue);">
+  <div class="card-title">
+    <h3>Parcelas de cartão — {{ mes_filter }}</h3>
+    <span class="text-faint text-small">{{ parcelados_no_mes|length }} parcela(s) sem vínculo com gasto fixo</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Descrição</th>
+          <th class="text-right">Parcela</th>
+          <th class="text-right">Valor</th>
+          <th>Categoria</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in parcelados_no_mes %}
+        <tr>
+          <td>{{ p.description }}</td>
+          <td class="text-right"><span class="badge badge-shared">{{ p.parcela }}</span></td>
+          <td class="text-right amount" style="color:var(--red);">{{ p.amount|brl }}</td>
+          <td class="text-dim">{{ p.category }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <!-- Gastos compartilhados/repassados em destaque -->
 {% set shared = expenses | selectattr('share_mode', 'ne', 'solo') | list %}
