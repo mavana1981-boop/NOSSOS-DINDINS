@@ -124,6 +124,22 @@ def list_expenses():
     # Filtra apenas gastos ativos no mês selecionado
     expenses = [e for e in all_expenses if e.is_active_on(filter_year, filter_month)]
 
+    # Inclui também gastos compartilhados onde o usuário é devedor (share_mode != solo, payer != user)
+    shared_ids = {e.id for e in expenses}
+    from app.models import ExpenseShare as _ES2
+    debitos_shares = _ES2.query.filter_by(user_id=current_user.id).all()
+    for s in debitos_shares:
+        e = Expense.query.get(s.expense_id)
+        if not e or e.id in shared_ids:
+            continue
+        if e.payer_id == current_user.id:
+            continue
+        if e.share_mode == "solo":
+            continue
+        if e.is_active_on(filter_year, filter_month):
+            expenses.append(e)
+            shared_ids.add(e.id)
+
     # Parcelas de cartão que impactam o mês (sem vínculo com gasto fixo)
     parcelados_no_mes = []
     entries_parc = CardEntry.query.filter_by(
