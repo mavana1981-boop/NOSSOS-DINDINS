@@ -167,11 +167,18 @@ def list_expenses():
     # Totais do mês selecionado
     total_paid = sum(float(e.amount) for e in expenses
                      if e.payer_id == current_user.id)
-    total_my_share = 0
+
+    # O que outros devem a você = shares de outros usuários em gastos que você pagou
+    total_repassado = 0.0
     for e in expenses:
+        if e.payer_id != current_user.id:
+            continue
         for s in e.shares:
-            if s.user_id == current_user.id:
-                total_my_share += float(s.share_amount)
+            if s.user_id != current_user.id:
+                total_repassado += float(s.share_amount)
+
+    # Sua cota = o que você pagou - o que outros lhe devem
+    total_my_share = round(total_paid - total_repassado, 2)
 
     mes_nome = _cal.month_name[filter_month]
 
@@ -189,6 +196,7 @@ def list_expenses():
                            share_filter=share_filter,
                            val_min=val_min, val_max=val_max,
                            mes_filter=mes_filter,
+                           total_repassado=total_repassado,
                            mes_nome=mes_nome,
                            filter_year=filter_year,
                            filter_month=filter_month,
