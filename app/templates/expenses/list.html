@@ -8,11 +8,10 @@
     <p>
       {{ mes_nome }}/{{ filter_year }} —
       Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong>
-      {% set repassados = expenses | selectattr('share_mode', 'ne', 'solo') | selectattr('payer_id', 'equalto', current_user.id) | list %}
-      {% if repassados %}
-      · Gastos repassados <strong style="color:var(--blue);">{{ repassados | sum(attribute='amount') | brl }}</strong>
+      {% if total_repassado > 0 %}
+      − Repassado <strong style="color:var(--blue);">{{ total_repassado|brl }}</strong>
       {% endif %}
-      = Sua cota: <strong>{{ total_my_share|brl }}</strong>
+      = Sua cota <strong>{{ total_my_share|brl }}</strong>
     </p>
   </div>
   <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary">+ Novo gasto</a>
