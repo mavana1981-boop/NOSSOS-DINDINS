@@ -5,7 +5,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Gastos</h1>
-    <p>Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong> · Sua cota total: <strong>{{ total_my_share|brl }}</strong></p>
+    <p>{{ mes_nome }}/{{ filter_year }} — Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong> · Sua cota total: <strong>{{ total_my_share|brl }}</strong></p>
   </div>
   <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary">+ Novo gasto</a>
 </div>
@@ -14,8 +14,12 @@
 <div class="card mb-3">
   <form method="GET" class="flex flex-gap" style="flex-wrap:wrap;align-items:flex-end;gap:12px;">
     <div class="form-group mb-0">
+      <label class="form-label">Mês</label>
+      <input class="form-control" type="month" name="mes" value="{{ mes_filter }}" style="width:150px;">
+    </div>
+    <div class="form-group mb-0">
       <label class="form-label">Descrição</label>
-      <input class="form-control" name="q" value="{{ q }}" placeholder="buscar..." style="min-width:160px;">
+      <input class="form-control" name="q" value="{{ q }}" placeholder="buscar..." style="min-width:140px;">
     </div>
     <div class="form-group mb-0">
       <label class="form-label">Categoria</label>
@@ -27,33 +31,13 @@
       </select>
     </div>
     <div class="form-group mb-0">
-      <label class="form-label">Compartilhamento</label>
+      <label class="form-label">Tipo</label>
       <select class="form-control" name="share_mode">
         <option value="">Todos</option>
         <option value="solo" {% if share_filter == 'solo' %}selected{% endif %}>Solo</option>
         <option value="integral" {% if share_filter == 'integral' %}selected{% endif %}>Repasse</option>
         <option value="split" {% if share_filter == 'split' %}selected{% endif %}>Dividido</option>
       </select>
-    </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Data início</label>
-      <input class="form-control" type="date" name="date_from" value="{{ date_from }}">
-    </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Data fim</label>
-      <input class="form-control" type="date" name="date_to" value="{{ date_to }}">
-    </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Valor mín.</label>
-      <input class="form-control mono" name="val_min" value="{{ val_min }}" placeholder="0,00" style="width:100px;">
-    </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Valor máx.</label>
-      <input class="form-control mono" name="val_max" value="{{ val_max }}" placeholder="0,00" style="width:100px;">
-    </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Mês de impacto</label>
-      <input class="form-control" type="month" name="mes" value="{{ mes_filter }}" style="width:145px;">
     </div>
     <button class="btn btn-primary btn-sm" style="margin-top:auto;">Filtrar</button>
     <a href="{{ url_for('expenses.list_expenses') }}" class="btn btn-ghost btn-sm" style="margin-top:auto;">Limpar</a>
