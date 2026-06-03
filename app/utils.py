@@ -257,24 +257,15 @@ def get_yearly_cashflow(user_id, year):
         eventual_items = []
         fixed_items = []
 
-        # Débitos do usuário (repassados por outra pessoa) → gasto eventual
-        for exp, share in debitos:
-            if not exp.is_active_on(year, m):
-                continue
-            v = round(float(share.share_amount), 2)
-            if v <= 0:
-                continue
-            parc_label = ""
-            if exp.kind == "recorrente" and exp.recurrence_months:
-                months_diff = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
-                parc_label = f" ({months_diff}/{exp.recurrence_months})"
-            eventual_total += v
-            eventual_items.append({
-                "desc": f"Débito: {exp.description}{parc_label}",
-                "amount": v
-            })
+        # Débitos removidos dos eventuais (repassados não impactam eventual)
         for exp, valor in expenses:
             if not exp.is_active_on(year, m):
+                continue
+            # Exclui registros de excedente automático (calculados dinamicamente via cartão)
+            if "- excedente" in (exp.description or "").lower() and exp.kind == "pontual":
+                continue
+            # Exclui gastos repassados dos eventuais
+            if exp.share_mode in ("integral", "split") and exp.payer_id != user_id:
                 continue
             # Exclui gastos eventuais (pontual) anteriores a junho/2026
             if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
