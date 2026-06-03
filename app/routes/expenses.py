@@ -81,6 +81,16 @@ def list_expenses():
     date_to     = request.args.get("date_to", "")
     val_min     = request.args.get("val_min", "")
     val_max     = request.args.get("val_max", "")
+    mes_filter  = request.args.get("mes", "")  # formato YYYY-MM
+
+    # Filtro por mês: gastos fixos ativos + parcelas que impactam o mês
+    filter_year, filter_month = None, None
+    parcelados_no_mes = []
+    if mes_filter:
+        try:
+            filter_year, filter_month = int(mes_filter[:4]), int(mes_filter[5:7])
+        except (ValueError, IndexError):
+            pass
 
     query = Expense.query.outerjoin(ExpenseShare).filter(
         or_(Expense.payer_id == current_user.id,
@@ -114,6 +124,45 @@ def list_expenses():
 
     expenses = query.order_by(Expense.spent_at.desc()).all()
 
+    # Aplica filtro por mês após busca
+    if filter_year and filter_month:
+        import calendar as _cal
+        def _add_months(dt, n):
+            month = dt.month - 1 + n
+            year2 = dt.year + month // 12
+            month = month % 12 + 1
+            day = min(dt.day, _cal.monthrange(year2, month)[1])
+            return dt.replace(year=year2, month=month, day=day)
+
+        expenses_mes = [e for e in expenses if e.is_active_on(filter_year, filter_month)]
+
+        # Parcelas de cartão que impactam o mês (não vinculadas a expense)
+        parcelados_no_mes = []
+        entries_parc = CardEntry.query.filter_by(
+            user_id=current_user.id, kind="parcelado", status="ativo"
+        ).all()
+        expense_ids_ja = {e.id for e in expenses_mes}
+        for ce in entries_parc:
+            if not ce.installments or not ce.installment_no:
+                continue
+            if ce.expense_id and ce.expense_id in expense_ids_ja:
+                continue
+            first = _add_months(ce.entry_date, 1 - ce.installment_no)
+            for i in range(ce.installment_no, ce.installments + 1):
+                d = _add_months(first, i - 1)
+                if d.year == filter_year and d.month == filter_month:
+                    parcelados_no_mes.append({
+                        "description": ce.description,
+                        "amount": float(ce.amount),
+                        "parcela": f"{i}/{ce.installments}",
+                        "category": ce.category or "—",
+                        "card_id": ce.card_id,
+                    })
+                    break
+        expenses = expenses_mes
+    else:
+        parcelados_no_mes = []
+
     total_paid = sum(float(e.amount) for e in expenses if e.payer_id == current_user.id)
     total_my_share = 0
     for e in expenses:
@@ -134,7 +183,9 @@ def list_expenses():
                            q=q_text, cat_filter=cat_filter,
                            share_filter=share_filter,
                            date_from=date_from, date_to=date_to,
-                           val_min=val_min, val_max=val_max)
+                           val_min=val_min, val_max=val_max,
+                           mes_filter=mes_filter,
+                           parcelados_no_mes=parcelados_no_mes)
 
 
 @expenses_bp.route("/novo", methods=["GET", "POST"])
