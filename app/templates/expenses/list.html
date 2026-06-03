@@ -1,375 +1,284 @@
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
-from flask_login import login_required, current_user
-from sqlalchemy import or_
-from app import db
-from app.models import Expense, ExpenseShare, User, Card, CardEntry, HouseholdExpense
+{% extends "base.html" %}
+{% block title %}Gastos{% endblock %}
+{% block content %}
 
-expenses_bp = Blueprint("expenses", __name__)
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Gastos</h1>
+    <p>{{ mes_nome }}/{{ filter_year }} — Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong> · Sua cota total: <strong>{{ total_my_share|brl }}</strong></p>
+  </div>
+  <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary">+ Novo gasto</a>
+</div>
 
-CATEGORIES = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Moradia',
-              'Lazer', 'Vestuário', 'Beleza', 'Serviços', 'Contas', 'Outros']
+<!-- Filtros -->
+<div class="card mb-3">
+  <form method="GET" class="flex flex-gap" style="flex-wrap:wrap;align-items:flex-end;gap:12px;">
+    <div class="form-group mb-0">
+      <label class="form-label">Mês</label>
+      <input class="form-control" type="month" name="mes" value="{{ mes_filter }}" style="width:150px;">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Descrição</label>
+      <input class="form-control" name="q" value="{{ q }}" placeholder="buscar..." style="min-width:140px;">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Categoria</label>
+      <select class="form-control" name="category">
+        <option value="">Todas</option>
+        {% for c in categories %}
+          <option {% if cat_filter == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Tipo</label>
+      <select class="form-control" name="share_mode">
+        <option value="">Todos</option>
+        <option value="solo" {% if share_filter == 'solo' %}selected{% endif %}>Solo</option>
+        <option value="integral" {% if share_filter == 'integral' %}selected{% endif %}>Repasse</option>
+        <option value="split" {% if share_filter == 'split' %}selected{% endif %}>Dividido</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm" style="margin-top:auto;">Filtrar</button>
+    <a href="{{ url_for('expenses.list_expenses') }}" class="btn btn-ghost btn-sm" style="margin-top:auto;">Limpar</a>
+  </form>
+</div>
 
+{% if mes_filter and parcelados_no_mes %}
+<div class="card mb-3" style="border-left:4px solid var(--blue);">
+  <div class="card-title">
+    <h3>Parcelas de cartão — {{ mes_filter }}</h3>
+    <span class="text-faint text-small">{{ parcelados_no_mes|length }} parcela(s) sem vínculo com gasto fixo</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Descrição</th>
+          <th class="text-right">Parcela</th>
+          <th class="text-right">Valor</th>
+          <th>Categoria</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in parcelados_no_mes %}
+        <tr>
+          <td>{{ p.description }}</td>
+          <td class="text-right"><span class="badge badge-shared">{{ p.parcela }}</span></td>
+          <td class="text-right amount" style="color:var(--red);">{{ p.amount|brl }}</td>
+          <td class="text-dim">{{ p.category }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
-def _parse_decimal(s):
-    if not s:
-        return None
-    try:
-        return Decimal(str(s).replace(".", "").replace(",", ".").strip())
-    except (InvalidOperation, ValueError):
-        return None
+<!-- Gastos compartilhados/repassados em destaque -->
+{% set shared = expenses | selectattr('share_mode', 'ne', 'solo') | list %}
+{% if shared %}
+<div class="card mb-3" style="border-left:4px solid var(--blue);">
+  <div class="card-title">
+    <h3>
+      <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Gastos compartilhados / repassados
+    </h3>
+    <div class="flex flex-gap">
+      <span class="badge badge-shared">{{ shared|length }} item(s)</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-shared"
+              onclick="toggleShared()">▲ recolher</button>
+    </div>
+  </div>
+  <div id="shared-table" style="display:block;">
+  <div class="table-wrap">
+    <table class="tbl sortable-table" id="tbl-shared">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Descrição ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Modo ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Pagador ↕</th>
+          <th>Divisão</th>
+          <th class="th-sort text-right" data-col="4" style="cursor:pointer;">Valor ↕</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in shared %}
+        <tr>
+          <td data-val="{{ e.description }}">
+            <strong>{{ e.description }}</strong>
+            <div class="text-faint text-small">{{ e.spent_at|data_br }} · {{ e.category }}</div>
+          </td>
+          <td data-val="{{ e.share_mode }}">
+            {% if e.share_mode == 'integral' %}<span class="badge badge-shared">Repasse integral</span>
+            {% else %}<span class="badge badge-shared">Dividido</span>{% endif %}
+          </td>
+          <td data-val="{{ e.payer.full_name }}">
+            <div class="flex flex-gap">
+              {% if e.payer.photo %}<img src="{{ e.payer.photo_url }}" class="avatar" style="width:22px;height:22px;">
+              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ e.payer.full_name[0]|upper }}</div>{% endif %}
+              <span class="text-small">{{ e.payer.full_name.split()[0] }}</span>
+            </div>
+          </td>
+          <td class="text-small text-dim">
+            {% for s in e.shares %}
+              {{ s.user.full_name.split()[0] }}: <span class="mono">{{ s.share_amount|brl }}</span>{% if not loop.last %} · {% endif %}
+            {% endfor %}
+          </td>
+          <td class="text-right amount" data-val="{{ e.amount }}">{{ e.amount|brl }}</td>
+          <td class="text-right">
+            {% if e.payer_id == current_user.id or current_user.is_admin %}
+              <a href="{{ url_for('expenses.edit_expense', expense_id=e.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+              <form method="POST" action="{{ url_for('expenses.delete_expense', expense_id=e.id) }}"
+                    style="display:inline;" onsubmit="return confirm('Excluir?');">
+                <button class="btn btn-danger btn-sm">×</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  </div>
+</div>
+{% endif %}
 
+<!-- Todos os gastos -->
+<div class="card">
+  <div class="card-title">
+    <h3>Todos os gastos</h3>
+    <span class="text-faint text-small">{{ expenses|length }} resultado(s) · clique no cabeçalho para ordenar</span>
+  </div>
+  {% if expenses %}
+  <div class="table-wrap">
+    <table class="tbl sortable-table" id="tbl-gastos">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
+          <th class="th-sort" data-col="2" style="cursor:pointer;">Categoria ↕</th>
+          <th class="th-sort" data-col="3" style="cursor:pointer;">Pagador ↕</th>
+          <th class="th-sort" data-col="4" style="cursor:pointer;">Tipo ↕</th>
+          <th class="th-sort" data-col="5" style="cursor:pointer;">Cartão ↕</th>
+          <th class="th-sort text-right" data-col="6" style="cursor:pointer;">Valor ↕</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td class="text-dim" data-val="{{ e.spent_at.isoformat() }}">
+            {{ e.spent_at|data_br }}
+            {% if e.kind == 'recorrente' %}
+              <div class="text-faint text-small">{% if e.recurrence_months %}{{ e.recurrence_months }}× mensais{% else %}fixo mensal{% endif %}</div>
+            {% endif %}
+          </td>
+          <td data-val="{{ e.description }}">
+            <strong>{{ e.description }}</strong>
+            {% if e.notes %}<div class="text-faint text-small">{{ e.notes }}</div>{% endif %}
+            {% if e.shares|length > 1 or (e.shares|length == 1 and e.shares[0].user_id != e.payer_id) %}
+              <div class="text-small text-dim mt-1">
+                {% for s in e.shares %}{{ s.user.full_name.split()[0] }}: <span class="mono">{{ s.share_amount|brl }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+              </div>
+            {% endif %}
+          </td>
+          <td data-val="{{ e.category }}"><span class="badge badge-solo">{{ e.category }}</span></td>
+          <td data-val="{{ e.payer.full_name }}">
+            <div class="flex flex-gap">
+              {% if e.payer.photo %}<img src="{{ e.payer.photo_url }}" class="avatar" style="width:22px;height:22px;">
+              {% else %}<div class="avatar-fallback" style="width:22px;height:22px;font-size:0.7rem;">{{ e.payer.full_name[0]|upper }}</div>{% endif %}
+              <span class="text-small">{{ e.payer.full_name.split()[0] }}</span>
+            </div>
+          </td>
+          <td data-val="{{ e.share_mode }}">
+            {% if e.kind == 'recorrente' %}<span class="badge badge-shared">{% if e.recurrence_months %}Parcelado{% else %}Fixo{% endif %}</span>
+            {% else %}<span class="badge badge-solo">Pontual</span>{% endif %}
+            &nbsp;
+            {% if e.share_mode == 'integral' %}<span class="badge badge-shared">Repasse</span>
+            {% elif e.share_mode == 'split' %}<span class="badge badge-shared">Dividido</span>
+            {% else %}<span class="badge badge-solo">Solo</span>{% endif %}
+          </td>
+          <td data-val="{{ e.card.name if e.card else '' }}">
+            {% if e.card %}
+              <span style="display:inline-flex;align-items:center;gap:5px;">
+                <span style="width:10px;height:10px;border-radius:50%;background:{{ e.card.color }};display:inline-block;"></span>
+                <span class="text-small">{{ e.card.name }}</span>
+              </span>
+            {% else %}<span class="text-faint text-small">—</span>{% endif %}
+          </td>
+          <td class="text-right amount" data-val="{{ e.amount }}">
+            {{ e.amount|brl }}
+            {% if e.kind == 'recorrente' and e.recurrence_months %}
+              <div class="text-faint text-small">total {{ (e.amount * e.recurrence_months)|brl }}</div>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            {% if e.payer_id == current_user.id or current_user.is_admin %}
+              <a href="{{ url_for('expenses.edit_expense', expense_id=e.id) }}" class="btn btn-ghost btn-sm">Editar</a>
+              <form method="POST" action="{{ url_for('expenses.delete_expense', expense_id=e.id) }}"
+                    style="display:inline;" onsubmit="return confirm('Excluir este gasto?');">
+                <button class="btn btn-danger btn-sm">×</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">
+      <h4>Nenhum gasto encontrado</h4>
+      <p>Tente ajustar os filtros ou registre um novo gasto.</p>
+    </div>
+  {% endif %}
+</div>
 
-def _sync_card_entry(expense, old_card_id=None):
-    """
-    Sincroniza APENAS o lançamento automático no cartão.
-    NUNCA toca em lançamentos avulsos (importados ou cadastrados manualmente).
-    Lançamentos automáticos são identificados pelo notes "Lançamento automático".
-    """
-    def is_auto(entry):
-        return entry.notes and "Lançamento automático" in entry.notes
+<script>
+(function() {
+  // Ordenação genérica para qualquer tabela com classe sortable-table
+  function initSort(table) {
+    if (!table) return;
+    let sortCol = -1, sortAsc = true;
+    table.querySelectorAll('th.th-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col);
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        table.querySelectorAll('th.th-sort').forEach(t => {
+          t.textContent = t.textContent.replace(' ↑','').replace(' ↓','').replace(' ↕','') + ' ↕';
+        });
+        th.textContent = th.textContent.replace(' ↕','') + (sortAsc ? ' ↑' : ' ↓');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aCell = a.querySelectorAll('td')[col];
+          const bCell = b.querySelectorAll('td')[col];
+          const aVal = (aCell.dataset.val || aCell.textContent).trim().toLowerCase();
+          const bVal = (bCell.dataset.val || bCell.textContent).trim().toLowerCase();
+          const aNum = parseFloat(aVal);
+          const bNum = parseFloat(bVal);
+          if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
+          return sortAsc ? aVal.localeCompare(bVal,'pt-BR') : bVal.localeCompare(aVal,'pt-BR');
+        });
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  }
+  document.querySelectorAll('.sortable-table').forEach(initSort);
+})();
+</script>
 
-    # Remove lançamento automático do cartão antigo se mudou de cartão
-    if old_card_id and old_card_id != expense.card_id:
-        old_entry = CardEntry.query.filter_by(
-            expense_id=expense.id, card_id=old_card_id
-        ).first()
-        if old_entry and is_auto(old_entry):
-            db.session.delete(old_entry)
+{% endblock %}
 
-    # Se cartão foi desvinculado, remove apenas lançamento automático
-    if not expense.card_id:
-        for e in CardEntry.query.filter_by(expense_id=expense.id).all():
-            if is_auto(e):
-                db.session.delete(e)
-        return
-
-    # Busca lançamento automático existente neste cartão
-    auto_entry = None
-    for e in CardEntry.query.filter_by(expense_id=expense.id, card_id=expense.card_id).all():
-        if is_auto(e):
-            auto_entry = e
-            break
-
-    if auto_entry is None:
-        auto_entry = CardEntry(
-            card_id=expense.card_id,
-            user_id=expense.payer_id,
-            expense_id=expense.id,
-            notes=f"Lançamento automático — {expense.kind}",
-        )
-        db.session.add(auto_entry)
-
-    auto_entry.description = expense.description
-    auto_entry.amount = expense.amount
-    auto_entry.entry_date = expense.spent_at
-    auto_entry.category = expense.category
-    auto_entry.installments = expense.recurrence_months or 1
-    auto_entry.installment_no = 1
-    auto_entry.status = "ativo"
-    auto_entry.notes = f"Lançamento automático — {expense.kind}"
-
-
-@expenses_bp.route("/")
-@login_required
-def list_expenses():
-    import calendar as _cal
-    today = date.today()
-
-    q_text       = request.args.get("q", "").strip()
-    cat_filter   = request.args.get("category", "")
-    share_filter = request.args.get("share_mode", "")
-    val_min      = request.args.get("val_min", "")
-    val_max      = request.args.get("val_max", "")
-    # Mês padrão = mês atual
-    mes_filter   = request.args.get("mes", today.strftime("%Y-%m"))
-
-    def _add_months(dt, n):
-        month = dt.month - 1 + n
-        year2 = dt.year + month // 12
-        month = month % 12 + 1
-        day = min(dt.day, _cal.monthrange(year2, month)[1])
-        return dt.replace(year=year2, month=month, day=day)
-
-    try:
-        filter_year  = int(mes_filter[:4])
-        filter_month = int(mes_filter[5:7])
-    except (ValueError, IndexError):
-        filter_year, filter_month = today.year, today.month
-
-    # Busca todos os gastos do usuário
-    query = Expense.query.outerjoin(ExpenseShare).filter(
-        or_(Expense.payer_id == current_user.id,
-            ExpenseShare.user_id == current_user.id)
-    ).distinct()
-
-    if q_text:
-        query = query.filter(Expense.description.ilike(f"%{q_text}%"))
-    if cat_filter:
-        query = query.filter(Expense.category == cat_filter)
-    if share_filter:
-        query = query.filter(Expense.share_mode == share_filter)
-    if val_min:
-        v = _parse_decimal(val_min)
-        if v:
-            query = query.filter(Expense.amount >= v)
-    if val_max:
-        v = _parse_decimal(val_max)
-        if v:
-            query = query.filter(Expense.amount <= v)
-
-    all_expenses = query.order_by(Expense.spent_at.desc()).all()
-
-    # Filtra apenas gastos ativos no mês selecionado
-    expenses = [e for e in all_expenses if e.is_active_on(filter_year, filter_month)]
-
-    # Inclui também gastos compartilhados onde o usuário é devedor (share_mode != solo, payer != user)
-    shared_ids = {e.id for e in expenses}
-    from app.models import ExpenseShare as _ES2
-    debitos_shares = _ES2.query.filter_by(user_id=current_user.id).all()
-    for s in debitos_shares:
-        e = Expense.query.get(s.expense_id)
-        if not e or e.id in shared_ids:
-            continue
-        if e.payer_id == current_user.id:
-            continue
-        if e.share_mode == "solo":
-            continue
-        if e.is_active_on(filter_year, filter_month):
-            expenses.append(e)
-            shared_ids.add(e.id)
-
-    # Parcelas de cartão que impactam o mês (sem vínculo com gasto fixo)
-    parcelados_no_mes = []
-    entries_parc = CardEntry.query.filter_by(
-        user_id=current_user.id, kind="parcelado", status="ativo"
-    ).all()
-    expense_ids_ja = {e.id for e in expenses}
-    for ce in entries_parc:
-        if not ce.installments or not ce.installment_no:
-            continue
-        if ce.expense_id and ce.expense_id in expense_ids_ja:
-            continue
-        first = _add_months(ce.entry_date, 1 - ce.installment_no)
-        for i in range(ce.installment_no, ce.installments + 1):
-            d = _add_months(first, i - 1)
-            if d.year == filter_year and d.month == filter_month:
-                parcelados_no_mes.append({
-                    "description": ce.description,
-                    "amount": float(ce.amount),
-                    "parcela": f"{i}/{ce.installments}",
-                    "category": ce.category or "—",
-                    "card_id": ce.card_id,
-                })
-                break
-
-    # Totais do mês selecionado
-    total_paid = sum(float(e.amount) for e in expenses
-                     if e.payer_id == current_user.id)
-    total_my_share = 0
-    for e in expenses:
-        for s in e.shares:
-            if s.user_id == current_user.id:
-                total_my_share += float(s.share_amount)
-
-    mes_nome = _cal.month_name[filter_month]
-
-    # Cartões do usuário para exibir nome na lista
-    user_cards = {c.id: c for c in Card.query.filter_by(
-        user_id=current_user.id, is_active=True).all()}
-
-    return render_template("expenses/list.html",
-                           expenses=expenses,
-                           total_paid=total_paid,
-                           total_my_share=total_my_share,
-                           categories=CATEGORIES,
-                           user_cards=user_cards,
-                           q=q_text, cat_filter=cat_filter,
-                           share_filter=share_filter,
-                           val_min=val_min, val_max=val_max,
-                           mes_filter=mes_filter,
-                           mes_nome=mes_nome,
-                           filter_year=filter_year,
-                           filter_month=filter_month,
-                           parcelados_no_mes=parcelados_no_mes)
-
-
-@expenses_bp.route("/novo", methods=["GET", "POST"])
-@login_required
-def new_expense():
-    users = User.query.order_by(User.full_name).all()
-    user_cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    other_users = User.query.filter(User.id != current_user.id).order_by(User.full_name).all()
-    if request.method == "POST":
-        return _save_expense(None, users, user_cards)
-    return render_template("expenses/form.html", expense=None,
-                           users=users, user_cards=user_cards, other_users=other_users)
-
-
-@expenses_bp.route("/<int:expense_id>/editar", methods=["GET", "POST"])
-@login_required
-def edit_expense(expense_id):
-    e = Expense.query.get_or_404(expense_id)
-    if e.payer_id != current_user.id and not current_user.is_admin:
-        abort(403)
-    users = User.query.order_by(User.full_name).all()
-    user_cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    other_users = User.query.filter(User.id != current_user.id).order_by(User.full_name).all()
-    if request.method == "POST":
-        return _save_expense(e, users, user_cards)
-    return render_template("expenses/form.html", expense=e,
-                           users=users, user_cards=user_cards, other_users=other_users)
-
-
-def _save_expense(expense, users, user_cards):
-    desc = request.form.get("description", "").strip()
-    amount = _parse_decimal(request.form.get("amount"))
-    cat = request.form.get("category", "Outros").strip() or "Outros"
-    notes = request.form.get("notes", "").strip()
-    d_str = request.form.get("spent_at")
-    share_mode = request.form.get("share_mode", "solo")
-    payer_id = int(request.form.get("payer_id", current_user.id))
-    kind = request.form.get("kind", "pontual")
-    rec_months_raw = request.form.get("recurrence_months", "").strip()
-    card_id_raw = request.form.get("card_id", "").strip()
-
-    if not desc or not amount or amount <= 0:
-        flash("Descrição e valor são obrigatórios.", "danger")
-        return render_template("expenses/form.html", expense=expense,
-                               users=users, user_cards=user_cards)
-
-    try:
-        d = datetime.strptime(d_str, "%Y-%m-%d").date() if d_str else date.today()
-    except ValueError:
-        d = date.today()
-
-    if kind not in ("pontual", "recorrente"):
-        kind = "pontual"
-    recurrence_months = None
-    if kind == "recorrente" and rec_months_raw:
-        try:
-            recurrence_months = max(1, min(360, int(rec_months_raw)))
-        except ValueError:
-            pass
-
-    if payer_id != current_user.id and not current_user.is_admin:
-        payer_id = current_user.id
-
-    # Cartão vinculado
-    new_card_id = int(card_id_raw) if card_id_raw.isdigit() else None
-    old_card_id = expense.card_id if expense else None
-
-    if expense is None:
-        expense = Expense(payer_id=payer_id)
-        db.session.add(expense)
-    else:
-        expense.payer_id = payer_id
-        ExpenseShare.query.filter_by(expense_id=expense.id).delete()
-
-    expense.description = desc
-    expense.amount = amount
-    expense.category = cat
-    expense.notes = notes
-    expense.spent_at = d
-    expense.share_mode = share_mode
-    expense.kind = kind
-    expense.recurrence_months = recurrence_months
-    expense.card_id = new_card_id
-
-    db.session.flush()
-
-    # Shares
-    if share_mode == "solo":
-        db.session.add(ExpenseShare(expense_id=expense.id, user_id=payer_id,
-                                    share_amount=amount, share_percent=Decimal("100")))
-    elif share_mode == "integral":
-        debtor_id = request.form.get("debtor_id")
-        if not debtor_id:
-            flash("Selecione o usuário devedor (modo integral).", "danger")
-            db.session.rollback()
-            return render_template("expenses/form.html", expense=expense,
-                                   users=users, user_cards=user_cards)
-        db.session.add(ExpenseShare(expense_id=expense.id, user_id=int(debtor_id),
-                                    share_amount=amount, share_percent=Decimal("100")))
-    elif share_mode == "split":
-        total_share = Decimal("0")
-        any_share = False
-        for u in users:
-            v = _parse_decimal(request.form.get(f"share_user_{u.id}"))
-            if v and v > 0:
-                db.session.add(ExpenseShare(
-                    expense_id=expense.id, user_id=u.id, share_amount=v,
-                    share_percent=(v / amount * 100).quantize(Decimal("0.01"))))
-                total_share += v
-                any_share = True
-        if not any_share:
-            flash("Defina pelo menos um valor de divisão.", "danger")
-            db.session.rollback()
-            return render_template("expenses/form.html", expense=expense,
-                                   users=users, user_cards=user_cards)
-
-    # Sincroniza gastos da casa
-    shared_with_id_raw = request.form.get("household_shared_with", "").strip()
-    is_household = bool(request.form.get("is_household"))
-
-    existing_hh = HouseholdExpense.query.filter_by(expense_id=expense.id).first()
-    if is_household:
-        shared_with_id = int(shared_with_id_raw) if shared_with_id_raw.isdigit() else None
-        if existing_hh:
-            existing_hh.shared_with_id = shared_with_id
-        else:
-            db.session.add(HouseholdExpense(
-                expense_id=expense.id,
-                owner_id=current_user.id,
-                shared_with_id=shared_with_id
-            ))
-    else:
-        if existing_hh:
-            db.session.delete(existing_hh)
-
-    # Sincroniza cartão
-    _sync_card_entry(expense, old_card_id)
-
-    db.session.commit()
-    flash("Gasto registrado.", "success")
-    return redirect(url_for("expenses.list_expenses"))
-
-
-@expenses_bp.route("/debug-faculdade")
-@login_required
-def debug_faculdade():
-    from flask import jsonify
-    if not current_user.is_admin:
-        abort(403)
-    exps = Expense.query.filter(
-        Expense.description.ilike("%faculdade%"),
-        Expense.payer_id == current_user.id
-    ).all()
-    result = []
-    for e in exps:
-        result.append({
-            "id": e.id,
-            "description": e.description,
-            "kind": e.kind,
-            "amount": float(e.amount),
-            "spent_at": str(e.spent_at),
-            "recurrence_months": e.recurrence_months,
-            "shares": [{"user_id": s.user_id, "amount": float(s.share_amount)} for s in e.shares]
-        })
-    return jsonify(result)
-
-
-@expenses_bp.route("/<int:expense_id>/excluir", methods=["POST"])
-@login_required
-def delete_expense(expense_id):
-    e = Expense.query.get_or_404(expense_id)
-    if e.payer_id != current_user.id and not current_user.is_admin:
-        abort(403)
-    # Remove vínculos antes de excluir
-    HouseholdExpense.query.filter_by(expense_id=e.id).delete()
-    CardEntry.query.filter_by(expense_id=e.id).delete()
-    db.session.delete(e)
-    db.session.commit()
-    flash("Gasto removido.", "info")
-    return redirect(url_for("expenses.list_expenses"))
+<script>
+function toggleShared() {
+  const div = document.getElementById('shared-table');
+  const btn = document.getElementById('btn-toggle-shared');
+  const open = div.style.display !== 'none';
+  div.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▼ expandir' : '▲ recolher';
+}
+</script>
