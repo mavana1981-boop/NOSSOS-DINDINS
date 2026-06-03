@@ -281,6 +281,15 @@ def get_yearly_cashflow(user_id, year):
                 continue
             v = float(valor)
             if exp.kind == "recorrente":
+                # Desconta do fixo o valor repassado a outro usuário
+                if exp.share_mode in ("integral", "split"):
+                    from app.models import ExpenseShare as _ES2
+                    repasse_share = _ES2.query.filter(
+                        _ES2.expense_id == exp.id,
+                        _ES2.user_id != user_id
+                    ).all()
+                    repasse_v = sum(float(s.share_amount) for s in repasse_share)
+                    v = max(0.0, round(v - repasse_v, 2))
                 fixed_total += v
                 parc_fix = ""
                 if exp.recurrence_months:
@@ -290,49 +299,30 @@ def get_yearly_cashflow(user_id, year):
                     "desc": exp.description + parc_fix,
                     "amount": round(float(v), 2),
                 })
-                # Verifica sobra: parcelados projetados no mês vs planejado
-                from app.models import CardEntry as _CE, Card as _Card
-                # Mercado Livre: compara todos os lançamentos do mês no cartão
-                _is_ml = exp.card_id and "mercado livre" in (
-                    getattr(_Card.query.get(exp.card_id), "name", "") or ""
-                ).lower()
-                if _is_ml:
-                    _entries_mes = _CE.query.filter_by(
-                        card_id=exp.card_id, status="ativo"
-                    ).all()
-                    total_lancado = sum(
-                        float(ce.amount) for ce in _entries_mes
-                        if ce.entry_date.year == year and ce.entry_date.month == m
-                    )
-                    if 0 < total_lancado < v:
-                        sobra = round(v - total_lancado, 2)
-                        income_eventual += sobra
-                        income_eventual_items.append({
-                            "desc": f"Sobra ML: {exp.description}",
-                            "amount": sobra,
-                        })
-                else:
-                    # Outros: projeção de parcelados vinculados ao expense_id
-                    parc_todos = _CE.query.filter_by(
-                        expense_id=exp.id, kind="parcelado", status="ativo"
-                    ).all()
-                    total_parc_mes = 0.0
-                    for ce in parc_todos:
-                        if not ce.installments or not ce.installment_no:
-                            continue
+                # Se lançamentos do cartão no mês ultrapassam o planejado → gera eventual
+                from app.models import CardEntry as _CE
+                _entries_exp = _CE.query.filter_by(
+                    expense_id=exp.id, status="ativo"
+                ).all()
+                total_lancado_mes = 0.0
+                for ce in _entries_exp:
+                    if ce.kind == "parcelado" and ce.installments and ce.installment_no:
                         first = _add_months(ce.entry_date, 1 - ce.installment_no)
                         for i in range(ce.installment_no, ce.installments + 1):
                             d = _add_months(first, i - 1)
                             if d.year == year and d.month == m:
-                                total_parc_mes += float(ce.amount)
+                                total_lancado_mes += float(ce.amount)
                                 break
-                    if 0 < total_parc_mes < v:
-                        sobra = round(v - total_parc_mes, 2)
-                        income_eventual += sobra
-                        income_eventual_items.append({
-                            "desc": f"Sobra parcelado: {exp.description}",
-                            "amount": sobra,
-                        })
+                    else:
+                        if ce.entry_date.year == year and ce.entry_date.month == m:
+                            total_lancado_mes += float(ce.amount)
+                if total_lancado_mes > v:
+                    excedente = round(total_lancado_mes - v, 2)
+                    eventual_total += excedente
+                    eventual_items.append({
+                        "desc": f"Excedente: {exp.description}",
+                        "amount": excedente,
+                    })
             else:
                 eventual_total += v
                 eventual_items.append({
