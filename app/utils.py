@@ -291,30 +291,7 @@ def get_yearly_cashflow(user_id, year):
                     "desc": exp.description + parc_fix,
                     "amount": round(float(v), 2),
                 })
-                # Se lançamentos do cartão no mês ultrapassam o planejado → gera eventual
-                from app.models import CardEntry as _CE
-                _entries_exp = _CE.query.filter_by(
-                    expense_id=exp.id, status="ativo"
-                ).all()
-                total_lancado_mes = 0.0
-                for ce in _entries_exp:
-                    if ce.kind == "parcelado" and ce.installments and ce.installment_no:
-                        first = _add_months(ce.entry_date, 1 - ce.installment_no)
-                        for i in range(ce.installment_no, ce.installments + 1):
-                            d = _add_months(first, i - 1)
-                            if d.year == year and d.month == m:
-                                total_lancado_mes += float(ce.amount)
-                                break
-                    else:
-                        if ce.entry_date.year == year and ce.entry_date.month == m:
-                            total_lancado_mes += float(ce.amount)
-                if total_lancado_mes > v:
-                    excedente = round(total_lancado_mes - v, 2)
-                    eventual_total += excedente
-                    eventual_items.append({
-                        "desc": f"Excedente: {exp.description}",
-                        "amount": excedente,
-                    })
+                # Excedente calculado de forma consolidada após o loop
             else:
                 eventual_total += v
                 eventual_items.append({
@@ -322,6 +299,37 @@ def get_yearly_cashflow(user_id, year):
                     "amount": round(float(v), 2),
                 })
         net = income_total - fixed_total - eventual_total
+
+        # Por gasto: compara lançamentos vinculados vs planejado individual
+        from app.models import CardEntry as _CE
+        for exp2, v2 in expenses:
+            if exp2.kind != "recorrente":
+                continue
+            if not exp2.is_active_on(year, m):
+                continue
+            # Busca todos os CardEntries vinculados a este gasto
+            entries_exp = _CE.query.filter_by(expense_id=exp2.id, status="ativo").all()
+            if not entries_exp:
+                continue
+            total_lancado = 0.0
+            for ce in entries_exp:
+                if ce.kind == "parcelado" and ce.installments and ce.installment_no:
+                    first = _add_months(ce.entry_date, 1 - ce.installment_no)
+                    for i in range(ce.installment_no, ce.installments + 1):
+                        d = _add_months(first, i - 1)
+                        if d.year == year and d.month == m:
+                            total_lancado += float(ce.amount)
+                            break
+                else:
+                    if ce.entry_date.year == year and ce.entry_date.month == m:
+                        total_lancado += float(ce.amount)
+            if total_lancado > v2:
+                excedente = round(total_lancado - v2, 2)
+                eventual_total += excedente
+                eventual_items.append({
+                    "desc": f"Excedente: {exp2.description}",
+                    "amount": excedente,
+                })
 
         # Aplica overrides manuais
         override = overrides.get((year, m))
