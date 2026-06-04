@@ -326,16 +326,56 @@ def get_yearly_cashflow(user_id, year):
                 })
         net = income_total - fixed_total - eventual_total
 
-        # Excedente: usa EXATAMENTE os valores da tela inicial de cartões
-        # consolidated já tem planned e total iguais ao que aparece na tela
-        for key, grp in consolidated_cards.items():
-            if grp["planned"] > 0 and grp["total"] > grp["planned"]:
-                excedente = round(grp["total"] - grp["planned"], 2)
-                eventual_total += excedente
-                eventual_items.append({
-                    "desc": f"Excedente: {key}",
-                    "amount": excedente,
-                })
+        # Excedente: lógica diferenciada por mês
+        from app.models import CardEntry as _CE, Card as _Card2
+        _today = _date.today()
+
+        if year == _today.year and m == _today.month:
+            # Mês atual: usa EXATAMENTE os valores da tela inicial de cartões
+            for key, grp in consolidated_cards.items():
+                if grp["planned"] > 0 and grp["total"] > grp["planned"]:
+                    excedente = round(grp["total"] - grp["planned"], 2)
+                    eventual_total += excedente
+                    eventual_items.append({
+                        "desc": f"Excedente: {key}",
+                        "amount": excedente,
+                    })
+        else:
+            # Outros meses: só parcelados projetados vs planejado
+            _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
+            _parc_entries = _CE.query.filter(
+                _CE.card_id.in_(_card_ids),
+                _CE.kind == "parcelado",
+                (_CE.status == "ativo") | (_CE.status == None)
+            ).all() if _card_ids else []
+
+            _groups_parc = {}
+            for ce in _parc_entries:
+                if not ce.installments or not ce.installment_no:
+                    continue
+                first = _add_months(ce.entry_date, 1 - ce.installment_no)
+                for i in range(ce.installment_no, ce.installments + 1):
+                    d = _add_months(first, i - 1)
+                    if d.year == year and d.month == m:
+                        if ce.expense_id and ce.expense:
+                            key = ce.expense.description
+                            planned = float(ce.expense.amount)
+                        else:
+                            key = ce.description
+                            planned = 0.0
+                        if key not in _groups_parc:
+                            _groups_parc[key] = {"total": 0.0, "planned": planned}
+                        _groups_parc[key]["total"] += float(ce.amount)
+                        break
+
+            for key, grp in _groups_parc.items():
+                if grp["planned"] > 0 and grp["total"] > grp["planned"]:
+                    excedente = round(grp["total"] - grp["planned"], 2)
+                    eventual_total += excedente
+                    eventual_items.append({
+                        "desc": f"Excedente: {key}",
+                        "amount": excedente,
+                    })
 
         # Aplica overrides manuais
         override = overrides.get((year, m))
