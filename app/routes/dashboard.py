@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from app import db
 from app.models import (Income, Expense, ExpenseShare, Project,
                         ProjectMember, User, HouseholdExpense, CardEntry)
-from app.utils import get_user_monthly_summary, get_credits_debits
+from app.utils import get_user_monthly_summary, get_credits_debits, get_yearly_cashflow
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -15,6 +15,14 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def index():
     today = date.today()
     summary = get_user_monthly_summary(current_user.id, today.year, today.month)
+
+    # Dados do fluxo de caixa para os cards do dashboard
+    cf_months = get_yearly_cashflow(current_user.id, today.year)
+    cf_current = next(
+        (m for m in cf_months if m["month"] == today.month),
+        cf_months[0] if cf_months else {}
+    )
+    cf_dec = next((m for m in cf_months if m["month"] == 12), cf_months[-1] if cf_months else {})
     credits_debits = get_credits_debits(current_user.id)
 
     # Projetos do usuário
@@ -171,6 +179,8 @@ def index():
     return render_template(
         "dashboard.html",
         summary=summary,
+        cf_current=cf_current,
+        cf_dec=cf_dec,
         credits_debits=credits_debits_detail,
         projects=projects[:4],
         all_projects_count=len(projects),
