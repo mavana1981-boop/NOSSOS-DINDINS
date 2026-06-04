@@ -150,6 +150,29 @@ def get_credits_debits(user_id):
     return result
 
 
+def get_consolidated_cards(user_id):
+    """Retorna o consolidado de cartões igual à tela inicial de cartões."""
+    from app.models import Card, CardEntry
+    from collections import defaultdict
+    cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+    all_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all() if card_ids else []
+
+    consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
+    for entry in all_entries:
+        if entry.expense_id and entry.expense:
+            key = entry.expense.description
+            consolidated[key]["planned"] = float(entry.expense.amount)
+        else:
+            key = entry.description
+        consolidated[key]["total"] += float(entry.amount)
+
+    return consolidated
+
+
 def get_yearly_cashflow(user_id, year):
     from app import db as _db
     from app.models import Income, Expense, ExpenseShare, CashflowOverride
@@ -167,6 +190,9 @@ def get_yearly_cashflow(user_id, year):
 
     # Busca EXATAMENTE igual ao menu Gastos: payer_id == user
     # O valor usado é sempre o amount do Expense (o que o user pagou)
+    # Carrega consolidado de cartões UMA VEZ — mesmos valores da tela inicial
+    consolidated_cards = get_consolidated_cards(user_id)
+
     all_expenses = Expense.query.filter(
         Expense.payer_id == user_id
     ).all()
@@ -300,35 +326,9 @@ def get_yearly_cashflow(user_id, year):
                 })
         net = income_total - fixed_total - eventual_total
 
-        # Excedente: mesma lógica exata do consolidado de cartões
-        # Sem filtro de mês — usa entry_date para determinar o mês de impacto
-        from app.models import CardEntry as _CE, Card as _Card2
-        from collections import defaultdict as _dd2
-
-        _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
-        _all_entries = _CE.query.filter(
-            _CE.card_id.in_(_card_ids),
-            (_CE.status == "ativo") | (_CE.status == None)
-        ).all() if _card_ids else []
-
-        # Agrupa exatamente como o consolidado, mas só entry_date no mês
-        _groups = _dd2(lambda: {"total": 0.0, "planned": 0.0})
-        for ce in _all_entries:
-            # Filtra pelo mês via entry_date (igual ao consolidado)
-            if not ce.entry_date:
-                continue
-            if ce.entry_date.year != year or ce.entry_date.month != m:
-                continue
-
-            if ce.expense_id and ce.expense:
-                key = ce.expense.description
-                _groups[key]["planned"] = float(ce.expense.amount)
-            else:
-                key = ce.description
-
-            _groups[key]["total"] += float(ce.amount)
-
-        for key, grp in _groups.items():
+        # Excedente: usa EXATAMENTE os valores da tela inicial de cartões
+        # consolidated já tem planned e total iguais ao que aparece na tela
+        for key, grp in consolidated_cards.items():
             if grp["planned"] > 0 and grp["total"] > grp["planned"]:
                 excedente = round(grp["total"] - grp["planned"], 2)
                 eventual_total += excedente
