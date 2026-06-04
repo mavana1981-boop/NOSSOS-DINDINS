@@ -97,6 +97,7 @@ def get_user_balance_with(user_id, other_user_id):
 
 
 def get_user_monthly_summary(user_id, year, month):
+    """Saldo = Renda - gastos próprios + cotas recebidas."""
     from app.models import Income, Expense, ExpenseShare
     from datetime import date as _date
     incomes = Income.query.filter_by(user_id=user_id).all()
@@ -108,17 +109,33 @@ def get_user_monthly_summary(user_id, year, month):
         elif i.is_recurring and i.received_at <= last_day:
             if (year, month) >= (i.received_at.year, i.received_at.month):
                 income_total += float(i.amount)
-    expenses = db.session.query(Expense, ExpenseShare)\
+
+    proprios = 0.0  # o que o usuário paga de verdade
+    cotas = 0.0     # o que outros lhe devem
+
+    # Gastos onde o usuário é pagador
+    for exp in Expense.query.filter_by(payer_id=user_id).all():
+        if not exp.is_active_on(year, month):
+            continue
+        for s in exp.shares:
+            if s.user_id == user_id:
+                proprios += float(s.share_amount)
+            else:
+                cotas += float(s.share_amount)
+
+    # Gastos onde o usuário é devedor (outro pagou)
+    debitos = db.session.query(Expense, ExpenseShare)\
         .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-        .filter(ExpenseShare.user_id == user_id).all()
-    debt_total = 0.0
-    for exp, share in expenses:
+        .filter(ExpenseShare.user_id == user_id, Expense.payer_id != user_id).all()
+    for exp, share in debitos:
         if exp.is_active_on(year, month):
-            debt_total += float(share.share_amount)
+            proprios += float(share.share_amount)
+
     return {
         "income": income_total,
-        "expense": debt_total,
-        "balance": income_total - debt_total,
+        "expense": proprios,
+        "cotas": cotas,
+        "balance": income_total - proprios + cotas,
     }
 
 
