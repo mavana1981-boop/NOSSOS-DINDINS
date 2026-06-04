@@ -300,40 +300,27 @@ def get_yearly_cashflow(user_id, year):
                 })
         net = income_total - fixed_total - eventual_total
 
-        # Excedente: replica lógica do consolidado de cartões, filtrado pelo mês
-        from app.models import CardEntry as _CE
+        # Excedente: mesma lógica exata do consolidado de cartões
+        # Sem filtro de mês — usa entry_date para determinar o mês de impacto
+        from app.models import CardEntry as _CE, Card as _Card2
         from collections import defaultdict as _dd2
 
-        # Busca todos os cartões do usuário
-        from app.models import Card as _Card2
-        _card_ids = [c.id for c in _Card2.query.filter_by(user_id=user_id).all()]
+        _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
         _all_entries = _CE.query.filter(
             _CE.card_id.in_(_card_ids),
             (_CE.status == "ativo") | (_CE.status == None)
         ).all() if _card_ids else []
 
-        # Agrupa por expense.description (igual ao consolidado)
+        # Agrupa exatamente como o consolidado, mas só entry_date no mês
         _groups = _dd2(lambda: {"total": 0.0, "planned": 0.0})
         for ce in _all_entries:
-            # Verifica se o lançamento impacta este mês
-            if ce.kind == "parcelado" and ce.installments and ce.installment_no:
-                impacta = False
-                first = _add_months(ce.entry_date, 1 - ce.installment_no)
-                for i in range(ce.installment_no, ce.installments + 1):
-                    d = _add_months(first, i - 1)
-                    if d.year == year and d.month == m:
-                        impacta = True
-                        break
-                if not impacta:
-                    continue
-            else:
-                if not (ce.entry_date.year == year and ce.entry_date.month == m):
-                    continue
+            # Filtra pelo mês via entry_date (igual ao consolidado)
+            if not ce.entry_date:
+                continue
+            if ce.entry_date.year != year or ce.entry_date.month != m:
+                continue
 
-            # Agrupa igual ao consolidado
             if ce.expense_id and ce.expense:
-                if not ce.expense.is_active_on(year, m):
-                    continue
                 key = ce.expense.description
                 _groups[key]["planned"] = float(ce.expense.amount)
             else:
@@ -341,7 +328,6 @@ def get_yearly_cashflow(user_id, year):
 
             _groups[key]["total"] += float(ce.amount)
 
-        # Gera excedente para grupos que ultrapassaram o planejado
         for key, grp in _groups.items():
             if grp["planned"] > 0 and grp["total"] > grp["planned"]:
                 excedente = round(grp["total"] - grp["planned"], 2)
