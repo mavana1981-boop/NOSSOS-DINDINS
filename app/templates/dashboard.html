@@ -13,24 +13,25 @@
   </div>
 </div>
 
-<!-- Stats -->
-<div class="grid grid-3 mb-3">
+<!-- Stats — mesmo cálculo do Fluxo de Caixa -->
+<div class="grid grid-4 mb-3">
   <div class="stat">
-    <div class="stat-label">Renda do mês</div>
-    <div class="stat-value positive">{{ summary.income|brl }}</div>
-    <div class="stat-foot">entradas registradas no mês atual</div>
+    <div class="stat-label">Renda fixa — {{ cf_current.month_name }}</div>
+    <div class="stat-value positive">{{ cf_current.income_recurring|brl }}</div>
   </div>
   <div class="stat">
-    <div class="stat-label">Gastos do mês</div>
-    <div class="stat-value negative">{{ summary.expense|brl }}</div>
-    <div class="stat-foot">despesas que recaem sobre você</div>
+    <div class="stat-label">Renda eventual — {{ cf_current.month_name }}</div>
+    <div class="stat-value" style="color:var(--blue);">{{ cf_current.income_eventual|brl }}</div>
   </div>
   <div class="stat">
-    <div class="stat-label">Saldo do mês</div>
-    <div class="stat-value {{ 'positive' if summary.balance >= 0 else 'negative' }}">{{ summary.balance|brl }}</div>
-    <div class="stat-foot text-faint text-small">
-      {{ summary.income|brl }} − {{ summary.expense|brl }}{% if summary.cotas > 0 %} + {{ summary.cotas|brl }}{% endif %}
-    </div>
+    <div class="stat-label">Saldo — {{ cf_current.month_name }}</div>
+    <div class="stat-value {{ 'positive' if cf_current.net >= 0 else 'negative' }}">{{ cf_current.net|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.7rem;">igual ao fluxo de caixa</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Saldo do ano</div>
+    <div class="stat-value {{ 'positive' if cf_dec.cumulative >= 0 else 'negative' }}">{{ cf_dec.cumulative|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.7rem;">acumulado dez/{{ cf_current.month_name[-4:] if cf_current else '' }}</div>
   </div>
 </div>
 
