@@ -231,7 +231,7 @@ def list_cards():
         consolidated[key]["cards"][card_name] = \
             consolidated[key]["cards"].get(card_name, 0.0) + float(entry.amount)
         parcela_label = ""
-        if entry.kind == "parcelado" and entry.installments:
+        if entry.installments and entry.installments > 1:
             no = entry.installment_no or 1
             parcela_label = f"{no}/{entry.installments}"
         consolidated[key]["entries"].append({
@@ -283,7 +283,7 @@ def list_cards():
         return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
 
     parc_entries = [e for e in all_entries
-                    if e.kind == "parcelado" and e.installments]
+                    if e.installments and e.installments > 1]
     MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
     today2 = _date2.today()
     proj_months = {}
