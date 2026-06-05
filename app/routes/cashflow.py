@@ -148,20 +148,25 @@ def ajustar():
 def debug_entries():
     from flask import jsonify
     from app.models import CardEntry, Card
-    cards = Card.query.filter_by(user_id=current_user.id).all()
-    card_ids = [c.id for c in cards]
-    entries = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids)
-    ).limit(20).all()
-    return jsonify([{
-        "id": e.id,
-        "desc": e.description[:40],
-        "kind": e.kind,
-        "installments": e.installments,
-        "installment_no": e.installment_no,
-        "status": e.status,
-        "amount": float(e.amount),
-    } for e in entries])
+    # Mostra todos os cartões e entries do sistema
+    all_cards = Card.query.all()
+    my_cards = Card.query.filter_by(user_id=current_user.id).all()
+    entries = CardEntry.query.limit(10).all()
+    return jsonify({
+        "current_user_id": current_user.id,
+        "total_cards": len(all_cards),
+        "my_cards": [{"id": c.id, "name": c.name, "user_id": c.user_id} for c in my_cards],
+        "sample_entries": [{
+            "id": e.id,
+            "desc": e.description[:40],
+            "kind": e.kind,
+            "installments": e.installments,
+            "installment_no": e.installment_no,
+            "status": e.status,
+            "user_id": e.user_id,
+            "card_id": e.card_id,
+        } for e in entries]
+    })
 
 @cashflow_bp.route("/items-json")
 @login_required
