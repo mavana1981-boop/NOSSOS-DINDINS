@@ -268,6 +268,34 @@ def list_cards():
         key=lambda x: x["total"], reverse=True
     )
 
+    # Projeção mês a mês dos parcelados
+    import calendar as _cal
+    from datetime import date as _date2
+    def _add_m(dt, n):
+        month = dt.month - 1 + n
+        yr = dt.year + month // 12
+        month = month % 12 + 1
+        return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
+
+    parc_entries = [e for e in all_entries
+                    if e.kind == "parcelado" and e.installments and e.installment_no]
+    MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+    today2 = _date2.today()
+    proj_months = {}
+    for ce in parc_entries:
+        first = _add_m(ce.entry_date, 1 - ce.installment_no)
+        for i in range(ce.installment_no, ce.installments + 1):
+            d = _add_m(first, i - 1)
+            if (d.year, d.month) < (today2.year, today2.month):
+                continue
+            key = (d.year, d.month)
+            proj_months[key] = proj_months.get(key, 0.0) + float(ce.amount)
+
+    projecao_parcelados = [
+        {"label": f"{MESES_PT[k[1]-1]}/{k[0]}", "total": round(v, 2)}
+        for k, v in sorted(proj_months.items())
+    ]
+
     return render_template("cards/list.html", cards=cards,
                            consolidated=consolidated_sorted,
                            total_geral=total_geral,
