@@ -230,11 +230,15 @@ def list_cards():
         consolidated[key]["total"] += float(entry.amount)
         consolidated[key]["cards"][card_name] = \
             consolidated[key]["cards"].get(card_name, 0.0) + float(entry.amount)
+        parcela_label = ""
+        if entry.kind == "parcelado" and entry.installments and entry.installment_no:
+            parcela_label = f"{entry.installment_no}/{entry.installments}"
         consolidated[key]["entries"].append({
             "desc": entry.description,
             "card": card_name,
             "amount": float(entry.amount),
-            "date": entry.entry_date.strftime("%d/%m/%Y") if entry.entry_date else ""
+            "date": entry.entry_date.strftime("%d/%m/%Y") if entry.entry_date else "",
+            "parcela": parcela_label,
         })
 
     consolidated_sorted = sorted(
