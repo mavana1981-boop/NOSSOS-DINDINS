@@ -1,136 +1,209 @@
 {% extends "base.html" %}
-{% block title %}Investimentos{% endblock %}
+{% block title %}Cartões{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
-    <h1>Investimentos</h1>
-    <p>
-      Investido: <strong style="color:var(--blue);">{{ total_invested|brl }}</strong> ·
-      Valor atual: <strong style="color:var(--green);">{{ total_current|brl }}</strong> ·
-      <span style="color:{{ 'var(--green)' if total_gain >= 0 else 'var(--red)' }};">
-        {{ '+' if total_gain >= 0 else '' }}{{ total_gain|brl }}
-      </span>
-    </p>
+    <h1>Meus Cartões</h1>
+    <p>Gerencie seus cartões e acompanhe os gastos consolidados.</p>
   </div>
-  <a href="{{ url_for('investments.new_investment') }}" class="btn btn-primary">+ Novo investimento</a>
+  <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary">+ Novo cartão</a>
 </div>
 
-<!-- Filtros -->
-<div class="card mb-3">
-  <form method="GET" class="flex flex-gap" style="flex-wrap:wrap;align-items:flex-end;">
-    <div class="form-group mb-0">
-      <label class="form-label">Objetivo</label>
-      <select class="form-control" name="objective" style="min-width:180px;">
-        <option value="">Todos</option>
-        {% for o in all_objectives %}
-          <option {% if obj_filter == o %}selected{% endif %}>{{ o }}</option>
-        {% endfor %}
-        {% for o in objectives %}
-          {% if o not in all_objectives %}
-            <option {% if obj_filter == o %}selected{% endif %}>{{ o }}</option>
-          {% endif %}
-        {% endfor %}
-      </select>
+{% if cards %}
+<div class="grid grid-2 mb-3">
+  {% for card in cards %}
+  <a href="{{ url_for('cards.detail_card', card_id=card.id) }}"
+     style="text-decoration:none;color:inherit;display:block;" class="card">
+    <div style="background:{{ card.color }};border-radius:var(--radius);padding:18px 20px;margin:-24px -24px 20px -24px;position:relative;overflow:hidden;">
+      <div style="position:absolute;right:-20px;top:-20px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.08);"></div>
+      <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;color:#fff;margin-bottom:4px;">
+        {{ card.name }}
+      </div>
+      <div style="font-size:0.85rem;color:rgba(255,255,255,0.75);">
+        {% if card.last_digits %}•••• {{ card.last_digits }}{% endif %}
+        {% if card.closing_day %} · Fecha dia {{ card.closing_day }}{% endif %}
+        {% if card.due_day %} · Vence dia {{ card.due_day }}{% endif %}
+      </div>
     </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Categoria</label>
-      <select class="form-control" name="category" style="min-width:160px;">
-        <option value="">Todas</option>
-        {% for c in all_categories %}
-          <option {% if cat_filter == c %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}
-      </select>
+    {% if card.limit_amount and card.limit_amount > 0 %}
+    <div class="mb-2">
+      <div class="flex-between mb-1">
+        <span class="text-faint text-small">Utilizado</span>
+        <span class="text-small mono">{{ card.usage_percent }}%</span>
+      </div>
+      <div class="progress">
+        <div class="progress-bar"
+             style="width:{{ card.usage_percent }}%;background:{{ 'var(--red)' if card.usage_percent > 80 else card.color }};"></div>
+      </div>
+      <div class="flex-between mt-1">
+        <span class="text-small" style="color:var(--red);">{{ card.total_entries|brl }} usado</span>
+        <span class="text-small" style="color:var(--green);">{{ card.available|brl }} disponível</span>
+      </div>
     </div>
-    <button class="btn btn-ghost">Filtrar</button>
-    {% if obj_filter or cat_filter %}
-      <a href="{{ url_for('investments.list_investments') }}" class="btn btn-ghost">Limpar</a>
+    {% else %}
+    <div class="mb-2">
+      <span class="text-dim text-small">Total lançado: </span>
+      <span class="mono" style="color:var(--red);">{{ card.total_entries|brl }}</span>
+    </div>
     {% endif %}
-  </form>
+    <div class="flex-between">
+      <span class="text-faint text-small">{{ card.entries.count() }} lançamento(s)</span>
+      <span class="btn btn-ghost btn-sm">Ver detalhes →</span>
+    </div>
+  </a>
+  {% endfor %}
 </div>
 
-{% if by_objective %}
-  {% for obj, data in by_objective.items() %}
-  <div class="card mb-3">
-    <div class="card-title">
-      <div>
-        <h3 style="margin:0;">{{ obj }}</h3>
-        <div class="text-small text-dim">
-          {{ data.items|length }} ativo(s) ·
-          Investido: <span class="mono">{{ data.total_invested|brl }}</span> ·
-          Atual: <span class="mono" style="color:var(--green);">{{ data.total_current|brl }}</span>
-          {% set gain = data.total_current - data.total_invested %}
-          · <span style="color:{{ 'var(--green)' if gain >= 0 else 'var(--red)' }};">
-              {{ '+' if gain >= 0 }}{{ gain|brl }}
-            </span>
-        </div>
-      </div>
-      <!-- Barra de progresso do objetivo -->
-      {% set pct = [(data.total_current / data.total_invested * 100) if data.total_invested > 0 else 100, 200]|min %}
-      <div style="text-align:right;">
-        <div class="pct" style="font-family:'Fraunces',serif;font-weight:700;font-size:1.4rem;color:var(--blue);">
-          {{ '%.1f'|format(pct) }}%
-        </div>
-        <div class="text-faint text-small">rendimento</div>
-      </div>
-    </div>
-
-    <div class="table-wrap">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>Descrição</th>
-            <th>Categoria</th>
-            <th>Instituição</th>
-            <th>Data</th>
-            <th class="text-right">Aportado</th>
-            <th class="text-right">Valor atual</th>
-            <th class="text-right">Ganho/Perda</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for inv in data.items %}
-          <tr>
-            <td>
-              <strong>{{ inv.description }}</strong>
-              {% if not inv.is_active %}<span class="badge badge-solo">Encerrado</span>{% endif %}
-              {% if inv.notes %}<div class="text-faint text-small">{{ inv.notes }}</div>{% endif %}
-            </td>
-            <td><span class="badge badge-shared">{{ inv.category }}</span></td>
-            <td class="text-dim">{{ inv.institution or '—' }}</td>
-            <td class="text-dim">{{ inv.invested_at|data_br }}</td>
-            <td class="text-right amount" style="color:var(--blue);">{{ inv.amount|brl }}</td>
-            <td class="text-right amount" style="color:var(--green);">{{ (inv.current_value or inv.amount)|brl }}</td>
-            <td class="text-right amount">
-              {% set g = inv.gain_loss %}
-              <span style="color:{{ 'var(--green)' if g >= 0 else 'var(--red)' }};">
-                {{ '+' if g >= 0 }}{{ g|brl }}
-              </span>
-              <div class="text-faint text-small">{{ '%.1f'|format(inv.gain_loss_pct) }}%</div>
-            </td>
-            <td class="text-right">
-              <a href="{{ url_for('investments.edit_investment', inv_id=inv.id) }}" class="btn btn-ghost btn-sm">Editar</a>
-              <form method="POST" action="{{ url_for('investments.delete_investment', inv_id=inv.id) }}"
-                    style="display:inline;" onsubmit="return confirm('Excluir?');">
-                <button class="btn btn-danger btn-sm">×</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+<!-- Consolidado por gasto entre todos os cartões -->
+{% if consolidated %}
+<div class="card">
+  <div class="card-title">
+    <h3>Gastos consolidados — todos os cartões</h3>
+    <span class="mono" style="color:var(--red);font-weight:700;">{{ total_geral|brl }}</span>
   </div>
-  {% endfor %}
-{% else %}
-  <div class="card">
-    <div class="empty-state">
-      <h4>Nenhum investimento registrado</h4>
-      <p>Comece a registrar seus investimentos e acompanhe o crescimento por objetivo.</p>
-      <a href="{{ url_for('investments.new_investment') }}" class="btn btn-primary btn-sm mt-2">Registrar primeiro</a>
-    </div>
+  <div class="table-wrap">
+    <table class="tbl sortable-table">
+      <thead>
+        <tr>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Gasto ↕</th>
+          <th class="th-sort" data-col="1" style="cursor:pointer;">Cartões ↕</th>
+          <th class="th-sort text-right" data-col="2" style="cursor:pointer;">Planejado ↕</th>
+          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Total ↕</th>
+          <th class="text-right">%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in consolidated %}
+        <tr class="consolidated-row" style="cursor:pointer;" onclick="toggleDetail('detail-{{ loop.index }}', this)">
+          <td data-val="{{ item.name }}">
+            <strong>{{ item.name }}</strong>
+            <span class="text-faint text-small" style="margin-left:6px;">▼</span>
+          </td>
+          <td data-val="{{ item.cards|length }}">
+            {% for card_name, val in item.cards.items() %}
+              <div class="text-small text-dim">{{ card_name }}: <span class="mono">{{ val|brl }}</span></div>
+            {% endfor %}
+          </td>
+          <td class="text-right mono text-dim" data-val="{{ item.planned }}">
+            {% if item.planned > 0 %}{{ item.planned|brl }}{% else %}—{% endif %}
+          </td>
+          <td class="text-right amount" data-val="{{ item.total }}" style="color:var(--red);font-weight:700;">
+            {{ item.total|brl }}
+          </td>
+          <td class="text-right">
+            {% if item.pct is not none %}
+              <span class="badge {{ 'badge-solo' if item.pct > 100 else 'badge-shared' }}">{{ item.pct }}%</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        <tr id="detail-{{ loop.index }}" style="display:none;">
+          <td colspan="5" style="padding:0 0 8px 16px;">
+            <table style="width:100%;font-size:0.82rem;">
+              <thead>
+                <tr style="color:var(--text-faint);">
+                  <th style="text-align:left;padding:4px 8px;">Lançamento</th>
+                  <th style="text-align:left;padding:4px 8px;">Cartão</th>
+                  <th style="text-align:left;padding:4px 8px;">Data</th>
+                  <th style="padding:4px 8px;">Parcela</th>
+                  <th style="text-align:right;padding:4px 8px;">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for e in item.entries %}
+                <tr style="border-top:1px solid var(--border);">
+                  <td style="padding:4px 8px;">{{ e.desc }}</td>
+                  <td style="padding:4px 8px;color:var(--text-faint);">{{ e.card }}</td>
+                  <td style="padding:4px 8px;color:var(--text-faint);">{{ e.date }}</td>
+                  <td style="padding:4px 8px;">
+                    {% if e.parcela %}<span class="badge badge-shared" style="font-size:0.68rem;">{{ e.parcela }}</span>{% endif %}
+                  </td>
+                  <td style="padding:4px 8px;text-align:right;" class="mono">{{ e.amount|brl }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+</div>
 {% endif %}
+
+{% if projecao_parcelados %}
+<div class="card mt-3">
+  <div class="card-title">
+    <h3>Projeção Parcelados</h3>
+    <span class="text-faint text-small">total de parcelas vigentes mês a mês</span>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0;">
+    {% for p in projecao_parcelados %}
+    <div class="card" style="flex:0 0 auto;min-width:90px;text-align:center;padding:10px 12px;">
+      <div class="text-faint text-small">{{ p.label }}</div>
+      <div class="mono" style="color:var(--red);font-weight:700;font-size:0.9rem;">{{ p.total|brl }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <h4>Nenhum cartão cadastrado</h4>
+    <p>Cadastre seus cartões para controlar os lançamentos por gasto fixo.</p>
+    <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary btn-sm mt-2">Cadastrar cartão</a>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function toggleDetail(id, row) {
+  const detail = document.getElementById(id);
+  const arrow = row.querySelector('.text-faint.text-small');
+  if (detail.style.display === 'none') {
+    detail.style.display = 'table-row';
+    if (arrow) arrow.textContent = '▲';
+  } else {
+    detail.style.display = 'none';
+    if (arrow) arrow.textContent = '▼';
+  }
+}
+</script>
+
+<script>
+(function() {
+  function initSort(table) {
+    let sortCol = -1, sortAsc = true;
+    table.querySelectorAll('th.th-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col);
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        table.querySelectorAll('th.th-sort').forEach(t => {
+          t.textContent = t.textContent.replace(' ↑','').replace(' ↓','').replace(' ↕','') + ' ↕';
+        });
+        th.textContent = th.textContent.replace(' ↕','') + (sortAsc ? ' ↑' : ' ↓');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aCell = a.querySelectorAll('td')[col];
+          const bCell = b.querySelectorAll('td')[col];
+          const aVal = (aCell.dataset.val || aCell.textContent).trim().toLowerCase();
+          const bVal = (bCell.dataset.val || bCell.textContent).trim().toLowerCase();
+          const aNum = parseFloat(aVal);
+          const bNum = parseFloat(bVal);
+          if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
+          return sortAsc ? aVal.localeCompare(bVal,'pt-BR') : bVal.localeCompare(aVal,'pt-BR');
+        });
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  }
+  document.querySelectorAll('.sortable-table').forEach(initSort);
+})();
+</script>
 
 {% endblock %}
