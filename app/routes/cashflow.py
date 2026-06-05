@@ -143,6 +143,26 @@ def ajustar():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@cashflow_bp.route("/debug-entries")
+@login_required
+def debug_entries():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    cards = Card.query.filter_by(user_id=current_user.id).all()
+    card_ids = [c.id for c in cards]
+    entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids)
+    ).limit(20).all()
+    return jsonify([{
+        "id": e.id,
+        "desc": e.description[:40],
+        "kind": e.kind,
+        "installments": e.installments,
+        "installment_no": e.installment_no,
+        "status": e.status,
+        "amount": float(e.amount),
+    } for e in entries])
+
 @cashflow_bp.route("/items-json")
 @login_required
 def items_json():
