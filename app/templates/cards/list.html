@@ -105,6 +105,7 @@
                   <th style="text-align:left;padding:4px 8px;">Lançamento</th>
                   <th style="text-align:left;padding:4px 8px;">Cartão</th>
                   <th style="text-align:left;padding:4px 8px;">Data</th>
+                  <th style="padding:4px 8px;">Parcela</th>
                   <th style="text-align:right;padding:4px 8px;">Valor</th>
                 </tr>
               </thead>
@@ -114,6 +115,9 @@
                   <td style="padding:4px 8px;">{{ e.desc }}</td>
                   <td style="padding:4px 8px;color:var(--text-faint);">{{ e.card }}</td>
                   <td style="padding:4px 8px;color:var(--text-faint);">{{ e.date }}</td>
+                  <td style="padding:4px 8px;">
+                    {% if e.parcela %}<span class="badge badge-shared" style="font-size:0.68rem;">{{ e.parcela }}</span>{% endif %}
+                  </td>
                   <td style="padding:4px 8px;text-align:right;" class="mono">{{ e.amount|brl }}</td>
                 </tr>
                 {% endfor %}
@@ -124,6 +128,23 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+{% endif %}
+
+{% if projecao_parcelados %}
+<div class="card mt-3">
+  <div class="card-title">
+    <h3>Projeção Parcelados</h3>
+    <span class="text-faint text-small">total de parcelas vigentes mês a mês</span>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0;">
+    {% for p in projecao_parcelados %}
+    <div class="card" style="flex:0 0 auto;min-width:90px;text-align:center;padding:10px 12px;">
+      <div class="text-faint text-small">{{ p.label }}</div>
+      <div class="mono" style="color:var(--red);font-weight:700;font-size:0.9rem;">{{ p.total|brl }}</div>
+    </div>
+    {% endfor %}
   </div>
 </div>
 {% endif %}
