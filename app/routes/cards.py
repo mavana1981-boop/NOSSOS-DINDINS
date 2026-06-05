@@ -781,3 +781,4 @@ def batch_delete_entry(card_id, batch_id, entry_id):
         return redirect(url_for("cards.detail_card", card_id=card_id))
     return redirect(url_for("cards.batch_review",
                             card_id=card_id, batch_id=batch_id))
+ 
