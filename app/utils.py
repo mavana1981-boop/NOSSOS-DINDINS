@@ -318,11 +318,28 @@ def get_yearly_cashflow(user_id, year):
                     "amount": round(float(v), 2),
                 })
                 # Excedente calculado de forma consolidada após o loop
-            else:
-                eventual_total += v
-                eventual_items.append({
-                    "desc": exp.description,
-                    "amount": round(float(v), 2),
+
+        # Gastos repassados ao usuário → gastos fixos no fluxo dele
+        for exp, share in debitos:
+            if not exp.is_active_on(year, m):
+                continue
+            v2 = round(float(share.share_amount), 2)
+            if v2 <= 0:
+                continue
+            parc_fix2 = ""
+            if exp.kind == "recorrente" and exp.recurrence_months:
+                md2 = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                parc_fix2 = f" ({md2}/{exp.recurrence_months})"
+            fixed_total += v2
+            fixed_items.append({
+                "desc": f"{exp.description}{parc_fix2}",
+                "amount": v2,
+            })
+        else:
+            eventual_total += v
+            eventual_items.append({
+                "desc": exp.description,
+                "amount": round(float(v), 2),
                 })
         net = income_total - fixed_total - eventual_total
 
