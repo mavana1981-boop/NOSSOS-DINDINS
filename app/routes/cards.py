@@ -231,8 +231,9 @@ def list_cards():
         consolidated[key]["cards"][card_name] = \
             consolidated[key]["cards"].get(card_name, 0.0) + float(entry.amount)
         parcela_label = ""
-        if entry.kind == "parcelado" and entry.installments and entry.installment_no:
-            parcela_label = f"{entry.installment_no}/{entry.installments}"
+        if entry.kind == "parcelado" and entry.installments:
+            no = entry.installment_no or 1
+            parcela_label = f"{no}/{entry.installments}"
         consolidated[key]["entries"].append({
             "desc": entry.description,
             "card": card_name,
@@ -282,13 +283,14 @@ def list_cards():
         return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
 
     parc_entries = [e for e in all_entries
-                    if e.kind == "parcelado" and e.installments and e.installment_no]
+                    if e.kind == "parcelado" and e.installments]
     MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
     today2 = _date2.today()
     proj_months = {}
     for ce in parc_entries:
-        first = _add_m(ce.entry_date, 1 - ce.installment_no)
-        for i in range(ce.installment_no, ce.installments + 1):
+        installment_no = ce.installment_no or 1
+        first = _add_m(ce.entry_date, 1 - installment_no)
+        for i in range(installment_no, ce.installments + 1):
             d = _add_m(first, i - 1)
             if (d.year, d.month) < (today2.year, today2.month):
                 continue
@@ -781,4 +783,3 @@ def batch_delete_entry(card_id, batch_id, entry_id):
         return redirect(url_for("cards.detail_card", card_id=card_id))
     return redirect(url_for("cards.batch_review",
                             card_id=card_id, batch_id=batch_id))
- 
