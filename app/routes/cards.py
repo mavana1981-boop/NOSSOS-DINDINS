@@ -271,7 +271,8 @@ def list_cards():
     return render_template("cards/list.html", cards=cards,
                            consolidated=consolidated_sorted,
                            total_geral=total_geral,
-                           hh_consolidated=hh_consolidated_sorted)
+                           hh_consolidated=hh_consolidated_sorted,
+                           projecao_parcelados=projecao_parcelados)
 
 
 @cards_bp.route("/novo", methods=["GET", "POST"])
