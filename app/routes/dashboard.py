@@ -1,5 +1,5 @@
 from datetime import date
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, request
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
