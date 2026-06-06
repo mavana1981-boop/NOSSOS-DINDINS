@@ -178,7 +178,7 @@ var _projData = {
   "{{ p.key }}": {
     "label": "{{ p.label }}",
     "total": {{ p.total }},
-    "items": {{ p.items|tojson }}
+    "items": {{ p.items_json|safe }}
   },
   {% endfor %}
 };
