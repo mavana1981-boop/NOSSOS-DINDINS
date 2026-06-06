@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from app import db
 from app.models import (Income, Expense, ExpenseShare, Project,
                         ProjectMember, User, HouseholdExpense, CardEntry)
-from app.utils import get_user_monthly_summary, get_credits_debits, get_yearly_cashflow
+from app.utils import get_user_monthly_summary, get_credits_debits, get_yearly_cashflow, get_user_balance_with
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -101,7 +101,7 @@ def index():
         entries.sort(key=lambda x: x["date"], reverse=True)
         credits_debits_detail.append({
             "user": other,
-            "balance": cd["balance"],
+            "balance": get_user_balance_with(current_user.id, cd["user"].id, filter_year, filter_month),
             "entries": entries,
         })
 
