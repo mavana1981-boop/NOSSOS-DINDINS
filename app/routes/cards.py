@@ -297,8 +297,32 @@ def list_cards():
             key = (d.year, d.month)
             proj_months[key] = proj_months.get(key, 0.0) + float(ce.amount)
 
+    # Detalhe por mês: cada entry que impacta o mês
+    proj_detail = {}
+    for ce in parc_entries:
+        installment_no = ce.installment_no or 1
+        first = _add_m(ce.entry_date, 1 - installment_no)
+        for i in range(installment_no, ce.installments + 1):
+            d = _add_m(first, i - 1)
+            if (d.year, d.month) < (today2.year, today2.month):
+                continue
+            key = (d.year, d.month)
+            if key not in proj_detail:
+                proj_detail[key] = []
+            proj_detail[key].append({
+                "desc": ce.description,
+                "parcela": f"{i}/{ce.installments}",
+                "amount": float(ce.amount),
+                "card": card_map.get(ce.card_id, "?"),
+            })
+
     projecao_parcelados = [
-        {"label": f"{MESES_PT[k[1]-1]}/{k[0]}", "total": round(v, 2)}
+        {
+            "label": f"{MESES_PT[k[1]-1]}/{k[0]}",
+            "total": round(v, 2),
+            "key": f"{k[0]}-{k[1]:02d}",
+            "items": sorted(proj_detail.get(k, []), key=lambda x: x["amount"], reverse=True),
+        }
         for k, v in sorted(proj_months.items())
     ]
 
