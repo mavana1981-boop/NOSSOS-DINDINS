@@ -14,6 +14,16 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @login_required
 def index():
     today = date.today()
+    # Filtro de mês para contas entre membros
+    mes_filter = request.args.get("mes", today.strftime("%Y-%m"))
+    try:
+        filter_year  = int(mes_filter[:4])
+        filter_month = int(mes_filter[5:7])
+    except (ValueError, IndexError):
+        filter_year, filter_month = today.year, today.month
+    import calendar as _cal
+    mes_nome = _cal.month_name[filter_month]
+
     summary = get_user_monthly_summary(current_user.id, today.year, today.month)
 
     # Dados do fluxo de caixa para os cards do dashboard
@@ -55,16 +65,15 @@ def index():
                     ExpenseShare.user_id == current_user.id).all()
         entries = []
         from datetime import date as _d
-        today = _d.today()
         def _parc(exp):
             if exp.kind != "recorrente" or not exp.recurrence_months:
                 return ""
-            md = (today.year - exp.spent_at.year) * 12 + (today.month - exp.spent_at.month) + 1
+            md = (filter_year - exp.spent_at.year) * 12 + (filter_month - exp.spent_at.month) + 1
             md = max(1, min(md, exp.recurrence_months))
             return f"{md}/{exp.recurrence_months}"
 
         for exp, share in eu_paguei:
-            if not exp.is_active_on(today.year, today.month):
+            if not exp.is_active_on(filter_year, filter_month):
                 continue
             entries.append({
                 "description": exp.description,
@@ -77,7 +86,7 @@ def index():
                 "parcela": _parc(exp),
             })
         for exp, share in outro_pagou:
-            if not exp.is_active_on(today.year, today.month):
+            if not exp.is_active_on(filter_year, filter_month):
                 continue
             entries.append({
                 "description": exp.description,
@@ -192,5 +201,9 @@ def index():
         household_pct=household_pct,
         desired_pct=desired_pct,
         today=today,
+        mes_filter=mes_filter,
+        filter_year=filter_year,
+        filter_month=filter_month,
+        mes_nome=mes_nome,
         mes_atual=today.strftime("%B/%Y").capitalize(),
     )
