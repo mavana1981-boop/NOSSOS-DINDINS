@@ -136,17 +136,83 @@
 <div class="card mt-3">
   <div class="card-title">
     <h3>Projeção Parcelados</h3>
-    <span class="text-faint text-small">total de parcelas vigentes mês a mês</span>
+    <span class="text-faint text-small">clique no mês para ver o detalhe</span>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0;">
     {% for p in projecao_parcelados %}
-    <div class="card" style="flex:0 0 auto;min-width:90px;text-align:center;padding:10px 12px;">
+    <div class="card" onclick="abrirProjecao('{{ p.key }}')"
+         style="flex:0 0 auto;min-width:90px;text-align:center;padding:10px 12px;cursor:pointer;transition:opacity .15s;"
+         onmouseover="this.style.opacity='.75'" onmouseout="this.style.opacity='1'">
       <div class="text-faint text-small">{{ p.label }}</div>
       <div class="mono" style="color:var(--red);font-weight:700;font-size:0.9rem;">{{ p.total|brl }}</div>
     </div>
     {% endfor %}
   </div>
 </div>
+
+<!-- Modal de detalhe de projeção -->
+<div id="modal-proj" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:var(--bg);border-radius:var(--radius);padding:24px;max-width:480px;width:92%;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 id="modal-proj-title" style="margin:0;"></h3>
+      <button onclick="fecharProjecao()" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <table class="tbl" style="width:100%;" id="modal-proj-table">
+      <thead>
+        <tr>
+          <th>Lançamento</th>
+          <th>Cartão</th>
+          <th class="text-right">Parcela</th>
+          <th class="text-right">Valor</th>
+        </tr>
+      </thead>
+      <tbody id="modal-proj-body"></tbody>
+    </table>
+    <div style="margin-top:12px;text-align:right;font-weight:700;" id="modal-proj-total"></div>
+  </div>
+</div>
+
+<script>
+var _projData = {
+  {% for p in projecao_parcelados %}
+  "{{ p.key }}": {
+    "label": "{{ p.label }}",
+    "total": {{ p.total }},
+    "items": [
+      {% for item in p.items %}
+      {"desc": {{ item.desc|tojson }}, "parcela": "{{ item.parcela }}", "amount": {{ item.amount }}, "card": {{ item.card|tojson }}},
+      {% endfor %}
+    ]
+  },
+  {% endfor %}
+};
+
+function abrirProjecao(key) {
+  var d = _projData[key];
+  if (!d) return;
+  document.getElementById('modal-proj-title').textContent = 'Parcelas — ' + d.label;
+  var tbody = document.getElementById('modal-proj-body');
+  tbody.innerHTML = '';
+  d.items.forEach(function(item) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + item.desc + '</td><td class="text-dim">' + item.card + '</td>' +
+      '<td class="text-right"><span class="badge badge-shared" style="font-size:0.68rem;">' + item.parcela + '</span></td>' +
+      '<td class="text-right mono" style="color:var(--red);">R$ ' + item.amount.toFixed(2).replace('.',',') + '</td>';
+    tbody.appendChild(tr);
+  });
+  document.getElementById('modal-proj-total').textContent = 'Total: R$ ' + d.total.toFixed(2).replace('.',',');
+  var modal = document.getElementById('modal-proj');
+  modal.style.display = 'flex';
+}
+
+function fecharProjecao() {
+  document.getElementById('modal-proj').style.display = 'none';
+}
+
+document.getElementById('modal-proj').addEventListener('click', function(e) {
+  if (e.target === this) fecharProjecao();
+});
+</script>
 {% endif %}
 
 {% else %}
