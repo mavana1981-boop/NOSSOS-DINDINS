@@ -38,7 +38,12 @@
 <!-- Créditos/Débitos -->
 <div class="card mb-3">
   <div class="card-title">
-    <h3>Contas entre membros — {{ mes_atual }}</h3>
+    <h3>Contas entre membros — {{ mes_nome }}/{{ filter_year }}</h3>
+    <form method="GET" action="/dashboard" style="display:inline-flex;gap:6px;align-items:center;">
+      <input type="month" name="mes" value="{{ mes_filter }}"
+             class="form-control" style="width:145px;font-size:0.8rem;padding:3px 6px;"
+             onchange="this.form.submit()">
+    </form>
     <span class="text-faint text-small">acertos pendentes · clique para ordenar</span>
   </div>
   {% if credits_debits %}
