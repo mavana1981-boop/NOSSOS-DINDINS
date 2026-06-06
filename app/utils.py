@@ -76,12 +76,13 @@ def register_context(app):
         }
 
 
-def get_user_balance_with(user_id, other_user_id):
-    """Saldo apenas com gastos vigentes no mês atual."""
+def get_user_balance_with(user_id, other_user_id, year=None, month=None):
+    """Saldo com gastos vigentes no mês indicado (padrão: mês atual)."""
     from app.models import Expense, ExpenseShare
     from datetime import date as _d
-    today = _d.today()
-    year, month = today.year, today.month
+    if year is None or month is None:
+        today = _d.today()
+        year, month = today.year, today.month
 
     def _sum_active(payer_id, share_uid):
         exps = db.session.query(Expense, ExpenseShare)\
