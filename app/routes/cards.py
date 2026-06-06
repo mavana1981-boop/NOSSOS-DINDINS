@@ -316,12 +316,14 @@ def list_cards():
                 "card": card_map.get(ce.card_id, "?"),
             })
 
+    import json as _json
     projecao_parcelados = [
         {
             "label": f"{MESES_PT[k[1]-1]}/{k[0]}",
             "total": round(v, 2),
             "key": f"{k[0]}-{k[1]:02d}",
             "items": sorted(proj_detail.get(k, []), key=lambda x: x["amount"], reverse=True),
+            "items_json": _json.dumps(sorted(proj_detail.get(k, []), key=lambda x: x["amount"], reverse=True), ensure_ascii=False),
         }
         for k, v in sorted(proj_months.items())
     ]
