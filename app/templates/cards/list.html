@@ -178,11 +178,7 @@ var _projData = {
   "{{ p.key }}": {
     "label": "{{ p.label }}",
     "total": {{ p.total }},
-    "items": [
-      {% for item in p.items %}
-      {"desc": {{ item.desc|tojson }}, "parcela": "{{ item.parcela }}", "amount": {{ item.amount }}, "card": {{ item.card|tojson }}},
-      {% endfor %}
-    ]
+    "items": {{ p.items|tojson }}
   },
   {% endfor %}
 };
