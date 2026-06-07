@@ -278,22 +278,7 @@ def get_yearly_cashflow(user_id, year):
             elif i.received_at.year == year and i.received_at.month == m:
                 income_eventual += float(i.amount)
                 income_eventual_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
-        # Repasses: valor que o outro usuário deve ao pagador → renda eventual
-        for exp, share in repasses:
-            if not exp.is_active_on(year, m):
-                continue
-            v = round(float(share.share_amount), 2)
-            if v <= 0:
-                continue
-            parc_label = ""
-            if exp.kind == "recorrente" and exp.recurrence_months:
-                md = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
-                parc_label = f" ({md}/{exp.recurrence_months})"
-            income_eventual += v
-            income_eventual_items.append({
-                "desc": f"Repasse: {exp.description}{parc_label}",
-                "amount": v,
-            })
+        # Repasses: não somam na renda eventual
         income_total = income_recurring + income_eventual
         fixed_total = 0.0
         eventual_total = 0.0
