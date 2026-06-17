@@ -161,7 +161,7 @@ def get_consolidated_cards(user_id):
     all_entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         (CardEntry.status == "ativo") | (CardEntry.status == None),
-        CardEntry.billing_month == None
+        CardEntry.billing_month.is_(None)
     ).all() if card_ids else []
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
