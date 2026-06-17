@@ -7,7 +7,20 @@
     <h1>Meus Cartões</h1>
     <p>Gerencie seus cartões e acompanhe os gastos consolidados.</p>
   </div>
-  <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary">+ Novo cartão</a>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <form method="GET" style="display:inline-flex;gap:6px;align-items:center;">
+      <input type="month" name="mes" value="{{ mes_filter }}"
+             class="form-control" style="width:145px;font-size:0.85rem;"
+             onchange="this.form.submit()">
+    </form>
+    <form method="POST" action="{{ url_for('cards.virar_mes') }}"
+          onsubmit="return confirm('Fechar o mês {{ mes_filter }} e arquivar todos os lançamentos atuais?');">
+      <button class="btn btn-primary" style="background:var(--gold,#f0c040);color:#222;border:none;">
+        📅 Virar Mês
+      </button>
+    </form>
+    <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary">+ Novo cartão</a>
+  </div>
 </div>
 
 {% if cards %}
