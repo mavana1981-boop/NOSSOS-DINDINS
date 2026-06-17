@@ -169,6 +169,33 @@ def debug_entries():
         } for e in entries]
     })
 
+@cashflow_bp.route("/debug-billing")
+@login_required
+def debug_billing():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    from sqlalchemy import text
+    # Verifica coluna diretamente no banco
+    with db.engine.connect() as conn:
+        result = conn.execute(text("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(billing_month) as com_billing,
+                SUM(CASE WHEN billing_month IS NULL THEN 1 ELSE 0 END) as sem_billing,
+                array_agg(DISTINCT billing_month) as valores
+            FROM card_entries
+            WHERE card_id IN (
+                SELECT id FROM cards WHERE user_id = :uid AND is_active = true
+            )
+        """), {"uid": current_user.id})
+        row = result.fetchone()
+    return jsonify({
+        "total": row[0],
+        "com_billing_month": row[1],
+        "sem_billing_month_null": row[2],
+        "valores_billing_month": str(row[3]),
+    })
+
 @cashflow_bp.route("/items-json")
 @login_required
 def items_json():
