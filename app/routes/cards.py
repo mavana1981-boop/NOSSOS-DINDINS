@@ -227,19 +227,17 @@ def list_cards():
     is_current_month = (filter_year2 == today.year and filter_month2 == today.month)
     is_future_month  = (filter_year2, filter_month2) > (today.year, today.month)
 
-    if is_current_month:
-        all_entries = CardEntry.query.filter(
-            CardEntry.card_id.in_(card_ids),
-            (CardEntry.status == "ativo") | (CardEntry.status == None),
-            CardEntry.billing_month.is_(None)
-        ).all() if card_ids else []
-    elif is_future_month:
+    if is_future_month:
         all_entries = []
     else:
+        # Mês atual ou passado: filtra por billing_month = mes_filter OU NULL (não arquivado ainda)
         all_entries = CardEntry.query.filter(
             CardEntry.card_id.in_(card_ids),
             (CardEntry.status == "ativo") | (CardEntry.status == None),
-            CardEntry.billing_month == mes_filter
+            db.or_(
+                CardEntry.billing_month == mes_filter,
+                CardEntry.billing_month.is_(None)
+            ) if is_current_month else (CardEntry.billing_month == mes_filter)
         ).all() if card_ids else []
 
 
