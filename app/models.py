@@ -315,3 +315,22 @@ class HouseholdExpense(db.Model):
     expense = db.relationship("Expense", backref=db.backref("household", uselist=False))
     owner = db.relationship("User", foreign_keys=[owner_id], backref="household_owned")
     shared_with = db.relationship("User", foreign_keys=[shared_with_id], backref="household_shared")
+
+
+class CashflowOverride(db.Model):
+    """Ajuste manual de valores no fluxo de caixa por mês."""
+    __tablename__ = "cashflow_overrides"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    net_override = db.Column(db.Numeric(12, 2), nullable=True)
+    cumulative_override = db.Column(db.Numeric(12, 2), nullable=True)
+    income_recurring_override = db.Column(db.Numeric(12, 2), nullable=True)
+    income_eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
+    fixed_override = db.Column(db.Numeric(12, 2), nullable=True)
+    eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
+
+    user = db.relationship("User", backref="cashflow_overrides")
+
+    __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)

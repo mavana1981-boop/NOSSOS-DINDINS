@@ -191,6 +191,7 @@ function excluirSelecionados() {
                 </label>
               </div>
               {% for entry in data.entries %}
+              {% set is_last = loop.first %}
               <div class="flex-between" style="padding:5px 0;border-bottom:1px solid var(--border);">
                 <div style="display:flex;align-items:center;gap:8px;">
                   <input type="checkbox" class="entry-chk-exp" data-group="{{ expense_id }}"
@@ -207,7 +208,8 @@ function excluirSelecionados() {
                   </div>
                 </div>
                 <div class="flex flex-gap">
-                  <span class="mono text-small" style="color:var(--red);">{{ entry.amount|brl }}</span>
+                  <span class="mono text-small" style="color:{% if is_last %}#f0c040{% else %}var(--red){% endif %};">{{ entry.amount|brl }}</span>
+                  {% if is_last %}<span style="font-size:0.6rem;color:#f0c040;margin-left:2px;">★</span>{% endif %}
                   <a href="{{ url_for('cards.edit_entry', card_id=card.id, entry_id=entry.id) }}" class="btn btn-ghost btn-sm" style="padding:2px 6px;">✎</a>
                   <form method="POST" action="{{ url_for('cards.delete_entry', card_id=card.id, entry_id=entry.id) }}"
                         style="display:inline;" onsubmit="return confirm('Remover?');">
