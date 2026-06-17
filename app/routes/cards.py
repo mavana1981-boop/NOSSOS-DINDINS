@@ -297,8 +297,13 @@ def list_cards():
         month = month % 12 + 1
         return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
 
-    parc_entries = [e for e in all_entries
-                    if e.installments and e.installments > 1]
+    # Projeção usa TODOS os parcelados, independente do mês filtrado
+    all_parc_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.installments > 1,
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all() if card_ids else []
+    parc_entries = all_parc_entries
     MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
     today2 = _date2.today()
     proj_months = {}
