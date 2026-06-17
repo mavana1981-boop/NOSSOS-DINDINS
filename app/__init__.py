@@ -48,6 +48,7 @@ def create_app():
     from app.routes.expenses import expenses_bp
     from app.routes.projects import projects_bp
     from app.routes.cashflow import cashflow_bp
+    from app.routes.cards import cards_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -56,6 +57,7 @@ def create_app():
     app.register_blueprint(expenses_bp, url_prefix="/gastos")
     app.register_blueprint(projects_bp, url_prefix="/projetos")
     app.register_blueprint(cashflow_bp, url_prefix="/fluxo")
+    app.register_blueprint(cards_bp, url_prefix="/cartoes")
 
     # Filtros e context processors
     from app.utils import register_filters, register_context
