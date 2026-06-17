@@ -33,16 +33,13 @@ def bootstrap():
             return
 
         # 2. Colunas novas em tabelas existentes — APÓS create_all
-        _ensure_column("cashflow_overrides", "income_recurring_override", "NUMERIC(12,2)")
-        _ensure_column("cashflow_overrides", "income_eventual_override",  "NUMERIC(12,2)")
-        _ensure_column("cashflow_overrides", "fixed_override",            "NUMERIC(12,2)")
-        _ensure_column("cashflow_overrides", "eventual_override",         "NUMERIC(12,2)")
         _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("expenses", "recurrence_months", "INTEGER")
         _ensure_column("expenses", "card_id",           "INTEGER REFERENCES cards(id) ON DELETE SET NULL")
         _ensure_column("card_entries", "kind", "VARCHAR(20) DEFAULT 'pontual'")
         _ensure_column("card_entries", "status", "VARCHAR(20) DEFAULT 'ativo'")
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
+        _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
 
         # 3. Migra coluna photo para TEXT
         try:
