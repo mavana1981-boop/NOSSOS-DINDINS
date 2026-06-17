@@ -231,7 +231,7 @@ def list_cards():
         all_entries = CardEntry.query.filter(
             CardEntry.card_id.in_(card_ids),
             (CardEntry.status == "ativo") | (CardEntry.status == None),
-            CardEntry.billing_month == None
+            CardEntry.billing_month.is_(None)
         ).all() if card_ids else []
     elif is_future_month:
         all_entries = []
@@ -368,22 +368,26 @@ def list_cards():
 @cards_bp.route("/virar-mes", methods=["POST"])
 @login_required
 def virar_mes():
-    """Fecha o mês atual: define billing_month em todas as entries sem billing_month."""
+    """Fecha o mês atual: define billing_month em todas as entries do usuário sem billing_month."""
     from datetime import date as _dt
+    from sqlalchemy import text
     today = _dt.today()
     mes_atual = today.strftime("%Y-%m")
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
     card_ids = [c.id for c in cards]
-    entries = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        CardEntry.billing_month == None,
-        (CardEntry.status == "ativo") | (CardEntry.status == None)
-    ).all() if card_ids else []
-    count = 0
-    for e in entries:
-        e.billing_month = mes_atual
-        count += 1
+    if not card_ids:
+        flash("Nenhum cartão encontrado.", "warning")
+        return redirect(url_for("cards.list_cards"))
+    # Usa SQL direto para garantir que IS NULL funcione
+    placeholders = ",".join(str(cid) for cid in card_ids)
+    result = db.session.execute(text(
+        f"UPDATE card_entries SET billing_month = :mes "
+        f"WHERE card_id IN ({placeholders}) "
+        f"AND (billing_month IS NULL OR billing_month = '') "
+        f"AND (status = 'ativo' OR status IS NULL)"
+    ), {"mes": mes_atual})
     db.session.commit()
+    count = result.rowcount
     flash(f"Mês {mes_atual} fechado — {count} lançamento(s) arquivados.", "success")
     return redirect(url_for("cards.list_cards"))
 
