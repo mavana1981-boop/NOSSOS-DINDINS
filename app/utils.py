@@ -365,7 +365,7 @@ def get_yearly_cashflow(user_id, year):
             _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
             _parc_entries = _CE.query.filter(
                 _CE.card_id.in_(_card_ids),
-                _CE.kind == "parcelado",
+                _CE.installments > 1,
                 (_CE.status == "ativo") | (_CE.status == None)
             ).all() if _card_ids else []
 
