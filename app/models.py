@@ -206,25 +206,6 @@ class AutoTransfer(db.Model):
     __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
 
 
-class CashflowOverride(db.Model):
-    """Ajuste manual de qualquer coluna do fluxo de caixa."""
-    __tablename__ = "cashflow_overrides"
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    year = db.Column(db.Integer, nullable=False)
-    month = db.Column(db.Integer, nullable=False)
-    net_override = db.Column(db.Numeric(12, 2), nullable=True)
-    cumulative_override = db.Column(db.Numeric(12, 2), nullable=True)
-    income_recurring_override = db.Column(db.Numeric(12, 2), nullable=True)
-    income_eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
-    fixed_override = db.Column(db.Numeric(12, 2), nullable=True)
-    eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)
-    user = db.relationship("User", backref="cashflow_overrides")
-
-
 class Investment(db.Model):
     __tablename__ = "investments"
     id = db.Column(db.Integer, primary_key=True)
@@ -314,6 +295,7 @@ class CardEntry(db.Model):
     installment_no = db.Column(db.Integer, default=1) # parcela atual
     status = db.Column(db.String(20), default="ativo")  # ativo / em_avaliacao
     batch_id = db.Column(db.String(64), nullable=True)  # ID do lote de importação
+    billing_month = db.Column(db.String(7), nullable=True)  # YYYY-MM do mês de faturamento
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
