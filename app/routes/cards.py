@@ -218,21 +218,30 @@ def list_cards():
     # Consolidado: todos lançamentos do usuário agrupados por gasto vinculado
     card_ids = [card.id for card in cards]
     card_map = {card.id: card.name for card in cards}
-    is_current_month = (mes_filter == today.strftime("%Y-%m"))
+    try:
+        filter_year2 = int(mes_filter[:4])
+        filter_month2 = int(mes_filter[5:7])
+    except Exception:
+        filter_year2, filter_month2 = today.year, today.month
+
+    is_current_month = (filter_year2 == today.year and filter_month2 == today.month)
+    is_future_month  = (filter_year2, filter_month2) > (today.year, today.month)
+
     if is_current_month:
-        # Mês atual: entries sem billing_month (ainda não arquivados)
         all_entries = CardEntry.query.filter(
             CardEntry.card_id.in_(card_ids),
             (CardEntry.status == "ativo") | (CardEntry.status == None),
             CardEntry.billing_month == None
         ).all() if card_ids else []
+    elif is_future_month:
+        all_entries = []
     else:
-        # Mês arquivado: entries com billing_month do mês selecionado
         all_entries = CardEntry.query.filter(
             CardEntry.card_id.in_(card_ids),
             (CardEntry.status == "ativo") | (CardEntry.status == None),
             CardEntry.billing_month == mes_filter
         ).all() if card_ids else []
+
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
     for entry in all_entries:
