@@ -224,21 +224,15 @@ def list_cards():
     except Exception:
         filter_year2, filter_month2 = today.year, today.month
 
-    is_current_month = (filter_year2 == today.year and filter_month2 == today.month)
-    is_future_month  = (filter_year2, filter_month2) > (today.year, today.month)
+    from sqlalchemy import extract as _extract
+    import calendar as _cal
 
-    if is_future_month:
-        all_entries = []
-    else:
-        # Mês atual ou passado: filtra por billing_month = mes_filter OU NULL (não arquivado ainda)
-        all_entries = CardEntry.query.filter(
-            CardEntry.card_id.in_(card_ids),
-            (CardEntry.status == "ativo") | (CardEntry.status == None),
-            db.or_(
-                CardEntry.billing_month == mes_filter,
-                CardEntry.billing_month.is_(None)
-            ) if is_current_month else (CardEntry.billing_month == mes_filter)
-        ).all() if card_ids else []
+    all_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None),
+        _extract("year",  CardEntry.entry_date) == filter_year2,
+        _extract("month", CardEntry.entry_date) == filter_month2,
+    ).all() if card_ids else []
 
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
@@ -366,28 +360,18 @@ def list_cards():
 @cards_bp.route("/virar-mes", methods=["POST"])
 @login_required
 def virar_mes():
-    """Fecha o mês atual: define billing_month em todas as entries do usuário sem billing_month."""
+    """Avança para o próximo mês — os dados ficam registrados pelo entry_date."""
     from datetime import date as _dt
-    from sqlalchemy import text
+    import calendar as _cal
     today = _dt.today()
-    mes_atual = today.strftime("%Y-%m")
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_ids = [c.id for c in cards]
-    if not card_ids:
-        flash("Nenhum cartão encontrado.", "warning")
-        return redirect(url_for("cards.list_cards"))
-    # Usa SQL direto para garantir que IS NULL funcione
-    placeholders = ",".join(str(cid) for cid in card_ids)
-    result = db.session.execute(text(
-        f"UPDATE card_entries SET billing_month = :mes "
-        f"WHERE card_id IN ({placeholders}) "
-        f"AND (billing_month IS NULL OR billing_month = '') "
-        f"AND (status = 'ativo' OR status IS NULL)"
-    ), {"mes": mes_atual})
-    db.session.commit()
-    count = result.rowcount
-    flash(f"Mês {mes_atual} fechado — {count} lançamento(s) arquivados.", "success")
-    return redirect(url_for("cards.list_cards"))
+    # Calcula próximo mês
+    if today.month == 12:
+        prox_ano, prox_mes = today.year + 1, 1
+    else:
+        prox_ano, prox_mes = today.year, today.month + 1
+    prox = f"{prox_ano}-{prox_mes:02d}"
+    flash(f"Mês virado! Visualizando {prox}. Novos lançamentos devem ter data em {prox}.", "success")
+    return redirect(url_for("cards.list_cards", mes=prox))
 
 
 @cards_bp.route("/novo", methods=["GET", "POST"])
