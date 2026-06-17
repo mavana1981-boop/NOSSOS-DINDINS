@@ -157,11 +157,18 @@ def get_consolidated_cards(user_id):
     from collections import defaultdict
     cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
     card_ids = [c.id for c in cards]
-    # Só entries sem billing_month = mês atual aberto
+    # Mês atual: entries com billing_month do mês atual OU sem billing_month
+    from datetime import date as _d2
+    _today = _d2.today()
+    _mes_atual = _today.strftime("%Y-%m")
+    from sqlalchemy import or_ as _or2
     all_entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         (CardEntry.status == "ativo") | (CardEntry.status == None),
-        CardEntry.billing_month.is_(None)
+        _or2(
+            CardEntry.billing_month == _mes_atual,
+            CardEntry.billing_month.is_(None)
+        )
     ).all() if card_ids else []
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
