@@ -49,6 +49,7 @@ def _limpar_excedentes_invalidos():
 @login_required
 def index():
     db.session.remove()
+    db.session.expire_all() if hasattr(db.session, "expire_all") else None
     year = request.args.get("year", type=int) or date.today().year
     _limpar_excedentes_invalidos()
     months = get_yearly_cashflow(current_user.id, year)
