@@ -206,6 +206,10 @@ def recalcular_excedentes():
 @cards_bp.route("/")
 @login_required
 def list_cards():
+    from datetime import date as _dt
+    today = _dt.today()
+    mes_filter = request.args.get("mes", today.strftime("%Y-%m"))
+
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True)\
         .order_by(Card.name).all()
 
