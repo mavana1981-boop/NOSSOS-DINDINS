@@ -332,7 +332,31 @@ def list_cards():
                            consolidated=consolidated_sorted,
                            total_geral=total_geral,
                            hh_consolidated=hh_consolidated_sorted,
-                           projecao_parcelados=projecao_parcelados)
+                           projecao_parcelados=projecao_parcelados,
+                           mes_filter=mes_filter)
+
+
+@cards_bp.route("/virar-mes", methods=["POST"])
+@login_required
+def virar_mes():
+    """Fecha o mês atual: define billing_month em todas as entries sem billing_month."""
+    from datetime import date as _dt
+    today = _dt.today()
+    mes_atual = today.strftime("%Y-%m")
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+    entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.billing_month == None,
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all() if card_ids else []
+    count = 0
+    for e in entries:
+        e.billing_month = mes_atual
+        count += 1
+    db.session.commit()
+    flash(f"Mês {mes_atual} fechado — {count} lançamento(s) arquivados.", "success")
+    return redirect(url_for("cards.list_cards"))
 
 
 @cards_bp.route("/novo", methods=["GET", "POST"])
