@@ -1,156 +1,187 @@
-from datetime import datetime, date
-from flask_login import UserMixin
-from sqlalchemy import func
+from datetime import date
+from flask import Blueprint, render_template, request
+from flask_login import login_required, current_user
+from app.utils import get_yearly_cashflow
 from app import db
 
-
-class User(UserMixin, db.Model):
-    __tablename__ = "users"
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    full_name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    photo = db.Column(db.String(255), nullable=True)
-    is_admin = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    incomes = db.relationship("Income", backref="user", lazy="dynamic", cascade="all, delete-orphan")
-    expenses = db.relationship("Expense", backref="payer", lazy="dynamic",
-                               foreign_keys="Expense.payer_id", cascade="all, delete-orphan")
-
-    @property
-    def photo_url(self):
-        if self.photo:
-            return f"/static/uploads/{self.photo}"
-        # Default avatar (data URI - tiny SVG)
-        return "/static/img/default-avatar.svg"
+cashflow_bp = Blueprint("cashflow", __name__)
 
 
-class Income(db.Model):
-    __tablename__ = "incomes"
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    description = db.Column(db.String(160), nullable=False)
-    amount = db.Column(db.Numeric(12, 2), nullable=False)
-    received_at = db.Column(db.Date, nullable=False, default=date.today)
-    is_recurring = db.Column(db.Boolean, default=False)
-    category = db.Column(db.String(60), default="Salário")
-    notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+def _limpar_excedentes_invalidos():
+    from app.models import Expense, ExpenseShare
+    try:
+        todos = Expense.query.filter(
+            Expense.description.like("% - excedente %"),
+            Expense.kind == "pontual"
+        ).order_by(Expense.id).all()
+        seen = {}
+        for exp in todos:
+            key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
+            if key in seen:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+            else:
+                seen[key] = exp.id
+        todos2 = Expense.query.filter(
+            Expense.description.like("% - excedente %"),
+            Expense.kind == "pontual"
+        ).all()
+        for exp in todos2:
+            parts = exp.description.split(" - excedente ")
+            if len(parts) < 2:
+                continue
+            nome_base = parts[0].strip()
+            original = Expense.query.filter(
+                Expense.payer_id == exp.payer_id,
+                Expense.description == nome_base,
+                Expense.id != exp.id
+            ).first()
+            if not original:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[cashflow] erro limpeza excedentes: {e}")
 
 
-class Expense(db.Model):
-    """
-    Gasto principal. payer_id é quem pagou (cartão dele).
-    Os 'shares' definem quem realmente deve o quê.
-    """
-    __tablename__ = "expenses"
-    id = db.Column(db.Integer, primary_key=True)
-    payer_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    description = db.Column(db.String(160), nullable=False)
-    amount = db.Column(db.Numeric(12, 2), nullable=False)
-    spent_at = db.Column(db.Date, nullable=False, default=date.today)
-    category = db.Column(db.String(60), default="Outros")
-    notes = db.Column(db.Text)
-    # 'integral' = repasse total para outro / 'split' = dividido com percentuais
-    share_mode = db.Column(db.String(20), default="solo")  # solo | integral | split
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+@cashflow_bp.route("/")
+@login_required
+def index():
+    db.session.remove()
+    db.session.expire_all() if hasattr(db.session, "expire_all") else None
+    year = request.args.get("year", type=int) or date.today().year
+    _limpar_excedentes_invalidos()
+    months = get_yearly_cashflow(current_user.id, year)
 
-    shares = db.relationship("ExpenseShare", backref="expense", lazy="joined",
-                             cascade="all, delete-orphan")
+    jan_next = get_yearly_cashflow(current_user.id, year + 1)
+    if jan_next:
+        jan = dict(jan_next[0])
+        jan["is_next_year"] = True
+        if "eventual_items" not in jan:
+            jan["eventual_items"] = []
+        dec_cumulative = months[-1]["cumulative"] if months else 0.0
+        jan["cumulative"] = dec_cumulative + jan["net"]
+        months = months + [jan]
 
+    months12 = months[:12]
+    totals = {
+        "income":           sum(m["income"] for m in months12),
+        "income_recurring": sum(m["income_recurring"] for m in months12),
+        "income_eventual":  sum(m["income_eventual"] for m in months12),
+        "fixed":            sum(m["fixed_expense"] for m in months12),
+        "eventual":         sum(m["eventual_expense"] for m in months12),
+        "net":              sum(m["net"] for m in months12),
+    }
+    totals["total_expense"] = totals["fixed"] + totals["eventual"]
+    max_value = max(
+        max((m["income"] for m in months), default=0),
+        max((m["total_expense"] for m in months), default=0),
+        1,
+    )
+    # Dados do mês atual para os cards
+    today = date.today()
+    current_month = next(
+        (m for m in months if m["month"] == today.month and not m.get("is_next_year")),
+        months[0] if months else {}
+    )
+    # Saldo do ano = acumulado de dezembro
+    dec = next((m for m in months12 if m["month"] == 12), months12[-1] if months12 else {})
 
-class ExpenseShare(db.Model):
-    """
-    Define a participação de cada usuário num gasto.
-    Para um gasto solo: 1 linha com o pagador (share_amount = total).
-    Para integral: 1 linha com o devedor (share_amount = total).
-    Para split: N linhas, somando o total.
-    """
-    __tablename__ = "expense_shares"
-    id = db.Column(db.Integer, primary_key=True)
-    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    share_amount = db.Column(db.Numeric(12, 2), nullable=False)
-    share_percent = db.Column(db.Numeric(5, 2))  # informativo
-
-    user = db.relationship("User", backref="expense_shares")
-
-
-class Project(db.Model):
-    __tablename__ = "projects"
-    id = db.Column(db.Integer, primary_key=True)
-    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    name = db.Column(db.String(120), nullable=False)
-    description = db.Column(db.Text)
-    target_amount = db.Column(db.Numeric(12, 2), nullable=False)
-    deadline = db.Column(db.Date, nullable=True)
-    monthly_auto = db.Column(db.Numeric(12, 2), default=0)  # aporte automático mensal total
-    auto_day = db.Column(db.Integer, default=1)  # dia do mês para aporte
-    is_completed = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    owner = db.relationship("User", foreign_keys=[owner_id], backref="owned_projects")
-    members = db.relationship("ProjectMember", backref="project", lazy="joined",
-                              cascade="all, delete-orphan")
-    contributions = db.relationship("Contribution", backref="project", lazy="dynamic",
-                                    cascade="all, delete-orphan")
-
-    @property
-    def total_raised(self):
-        result = db.session.query(func.coalesce(func.sum(Contribution.amount), 0))\
-            .filter_by(project_id=self.id).scalar()
-        return float(result or 0)
-
-    @property
-    def progress_percent(self):
-        target = float(self.target_amount or 0)
-        if target <= 0:
-            return 0
-        pct = (self.total_raised / target) * 100
-        return min(round(pct, 1), 100)
-
-    @property
-    def remaining(self):
-        return max(float(self.target_amount) - self.total_raised, 0)
-
-    def member_ids(self):
-        return [m.user_id for m in self.members]
+    return render_template("cashflow.html",
+                           year=year, months=months, totals=totals,
+                           max_value=max_value,
+                           current_year=today.year,
+                           current_month=current_month,
+                           saldo_ano=dec.get("cumulative", 0))
 
 
-class ProjectMember(db.Model):
-    __tablename__ = "project_members"
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    monthly_share = db.Column(db.Numeric(12, 2), default=0)  # contribuição automática mensal
-    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+@cashflow_bp.route("/ajustar", methods=["POST"])
+def ajustar():
+    """Salva ajuste manual de qualquer coluna do fluxo."""
+    from flask import request as req, jsonify
+    from app.models import CashflowOverride
+    from decimal import Decimal, InvalidOperation
+    if not current_user.is_authenticated:
+        return jsonify({"ok": False, "error": "sessao_expirada"}), 401
+    year  = req.form.get("year", type=int)
+    month = req.form.get("month", type=int)
+    field = req.form.get("field")
+    value = req.form.get("value", "").strip()
 
-    user = db.relationship("User", backref="project_memberships")
+    def parse(s):
+        try:
+            return Decimal(str(s).replace(".", "").replace(",", "."))
+        except (InvalidOperation, ValueError):
+            return None
+
+    v = parse(value)
+    override = CashflowOverride.query.filter_by(
+        user_id=current_user.id, year=year, month=month
+    ).first()
+    if override is None:
+        override = CashflowOverride(user_id=current_user.id, year=year, month=month)
+        db.session.add(override)
+
+    field_map = {
+        "net":              "net_override",
+        "cumulative":       "cumulative_override",
+        "income_recurring": "income_recurring_override",
+        "income_eventual":  "income_eventual_override",
+        "fixed":            "fixed_override",
+        "eventual":         "eventual_override",
+    }
+    col = field_map.get(field)
+    if col:
+        setattr(override, col, v)
+
+    try:
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
-class Contribution(db.Model):
-    __tablename__ = "contributions"
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    amount = db.Column(db.Numeric(12, 2), nullable=False)
-    contributed_at = db.Column(db.Date, default=date.today)
-    note = db.Column(db.String(200))
-    is_auto = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+@cashflow_bp.route("/debug-entries")
+@login_required
+def debug_entries():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    # Mostra todos os cartões e entries do sistema
+    all_cards = Card.query.all()
+    my_cards = Card.query.filter_by(user_id=current_user.id).all()
+    entries = CardEntry.query.limit(10).all()
+    return jsonify({
+        "current_user_id": current_user.id,
+        "total_cards": len(all_cards),
+        "my_cards": [{"id": c.id, "name": c.name, "user_id": c.user_id} for c in my_cards],
+        "sample_entries": [{
+            "id": e.id,
+            "desc": e.description[:40],
+            "kind": e.kind,
+            "installments": e.installments,
+            "installment_no": e.installment_no,
+            "status": e.status,
+            "user_id": e.user_id,
+            "card_id": e.card_id,
+        } for e in entries]
+    })
 
-    user = db.relationship("User", backref="contributions")
-
-
-class AutoTransfer(db.Model):
-    """Histórico de aportes automáticos já executados (controla idempotência)."""
-    __tablename__ = "auto_transfers"
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
-    year = db.Column(db.Integer, nullable=False)
-    month = db.Column(db.Integer, nullable=False)
-    executed_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    __table_args__ = (db.UniqueConstraint("project_id", "year", "month"),)
+@cashflow_bp.route("/items-json")
+@login_required
+def items_json():
+    from flask import jsonify, request as req
+    year = req.args.get("year", type=int) or date.today().year
+    col  = req.args.get("col", "eventual")
+    months = get_yearly_cashflow(current_user.id, year)
+    key_map = {
+        "eventual":         "eventual_items",
+        "fixed":            "fixed_items",
+        "income_recurring": "income_recurring_items",
+        "income_eventual":  "income_eventual_items",
+    }
+    key  = key_map.get(col, "eventual_items")
+    data = [m.get(key, []) for m in months]
+    return jsonify(data)
