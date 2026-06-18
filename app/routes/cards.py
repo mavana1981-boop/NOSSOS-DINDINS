@@ -819,7 +819,7 @@ def _process_batch(card):
         for fd in file_data:
             parts.append({"inline_data": {"mime_type": fd["mime"], "data": fd["b64"]}})
         payload = json.dumps({"contents": [{"parts": parts}]}).encode()
-        for model in ["gemini-2.0-flash-exp", "gemini-1.5-flash-002", "gemini-1.5-flash-8b"]:
+        for model in ["gemini-2.0-flash-exp", "gemini-1.5-flash-002", "gemini-1.5-flash-001", "gemini-1.5-flash-8b-001", "gemini-1.5-pro-002", "gemini-1.5-pro-001"]:
             try:
                 url = (f"https://generativelanguage.googleapis.com/v1beta/"
                        f"models/{model}:generateContent?key={key}")
@@ -842,19 +842,34 @@ def _process_batch(card):
         key = os.environ.get("GROQ_API_KEY", "")
         if not key:
             return None, "GROQ_API_KEY não configurada"
-        img_content = [{"type": "text", "text": PROMPT}]
-        has_img = False
+
+        # Extrai texto de PDFs; usa imagens diretamente
+        content_parts = [{"type": "text", "text": PROMPT}]
+        has_content = False
         for fd in file_data:
-            if "image" in fd["mime"]:
-                img_content.append({"type": "image_url", "image_url": {
+            if "pdf" in fd["mime"]:
+                try:
+                    import pdfplumber, io
+                    pdf_bytes = base64.b64decode(fd["b64"])
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+                    if text.strip():
+                        content_parts.append({"type": "text", "text": "Conteúdo do extrato PDF:\n" + text[:6000]})
+                        has_content = True
+                except Exception as e:
+                    return None, f"Groq PDF extract: {e}"
+            elif "image" in fd["mime"]:
+                content_parts.append({"type": "image_url", "image_url": {
                     "url": f"data:{fd['mime']};base64,{fd['b64']}"
                 }})
-                has_img = True
-        if not has_img:
-            return None, "Groq: sem imagens (apenas PDFs)"
+                has_content = True
+
+        if not has_content:
+            return None, "Groq: sem conteúdo para processar"
+
         payload = json.dumps({
             "model": "meta-llama/llama-4-scout-17b-16e-instruct",
-            "messages": [{"role": "user", "content": img_content}],
+            "messages": [{"role": "user", "content": content_parts}],
             "max_tokens": 4096,
         }).encode()
         try:
@@ -914,10 +929,17 @@ def _process_batch(card):
             flash(f"Extrato analisado via {name}.", "info")
             transactions = result
             break
-        errors.append(f"{name}: {err}")
+        # Só registra erro real — ignora "chave não configurada"
+        if err and "não configurada" not in err:
+            errors.append(f"{name}: {err}")
 
     if transactions is None:
-        flash("Falha em todas as IAs: " + " | ".join(errors), "danger")
+        msg = "Falha ao analisar extrato."
+        if errors:
+            msg += " " + " | ".join(errors)
+        else:
+            msg += " Configure GEMINI_API_KEY, GROQ_API_KEY ou CLOUDFLARE_API_TOKEN no Railway."
+        flash(msg, "danger")
         return render_template("cards/batch_upload.html", card=card)
 
     if not isinstance(transactions, list) or not transactions:
