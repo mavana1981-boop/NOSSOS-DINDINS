@@ -239,13 +239,24 @@ def list_cards():
     card_map = {card.id: card.name for card in cards}
     from sqlalchemy import extract as _extract
     import calendar as _cal
+    from datetime import date as _dt_now
+    _today_now = _dt_now.today()
+    _is_current = (filter_year2 == _today_now.year and filter_month2 == _today_now.month)
 
-    all_entries = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None),
-        _extract("year",  CardEntry.entry_date) == filter_year2,
-        _extract("month", CardEntry.entry_date) == filter_month2,
-    ).all() if card_ids else []
+    if _is_current:
+        # Mês atual: mostra TODOS os entries ativos
+        all_entries = CardEntry.query.filter(
+            CardEntry.card_id.in_(card_ids),
+            (CardEntry.status == "ativo") | (CardEntry.status == None),
+        ).all() if card_ids else []
+    else:
+        # Outros meses: filtra por entry_date
+        all_entries = CardEntry.query.filter(
+            CardEntry.card_id.in_(card_ids),
+            (CardEntry.status == "ativo") | (CardEntry.status == None),
+            _extract("year",  CardEntry.entry_date) == filter_year2,
+            _extract("month", CardEntry.entry_date) == filter_month2,
+        ).all() if card_ids else []
 
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
@@ -311,11 +322,14 @@ def list_cards():
         month = month % 12 + 1
         return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
 
-    # Projeção usa TODOS os parcelados, independente do mês filtrado
+    # Projeção parcelados: busca todos os parcelados para calcular parcelas futuras
+    # mas o consolidado mensal usa só all_entries (já filtrado por entry_date)
     all_parc_entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         CardEntry.installments > 1,
-        (CardEntry.status == "ativo") | (CardEntry.status == None)
+        (CardEntry.status == "ativo") | (CardEntry.status == None),
+        _extract("year",  CardEntry.entry_date) == filter_year2,
+        _extract("month", CardEntry.entry_date) == filter_month2,
     ).all() if card_ids else []
     parc_entries = all_parc_entries
     MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
