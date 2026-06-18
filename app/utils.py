@@ -398,37 +398,16 @@ def get_yearly_cashflow(user_id, year):
 
         # Rendas
         for inc in all_incomes:
+            if not inc.is_active_on(year, m):
+                continue
             v_inc = float(inc.amount)
-            if inc.kind == "recorrente":
-                # Recorrente: aparece todo mês (ou dentro do período de recurrence_months)
-                if inc.recurrence_months:
-                    if not (inc.spent_at and inc.spent_at.year <= year):
-                        continue
-                    elapsed = (year - inc.spent_at.year) * 12 + (m - inc.spent_at.month)
-                    if elapsed < 0 or elapsed >= inc.recurrence_months:
-                        continue
-                income_recurring += v_inc
-                income_recurring_items.append({"desc": inc.description, "amount": v_inc})
-            else:
-                # Eventual: aparece só no mês/ano específico
-                if inc.spent_at and inc.spent_at.year == year and inc.spent_at.month == m:
-                    income_eventual += v_inc
-                    income_eventual_items.append({"desc": inc.description, "amount": v_inc})
+            income_recurring += v_inc
+            income_recurring_items.append({"desc": inc.description, "amount": v_inc})
 
         # Gastos
         for exp, valor in expenses:
-            # Filtra por mês — recorrente: todo mês (com limite se recurrence_months)
-            # Eventual/pontual: só no mês/ano específico
-            if exp.kind == "recorrente":
-                if exp.recurrence_months:
-                    if not (exp.spent_at and exp.spent_at.year <= year):
-                        continue
-                    elapsed = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month)
-                    if elapsed < 0 or elapsed >= exp.recurrence_months:
-                        continue
-            else:
-                if not (exp.spent_at and exp.spent_at.year == year and exp.spent_at.month == m):
-                    continue
+            if not exp.is_active_on(year, m):
+                continue
             # Exclui excedentes automáticos (calculados dinamicamente via cartão)
             _desc_low = (exp.description or "").lower()
             if exp.kind == "pontual" and ("excedente" in _desc_low or "cartão parcelado" in _desc_low):
@@ -465,16 +444,8 @@ def get_yearly_cashflow(user_id, year):
 
         # Gastos repassados ao usuário → gastos fixos no fluxo dele
         for exp3, share3 in debitos:
-            if exp3.kind == "recorrente":
-                if exp3.recurrence_months:
-                    if not (exp3.spent_at and exp3.spent_at.year <= year):
-                        continue
-                    elapsed = (year - exp3.spent_at.year) * 12 + (m - exp3.spent_at.month)
-                    if elapsed < 0 or elapsed >= exp3.recurrence_months:
-                        continue
-            else:
-                if not (exp3.spent_at and exp3.spent_at.year == year and exp3.spent_at.month == m):
-                    continue
+            if not exp3.is_active_on(year, m):
+                continue
             v2 = round(float(share3.share_amount), 2)
             if v2 <= 0:
                 continue
