@@ -42,7 +42,7 @@ def bootstrap():
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
         # Tabela de regras de categorização por estabelecimento
         with db.engine.connect() as _conn2:
-            _conn2.execute(_text("""
+            _conn2.execute(text("""
                 CREATE TABLE IF NOT EXISTS merchant_rules (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER REFERENCES users(id),
