@@ -365,10 +365,14 @@ def list_cards():
         for k, v in sorted(proj_months.items())
     ]
 
-    # Totais por cartão — filtrados por mês (evita card.entries que ignora filtro)
+    # Totais por cartão — usa TODOS os entries ativos (igual ao detalhe do cartão)
     card_data = {}
+    all_card_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.status == "ativo",
+    ).all() if card_ids else []
     for card in cards:
-        entries_card = [e for e in all_entries if e.card_id == card.id]
+        entries_card = [e for e in all_card_entries if e.card_id == card.id]
         card_data[card.id] = {
             "total": sum(float(e.amount) for e in entries_card),
             "count": len(entries_card),
