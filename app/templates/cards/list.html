@@ -5,16 +5,13 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Meus Cartões</h1>
-    <p>{{ mes_atual }} — gastos consolidados de todos os cartões.</p>
+    <p>Gastos de <strong>{{ mes_label }}</strong></p>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <form method="POST" action="{{ url_for('cards.virar_mes') }}"
-          onsubmit="return confirm('Virar o mês? Isso vai arquivar os lançamentos no Histórico, apagar os gastos dos cartões e zerar o mês.');">
-      <button class="btn btn-primary" style="background:#f0c040;color:#222;border:none;font-weight:700;">
-        📅 Virar Mês
-      </button>
-    </form>
-    <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary">+ Novo cartão</a>
+    <a href="{{ url_for('cards.list_cards', mes=prev_mes) }}" class="btn btn-ghost" title="Mês anterior">←</a>
+    <span style="font-weight:700;font-size:1rem;min-width:130px;text-align:center;">{{ mes_label }}</span>
+    <a href="{{ url_for('cards.list_cards', mes=next_mes) }}" class="btn btn-ghost" title="Próximo mês">→</a>
+    <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary" style="margin-left:8px;">+ Novo cartão</a>
   </div>
 </div>
 
@@ -226,19 +223,19 @@ document.getElementById('modal-proj').addEventListener('click', function(e) {
     <span class="text-faint text-small">clique para ver o detalhe</span>
   </div>
   <div class="table-wrap">
-    <table class="tbl">
+    <table class="tbl sortable-table" id="tbl-hist">
       <thead>
         <tr>
-          <th>Mês</th>
-          <th class="text-right">Total</th>
+          <th class="th-sort" data-col="0" style="cursor:pointer;">Mês ↕</th>
+          <th class="th-sort text-right" data-col="1" style="cursor:pointer;">Total ↕</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for h in historico %}
         <tr style="cursor:pointer;" onclick="toggleHist('hist-{{ loop.index }}', this)">
-          <td><strong>{{ h.billing_month }}</strong></td>
-          <td class="text-right mono" style="color:var(--red);">{{ h.total_geral|brl }}</td>
+          <td data-val="{{ h.billing_month }}"><strong>{{ h.billing_month }}</strong></td>
+          <td class="text-right mono" data-val="{{ h.total_geral }}" style="color:var(--red);">{{ h.total_geral|brl }}</td>
           <td><span class="text-faint text-small">▼</span></td>
         </tr>
         <tr id="hist-{{ loop.index }}" style="display:none;">
