@@ -370,129 +370,162 @@ def get_yearly_cashflow(user_id, year):
                 "planned": planned_v,
             })
 
-        # Exclui registros de excedente automático (calculados dinamicamente via cartão)
-        _desc_low = (exp.description or "").lower()
-        if exp.kind == "pontual" and ("excedente" in _desc_low or "cartão parcelado" in _desc_low):
-            continue
-        # Exclui gastos repassados dos eventuais
-        if exp.share_mode in ("integral", "split") and exp.payer_id != user_id:
-            continue
 
-        v = float(valor)
-        if exp.kind == "recorrente":
-                # Desconta do fixo o valor repassado a outro usuário
-            if exp.share_mode in ("integral", "split"):
-                from app.models import ExpenseShare as _ES2
-                repasse_share = _ES2.query.filter(
-                    _ES2.expense_id == exp.id,
-                    _ES2.user_id != user_id
-                ).all()
-                repasse_v = sum(float(s.share_amount) for s in repasse_share)
-                v = max(0.0, round(v - repasse_v, 2))
-            fixed_total += v
-            parc_fix = ""
-            if exp.recurrence_months:
-                md = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
-                parc_fix = f" ({md}/{exp.recurrence_months})"
-            fixed_items.append({
-                "desc": exp.description + parc_fix,
-                "amount": round(float(v), 2),
-            })
-                # Excedente calculado de forma consolidada após o loop
-        else:
-            eventual_total += v
-            eventual_items.append({
-                "desc": exp.description,
-                "amount": round(float(v), 2),
-            })
+    # Rendas recorrentes do usuário
+    all_incomes = Income.query.filter_by(user_id=user_id).all()
+
+    # Gastos de outros users repassados para este user
+    debitos = []
+    from app.models import ExpenseShare as _ESd
+    shares_recebidos = _ESd.query.filter_by(user_id=user_id).all()
+    for sh in shares_recebidos:
+        exp2 = sh.expense
+        if exp2 and exp2.payer_id != user_id:
+            debitos.append((exp2, sh))
+
+    cumulative = 0.0
+    result = []
+
+    for m in range(1, 13):
+        income_recurring = 0.0
+        income_eventual  = 0.0
+        fixed_total      = 0.0
+        eventual_total   = 0.0
+        fixed_items      = []
+        eventual_items   = []
+        income_recurring_items = []
+        income_eventual_items  = []
+
+        # Rendas
+        for inc in all_incomes:
+            if not hasattr(inc, 'is_active_on') or not inc.is_active_on(year, m):
+                continue
+            v_inc = float(inc.amount)
+            if inc.kind == "recorrente":
+                income_recurring += v_inc
+                income_recurring_items.append({"desc": inc.description, "amount": v_inc})
+            else:
+                if inc.spent_at and inc.spent_at.year == year and inc.spent_at.month == m:
+                    income_eventual += v_inc
+                    income_eventual_items.append({"desc": inc.description, "amount": v_inc})
+
+        # Gastos
+        for exp, valor in expenses:
+            if not hasattr(exp, 'is_active_on') or not exp.is_active_on(year, m):
+                continue
+            # Exclui excedentes automáticos (calculados dinamicamente via cartão)
+            _desc_low = (exp.description or "").lower()
+            if exp.kind == "pontual" and ("excedente" in _desc_low or "cartão parcelado" in _desc_low):
+                continue
+            # Exclui gastos repassados dos eventuais
+            if exp.share_mode in ("integral", "split") and exp.payer_id != user_id:
+                continue
+
+            v = float(valor)
+            if exp.kind == "recorrente":
+                if exp.share_mode in ("integral", "split"):
+                    from app.models import ExpenseShare as _ES2
+                    repasse_share = _ES2.query.filter(
+                        _ES2.expense_id == exp.id,
+                        _ES2.user_id != user_id
+                    ).all()
+                    repasse_v = sum(float(s.share_amount) for s in repasse_share)
+                    v = max(0.0, round(v - repasse_v, 2))
+                fixed_total += v
+                parc_fix = ""
+                if exp.recurrence_months:
+                    md = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
+                    parc_fix = f" ({md}/{exp.recurrence_months})"
+                fixed_items.append({
+                    "desc": exp.description + parc_fix,
+                    "amount": round(float(v), 2),
+                })
+            else:
+                eventual_total += v
+                eventual_items.append({
+                    "desc": exp.description,
+                    "amount": round(float(v), 2),
+                })
 
         # Gastos repassados ao usuário → gastos fixos no fluxo dele
-        for exp, share in debitos:
-        if not exp.is_active_on(year, m):
-            continue
-        v2 = round(float(share.share_amount), 2)
-        if v2 <= 0:
-            continue
-        parc_fix2 = ""
-        if exp.kind == "recorrente" and exp.recurrence_months:
-            md2 = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
-            parc_fix2 = f" ({md2}/{exp.recurrence_months})"
-        fixed_total += v2
-        fixed_items.append({
-            "desc": f"{exp.description}{parc_fix2}",
-            "amount": v2,
-        })
+        for exp3, share3 in debitos:
+            if not hasattr(exp3, 'is_active_on') or not exp3.is_active_on(year, m):
+                continue
+            v2 = round(float(share3.share_amount), 2)
+            if v2 <= 0:
+                continue
+            parc_fix2 = ""
+            if exp3.kind == "recorrente" and exp3.recurrence_months:
+                md2 = (year - exp3.spent_at.year) * 12 + (m - exp3.spent_at.month) + 1
+                parc_fix2 = f" ({md2}/{exp3.recurrence_months})"
+            fixed_total += v2
+            fixed_items.append({
+                "desc": f"{exp3.description}{parc_fix2}",
+                "amount": v2,
+            })
+
         # Excedente parcelados: projeção do mês - planejado "cartao parcelado"
         parc_mes = parcelados_por_mes.get((year, m), [])
         total_parc_mes = round(sum(p["amount"] for p in parc_mes), 2)
         if total_parc_mes > 0:
-        excedente_parc = round(total_parc_mes - _planned_parc, 2)
-        if excedente_parc > 0:
-            eventual_total += excedente_parc
-            eventual_items.append({
-                "desc": f"Cartão Parcelado - excedente ({total_parc_mes:.2f} - {_planned_parc:.2f})",
-                "amount": excedente_parc,
-            })
+            excedente_parc = round(total_parc_mes - _planned_parc, 2)
+            if excedente_parc > 0:
+                eventual_total += excedente_parc
+                eventual_items.append({
+                    "desc": f"Cartão Parcelado - excedente ({total_parc_mes:.2f} - {_planned_parc:.2f})",
+                    "amount": excedente_parc,
+                })
 
-        net = income_total - fixed_total - eventual_total
-
-        # Excedente: lógica diferenciada por mês
-        from app.models import CardEntry as _CE, Card as _Card2
-        _today = _date.today()
-        # Carrega consolidado do mês (entries ativos para mês atual, histórico para passados)
+        # Excedentes de compras pontuais do cartão
         consolidated_cards = get_consolidated_cards(user_id, year, m)
-
-        # Excedentes de compras pontuais do cartão (NÃO parcelados — esses já estão acima)
-        # consolidated_cards já exclui parcelados via get_consolidated_cards
-        for key, grp in consolidated_cards.items():
-        if grp["planned"] > 0 and grp["total"] > grp["planned"]:
-            excedente = round(grp["total"] - grp["planned"], 2)
-            eventual_total += excedente
-            eventual_items.append({
-                "desc": f"Excedente: {key}",
-                "amount": excedente,
-            })
+        for key_cc, grp_cc in consolidated_cards.items():
+            if grp_cc["planned"] > 0 and grp_cc["total"] > grp_cc["planned"]:
+                exc_cc = round(grp_cc["total"] - grp_cc["planned"], 2)
+                eventual_total += exc_cc
+                eventual_items.append({
+                    "desc": f"Excedente: {key_cc}",
+                    "amount": exc_cc,
+                })
 
         # Aplica overrides manuais
         override = overrides.get((year, m))
         def _ov(attr, default):
-        v = getattr(override, attr, None) if override else None
-        return float(v) if v is not None else default
+            v = getattr(override, attr, None) if override else None
+            return float(v) if v is not None else default
 
         income_recurring_f = _ov("income_recurring_override", income_recurring)
         income_eventual_f  = _ov("income_eventual_override",  income_eventual)
         fixed_total_f      = _ov("fixed_override",            fixed_total)
         eventual_total_f   = _ov("eventual_override",         eventual_total)
-        net_calc = (income_recurring_f + income_eventual_f) - (fixed_total_f + eventual_total_f)
 
-        # Maio/2026: ponto de referência — zera saldo, acumulado e renda eventual
         if year == 2026 and m == 5:
-        income_eventual_f  = _ov("income_eventual_override", 0.0)
-        net_final        = _ov("net_override", 0.0)
-        cumulative_final = _ov("cumulative_override", 0.0)
-        cumulative = cumulative_final
-        else:
-        net_final        = _ov("net_override", net_calc)
-        cumulative_final = _ov("cumulative_override", cumulative + net_final)
-        if override and override.cumulative_override is not None:
+            income_eventual_f  = _ov("income_eventual_override", 0.0)
+            net_final        = _ov("net_override", 0.0)
+            cumulative_final = _ov("cumulative_override", 0.0)
             cumulative = cumulative_final
         else:
-            cumulative += net_final
+            net_calc = (income_recurring_f + income_eventual_f) - (fixed_total_f + eventual_total_f)
+            net_final        = _ov("net_override", net_calc)
+            cumulative_final = _ov("cumulative_override", cumulative + net_final)
+            if override and override.cumulative_override is not None:
+                cumulative = cumulative_final
+            else:
+                cumulative += net_final
 
         result.append({
-        "month": m,
-        "month_name": months_pt[m - 1],
-        "income_recurring": income_recurring_f,
-        "income_eventual": income_eventual_f,
-        "income": income_recurring_f + income_eventual_f,
-        "fixed_expense": fixed_total_f,
-        "eventual_expense": eventual_total_f,
-        "total_expense": fixed_total_f + eventual_total_f,
-        "net": net_final,
-        "cumulative": cumulative_final,
-        "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
-        "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
-        "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
-        "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
+            "month": m,
+            "month_name": months_pt[m - 1],
+            "income_recurring": income_recurring_f,
+            "income_eventual": income_eventual_f,
+            "income": income_recurring_f + income_eventual_f,
+            "fixed_expense": fixed_total_f,
+            "eventual_expense": eventual_total_f,
+            "total_expense": fixed_total_f + eventual_total_f,
+            "net": net_final,
+            "cumulative": cumulative_final,
+            "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
+            "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
+            "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
+            "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
         })
     return result
