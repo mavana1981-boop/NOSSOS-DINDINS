@@ -919,32 +919,49 @@ def _process_batch(card):
         for fd in file_data:
             if "pdf" in fd["mime"]:
                 try:
-                    import pdfplumber, io
-                    from collections import defaultdict as _dd
+                    import io
                     pdf_bytes = base64.b64decode(fd["b64"])
                     lines_all = []
-                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                        for page in pdf.pages:
-                            mid = page.width / 2
-                            words = page.extract_words(x_tolerance=3, y_tolerance=3)
-                            if not words:
-                                continue
-                            left_lines = _dd(list)
-                            right_lines = _dd(list)
-                            for w in words:
-                                y = round(w["top"] / 5) * 5
-                                if w["x0"] < mid:
-                                    left_lines[y].append(w["text"])
-                                else:
-                                    right_lines[y].append(w["text"])
-                            for y in sorted(left_lines.keys()):
-                                lines_all.append(" ".join(left_lines[y]))
-                            for y in sorted(right_lines.keys()):
-                                if right_lines[y]:
-                                    lines_all.append(" ".join(right_lines[y]))
+                    try:
+                        # Tenta pdfplumber com separação por colunas
+                        import pdfplumber
+                        from collections import defaultdict as _dd
+                        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                            for page in pdf.pages:
+                                mid = page.width / 2
+                                words = page.extract_words(x_tolerance=3, y_tolerance=3)
+                                if not words:
+                                    t = page.extract_text()
+                                    if t:
+                                        lines_all.extend(t.split("\n"))
+                                    continue
+                                left_lines = _dd(list)
+                                right_lines = _dd(list)
+                                for w in words:
+                                    y = round(w["top"] / 5) * 5
+                                    if w["x0"] < mid:
+                                        left_lines[y].append(w["text"])
+                                    else:
+                                        right_lines[y].append(w["text"])
+                                for y in sorted(left_lines.keys()):
+                                    lines_all.append(" ".join(left_lines[y]))
+                                for y in sorted(right_lines.keys()):
+                                    if right_lines[y]:
+                                        lines_all.append(" ".join(right_lines[y]))
+                    except Exception as e1:
+                        # Fallback: pypdf
+                        try:
+                            import pypdf
+                            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+                            for page in reader.pages:
+                                t = page.extract_text()
+                                if t:
+                                    lines_all.extend(t.split("\n"))
+                        except Exception as e2:
+                            return None, f"Groq PDF extract pdfplumber={repr(e1)} pypdf={repr(e2)}"
                     all_text += "\n".join(lines_all)
                 except Exception as e:
-                    return None, f"Groq PDF extract: {e}"
+                    return None, f"Groq PDF extract: {repr(e)}"
             elif "image" in fd["mime"]:
                 has_image = True
 
