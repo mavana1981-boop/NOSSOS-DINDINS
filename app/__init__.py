@@ -70,4 +70,12 @@ def create_app():
 
     start_scheduler(app)
 
+    import json as _json
+    @app.template_filter("fromjson")
+    def fromjson_filter(s):
+        try:
+            return _json.loads(s)
+        except Exception:
+            return {}
+
     return app
