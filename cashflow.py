@@ -2,65 +2,111 @@ from datetime import date
 from flask import Blueprint, render_template, request
 from flask_login import login_required, current_user
 from app.utils import get_yearly_cashflow
+from app import db
 
 cashflow_bp = Blueprint("cashflow", __name__)
+
+
+def _limpar_excedentes_invalidos():
+    from app.models import Expense, ExpenseShare
+    try:
+        todos = Expense.query.filter(
+            Expense.description.like("% - excedente %"),
+            Expense.kind == "pontual"
+        ).order_by(Expense.id).all()
+        seen = {}
+        for exp in todos:
+            key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
+            if key in seen:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+            else:
+                seen[key] = exp.id
+        todos2 = Expense.query.filter(
+            Expense.description.like("% - excedente %"),
+            Expense.kind == "pontual"
+        ).all()
+        for exp in todos2:
+            parts = exp.description.split(" - excedente ")
+            if len(parts) < 2:
+                continue
+            nome_base = parts[0].strip()
+            original = Expense.query.filter(
+                Expense.payer_id == exp.payer_id,
+                Expense.description == nome_base,
+                Expense.id != exp.id
+            ).first()
+            if not original:
+                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                db.session.delete(exp)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[cashflow] erro limpeza excedentes: {e}")
 
 
 @cashflow_bp.route("/")
 @login_required
 def index():
-    from app import db
-    # Força expiração do cache da sessão SQLAlchemy para buscar dados frescos
-    db.session.expire_all()
+    db.session.remove()
+    db.session.expire_all() if hasattr(db.session, "expire_all") else None
     year = request.args.get("year", type=int) or date.today().year
+    _limpar_excedentes_invalidos()
     months = get_yearly_cashflow(current_user.id, year)
 
-    # Adiciona Janeiro do ano seguinte com acumulado continuado
     jan_next = get_yearly_cashflow(current_user.id, year + 1)
     if jan_next:
         jan = dict(jan_next[0])
         jan["is_next_year"] = True
         if "eventual_items" not in jan:
             jan["eventual_items"] = []
-        # Acumulado continua a partir do acumulado de dezembro
         dec_cumulative = months[-1]["cumulative"] if months else 0.0
         jan["cumulative"] = dec_cumulative + jan["net"]
         months = months + [jan]
 
-    # Totais apenas dos 12 meses do ano atual
     months12 = months[:12]
     totals = {
-        "income": sum(m["income"] for m in months12),
+        "income":           sum(m["income"] for m in months12),
         "income_recurring": sum(m["income_recurring"] for m in months12),
-        "income_eventual": sum(m["income_eventual"] for m in months12),
-        "fixed": sum(m["fixed_expense"] for m in months12),
-        "eventual": sum(m["eventual_expense"] for m in months12),
-        "net": sum(m["net"] for m in months12),
+        "income_eventual":  sum(m["income_eventual"] for m in months12),
+        "fixed":            sum(m["fixed_expense"] for m in months12),
+        "eventual":         sum(m["eventual_expense"] for m in months12),
+        "net":              sum(m["net"] for m in months12),
     }
     totals["total_expense"] = totals["fixed"] + totals["eventual"]
-
     max_value = max(
         max((m["income"] for m in months), default=0),
         max((m["total_expense"] for m in months), default=0),
         1,
     )
+    # Dados do mês atual para os cards
+    today = date.today()
+    current_month = next(
+        (m for m in months if m["month"] == today.month and not m.get("is_next_year")),
+        months[0] if months else {}
+    )
+    # Saldo do ano = acumulado de dezembro
+    dec = next((m for m in months12 if m["month"] == 12), months12[-1] if months12 else {})
 
     return render_template("cashflow.html",
                            year=year, months=months, totals=totals,
                            max_value=max_value,
-                           current_year=date.today().year)
+                           current_year=today.year,
+                           current_month=current_month,
+                           saldo_ano=dec.get("cumulative", 0))
 
 
 @cashflow_bp.route("/ajustar", methods=["POST"])
-@login_required
 def ajustar():
-    """Salva ajuste manual de saldo/acumulado."""
+    """Salva ajuste manual de qualquer coluna do fluxo."""
     from flask import request as req, jsonify
     from app.models import CashflowOverride
     from decimal import Decimal, InvalidOperation
-    year = req.form.get("year", type=int)
+    if not current_user.is_authenticated:
+        return jsonify({"ok": False, "error": "sessao_expirada"}), 401
+    year  = req.form.get("year", type=int)
     month = req.form.get("month", type=int)
-    field = req.form.get("field")  # "net" ou "cumulative"
+    field = req.form.get("field")
     value = req.form.get("value", "").strip()
 
     def parse(s):
@@ -77,71 +123,121 @@ def ajustar():
         override = CashflowOverride(user_id=current_user.id, year=year, month=month)
         db.session.add(override)
 
-    if field == "net":
-        override.net_override = v
-    elif field == "cumulative":
-        override.cumulative_override = v
+    field_map = {
+        "net":              "net_override",
+        "cumulative":       "cumulative_override",
+        "income_recurring": "income_recurring_override",
+        "income_eventual":  "income_eventual_override",
+        "fixed":            "fixed_override",
+        "eventual":         "eventual_override",
+    }
+    col = field_map.get(field)
+    if col:
+        setattr(override, col, v)
 
-    db.session.commit()
-    return jsonify({"ok": True})
+    try:
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
-@cashflow_bp.route("/eventual-json")
+@cashflow_bp.route("/debug-entries")
 @login_required
-def eventual_json():
-    from flask import jsonify, request as req
-    year = req.args.get("year", type=int) or date.today().year
-    months = get_yearly_cashflow(current_user.id, year)
-    data = [m.get("eventual_items", []) for m in months]
-    return jsonify(data)
+def debug_entries():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    # Mostra todos os cartões e entries do sistema
+    all_cards = Card.query.all()
+    my_cards = Card.query.filter_by(user_id=current_user.id).all()
+    entries = CardEntry.query.limit(10).all()
+    return jsonify({
+        "current_user_id": current_user.id,
+        "total_cards": len(all_cards),
+        "my_cards": [{"id": c.id, "name": c.name, "user_id": c.user_id} for c in my_cards],
+        "sample_entries": [{
+            "id": e.id,
+            "desc": e.description[:40],
+            "kind": e.kind,
+            "installments": e.installments,
+            "installment_no": e.installment_no,
+            "status": e.status,
+            "user_id": e.user_id,
+            "card_id": e.card_id,
+        } for e in entries]
+    })
 
-
-@cashflow_bp.route("/fixed-json")
+@cashflow_bp.route("/debug-eventuais")
 @login_required
-def fixed_json():
-    from flask import jsonify, request as req
-    year = req.args.get("year", type=int) or date.today().year
-    months = get_yearly_cashflow(current_user.id, year)
-    data = [m.get("fixed_items", []) for m in months]
-    return jsonify(data)
+def debug_eventuais():
+    from flask import jsonify
+    from app.models import Expense
+    exps = Expense.query.filter_by(payer_id=current_user.id, kind="pontual").all()
+    result = [{"id": e.id, "desc": e.description, "amount": float(e.amount),
+               "spent_at": str(e.spent_at), "share_mode": e.share_mode} for e in exps]
+    return jsonify({"total": len(result), "expenses": result[:30]})
 
+@cashflow_bp.route("/debug-entries")
+@login_required
+def debug_entries():
+    from flask import jsonify
+    from app.models import Card, CardEntry
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+    entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).order_by(CardEntry.entry_date.desc()).all()
+    result = [{"id": e.id, "desc": e.description[:30], "amount": float(e.amount),
+               "entry_date": str(e.entry_date), "card_id": e.card_id} for e in entries]
+    by_month = {}
+    for r in result:
+        key = r["entry_date"][:7]
+        by_month[key] = by_month.get(key, 0) + 1
+    return jsonify({"total": len(result), "por_mes": by_month, "primeiros_10": result[:10]})
+
+@cashflow_bp.route("/debug-billing")
+@login_required
+def debug_billing():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    from sqlalchemy import text
+    # Verifica coluna diretamente no banco
+    with db.engine.connect() as conn:
+        result = conn.execute(text("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(billing_month) as com_billing,
+                SUM(CASE WHEN billing_month IS NULL THEN 1 ELSE 0 END) as sem_billing,
+                array_agg(DISTINCT billing_month) as valores
+            FROM card_entries
+            WHERE card_id IN (
+                SELECT id FROM cards WHERE user_id = :uid AND is_active = true
+            )
+        """), {"uid": current_user.id})
+        row = result.fetchone()
+    return jsonify({
+        "total": row[0],
+        "com_billing_month": row[1],
+        "sem_billing_month_null": row[2],
+        "valores_billing_month": str(row[3]),
+    })
 
 @cashflow_bp.route("/items-json")
 @login_required
 def items_json():
-    """Retorna todos os itens detalhados por mês e tipo."""
     from flask import jsonify, request as req
     year = req.args.get("year", type=int) or date.today().year
-    col = req.args.get("col", "eventual")
+    col  = req.args.get("col", "eventual")
     months = get_yearly_cashflow(current_user.id, year)
     key_map = {
-        "eventual": "eventual_items",
-        "fixed": "fixed_items",
+        "eventual":         "eventual_items",
+        "fixed":            "fixed_items",
         "income_recurring": "income_recurring_items",
-        "income_eventual": "income_eventual_items",
+        "income_eventual":  "income_eventual_items",
     }
-    key = key_map.get(col, "eventual_items")
+    key  = key_map.get(col, "eventual_items")
     data = [m.get(key, []) for m in months]
     return jsonify(data)
-
-
-@cashflow_bp.route("/debug-fixos")
-@login_required
-def debug_fixos():
-    """Mostra todos os gastos fixos e seus dados para debug."""
-    from flask import jsonify
-    from app.models import Expense, ExpenseShare
-    expenses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(ExpenseShare.user_id == current_user.id).all()
-    result = []
-    for exp, share in expenses:
-        result.append({
-            "id": exp.id,
-            "desc": exp.description,
-            "kind": exp.kind,
-            "spent_at": str(exp.spent_at),
-            "amount": float(exp.amount),
-            "recurrence_months": exp.recurrence_months,
-            "active_jun": exp.is_active_on(2026, 6),
-            "active_jul": exp.is_active_on(2026, 7),
-        })
-    return jsonify(sorted(result, key=lambda x: x["desc"]))
