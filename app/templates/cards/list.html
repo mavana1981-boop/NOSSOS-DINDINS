@@ -5,17 +5,12 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Meus Cartões</h1>
-    <p>Gerencie seus cartões e acompanhe os gastos consolidados.</p>
+    <p>{{ mes_atual }} — gastos consolidados de todos os cartões.</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <form method="GET" style="display:inline-flex;gap:6px;align-items:center;">
-      <input type="month" name="mes" value="{{ mes_filter }}"
-             class="form-control" style="width:145px;font-size:0.85rem;"
-             onchange="this.form.submit()">
-    </form>
     <form method="POST" action="{{ url_for('cards.virar_mes') }}"
-          onsubmit="return confirm('Fechar o mês {{ mes_filter }} e arquivar todos os lançamentos atuais?');">
-      <button class="btn btn-primary" style="background:var(--gold,#f0c040);color:#222;border:none;">
+          onsubmit="return confirm('Virar o mês? Isso vai arquivar os lançamentos no Histórico, apagar os gastos dos cartões e zerar o mês.');">
+      <button class="btn btn-primary" style="background:#f0c040;color:#222;border:none;font-weight:700;">
         📅 Virar Mês
       </button>
     </form>
@@ -224,6 +219,60 @@ document.getElementById('modal-proj').addEventListener('click', function(e) {
 </script>
 {% endif %}
 
+{% if historico %}
+<div class="card mt-3" style="border-left:4px solid var(--accent);">
+  <div class="card-title">
+    <h3>📁 Histórico Mensal</h3>
+    <span class="text-faint text-small">clique para ver o detalhe</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th class="text-right">Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in historico %}
+        <tr style="cursor:pointer;" onclick="toggleHist('hist-{{ loop.index }}', this)">
+          <td><strong>{{ h.billing_month }}</strong></td>
+          <td class="text-right mono" style="color:var(--red);">{{ h.total_geral|brl }}</td>
+          <td><span class="text-faint text-small">▼</span></td>
+        </tr>
+        <tr id="hist-{{ loop.index }}" style="display:none;">
+          <td colspan="3" style="padding:0 8px 12px;">
+            <table style="width:100%;font-size:0.82rem;">
+              <thead>
+                <tr style="color:var(--text-faint);">
+                  <th style="text-align:left;padding:4px;">Gasto</th>
+                  <th style="text-align:right;padding:4px;">Planejado</th>
+                  <th style="text-align:right;padding:4px;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% set snap = h.snapshot_json | fromjson %}
+                {% for nome, dados in snap.items() %}
+                <tr style="border-top:1px solid var(--border);">
+                  <td style="padding:4px;">{{ nome }}</td>
+                  <td style="padding:4px;text-align:right;color:var(--text-faint);">
+                    {% if dados.planned > 0 %}{{ dados.planned|brl }}{% else %}—{% endif %}
+                  </td>
+                  <td style="padding:4px;text-align:right;color:var(--red);" class="mono">{{ dados.total|brl }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="card">
   <div class="empty-state">
@@ -235,6 +284,18 @@ document.getElementById('modal-proj').addEventListener('click', function(e) {
 {% endif %}
 
 <script>
+function toggleHist(id, row) {
+  const detail = document.getElementById(id);
+  const arrow = row.querySelector('.text-faint.text-small');
+  if (detail.style.display === 'none') {
+    detail.style.display = 'table-row';
+    if (arrow) arrow.textContent = '▲';
+  } else {
+    detail.style.display = 'none';
+    if (arrow) arrow.textContent = '▼';
+  }
+}
+
 function toggleDetail(id, row) {
   const detail = document.getElementById(id);
   const arrow = row.querySelector('.text-faint.text-small');
