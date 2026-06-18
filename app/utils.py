@@ -151,6 +151,53 @@ def get_credits_debits(user_id):
     return result
 
 
+def get_parcelados_from_history(user_id):
+    """Reconstrói entries parcelados a partir do CardMonthHistory para projeção futura."""
+    from app.models import CardMonthHistory
+    import json as _json
+    from datetime import date as _d3
+    import calendar as _cal3
+
+    historicos = CardMonthHistory.query.filter_by(user_id=user_id).all()
+    parcelados = []  # lista de dicts compatível com CardEntry
+
+    for hist in historicos:
+        snap = _json.loads(hist.snapshot_json)
+        for nome, dados in snap.items():
+            for entry_data in dados.get("entries", []):
+                parcela = entry_data.get("parcela", "")
+                if not parcela or "/" not in parcela:
+                    continue
+                parts = parcela.split("/")
+                try:
+                    inst_no    = int(parts[0])
+                    inst_total = int(parts[1])
+                except Exception:
+                    continue
+                if inst_total <= 1:
+                    continue
+                try:
+                    from datetime import datetime as _dt3
+                    d = _dt3.strptime(entry_data.get("date", ""), "%Y-%m-%d").date()
+                except Exception:
+                    continue
+
+                # Simula objeto compatível com CardEntry
+                class _FakeEntry:
+                    pass
+                e = _FakeEntry()
+                e.description    = entry_data.get("desc", nome)
+                e.amount         = entry_data.get("amount", 0)
+                e.entry_date     = d
+                e.installment_no = inst_no
+                e.installments   = inst_total
+                e.expense_id     = None
+                e.expense        = None
+                parcelados.append(e)
+
+    return parcelados
+
+
 def get_consolidated_cards(user_id, year=None, month=None):
     """
     Retorna o consolidado de cartões para o mês indicado.
@@ -377,24 +424,25 @@ def get_yearly_cashflow(user_id, year):
         # Carrega consolidado do mês (entries ativos para mês atual, histórico para passados)
         consolidated_cards = get_consolidated_cards(user_id, year, m)
 
-        if year == _today.year and m == _today.month:
-            # Mês atual: usa valores da tela de cartões
-            for key, grp in consolidated_cards.items():
-                if grp["planned"] > 0 and grp["total"] > grp["planned"]:
-                    excedente = round(grp["total"] - grp["planned"], 2)
-                    eventual_total += excedente
-                    eventual_items.append({
-                        "desc": f"Excedente: {key}",
-                        "amount": excedente,
-                    })
+        # Para qualquer mês: usa consolidated_cards (banco ou histórico)
+        for key, grp in consolidated_cards.items():
+            if grp["planned"] > 0 and grp["total"] > grp["planned"]:
+                excedente = round(grp["total"] - grp["planned"], 2)
+                eventual_total += excedente
+                eventual_items.append({
+                    "desc": f"Excedente: {key}",
+                    "amount": excedente,
+                })
         else:
-            # Outros meses: só parcelados projetados vs planejado
+            # Outros meses: parcelados do banco + parcelados reconstruídos do histórico
             _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
-            _parc_entries = _CE.query.filter(
+            _parc_db = _CE.query.filter(
                 _CE.card_id.in_(_card_ids),
                 _CE.installments > 1,
                 (_CE.status == "ativo") | (_CE.status == None)
             ).all() if _card_ids else []
+            _parc_hist = get_parcelados_from_history(user_id)
+            _parc_entries = _parc_db + _parc_hist
 
             _groups_parc = {}
             for ce in _parc_entries:
