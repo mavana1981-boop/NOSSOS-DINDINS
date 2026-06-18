@@ -244,12 +244,17 @@ def get_consolidated_cards(user_id, year=None, month=None):
         CardEntry.status == "ativo",
     ).all() if card_ids else []
 
+    mes_str = f"{year}-{month:02d}"
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
     for entry in all_entries:
-        closing = card_closing.get(entry.card_id)
-        bill_year, bill_month = get_billing_month(entry.entry_date, closing)
-        if bill_year != year or bill_month != month:
-            continue
+        # Usa billing_month se definido, senão usa entry_date
+        if entry.billing_month:
+            if entry.billing_month != mes_str:
+                continue
+        else:
+            # Fallback: compara entry_date com o mês solicitado
+            if entry.entry_date.year != year or entry.entry_date.month != month:
+                continue
         if entry.expense_id and entry.expense:
             key = entry.expense.description
             consolidated[key]["planned"] = float(entry.expense.amount)
