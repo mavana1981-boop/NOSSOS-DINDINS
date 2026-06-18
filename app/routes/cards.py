@@ -858,7 +858,7 @@ def _process_batch(card):
                     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                         text = "\n".join(p.extract_text() or "" for p in pdf.pages)
                     if text.strip():
-                        content_parts.append({"type": "text", "text": "Conteúdo do extrato PDF:\n" + text[:6000]})
+                        content_parts.append({"type": "text", "text": "Conteúdo do extrato PDF:\n" + text[:15000]})
                         has_content = True
                 except Exception as e:
                     return None, f"Groq PDF extract: {e}"
@@ -874,7 +874,7 @@ def _process_batch(card):
         payload = json.dumps({
             "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "messages": [{"role": "user", "content": content_parts}],
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         }).encode()
         try:
             req = urllib.request.Request(
