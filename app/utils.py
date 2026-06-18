@@ -153,12 +153,18 @@ def get_credits_debits(user_id):
 
 def get_parcelados_from_history(user_id):
     """Reconstrói entries parcelados a partir do CardMonthHistory para projeção futura."""
-    from app.models import CardMonthHistory
+    try:
+        from app.models import CardMonthHistory
+    except Exception:
+        return []
     import json as _json
     from datetime import date as _d3
     import calendar as _cal3
 
-    historicos = CardMonthHistory.query.filter_by(user_id=user_id).all()
+    try:
+        historicos = CardMonthHistory.query.filter_by(user_id=user_id).all()
+    except Exception:
+        return []
     parcelados = []  # lista de dicts compatível com CardEntry
 
     for hist in historicos:
@@ -198,12 +204,29 @@ def get_parcelados_from_history(user_id):
     return parcelados
 
 
+def get_billing_month(entry_date, closing_day):
+    """
+    Retorna (year, month) do mês da fatura de uma compra.
+    Se closing_day=16: compras até dia 16 → fatura do mês corrente
+                       compras após dia 16 → fatura do próximo mês
+    """
+    if not closing_day:
+        return entry_date.year, entry_date.month
+    if entry_date.day > closing_day:
+        if entry_date.month == 12:
+            return entry_date.year + 1, 1
+        return entry_date.year, entry_date.month + 1
+    return entry_date.year, entry_date.month
+
+
 def get_consolidated_cards(user_id, year=None, month=None):
-    """Retorna consolidado de cartões para o mês indicado via entry_date."""
+    """
+    Retorna consolidado de cartões para o mês da FATURA indicado.
+    Usa closing_day do cartão para calcular a qual fatura cada entry pertence.
+    """
     from app.models import Card, CardEntry
     from collections import defaultdict
     from datetime import date as _d2
-    from sqlalchemy import extract as _ext3
 
     _today = _d2.today()
     if year is None:
@@ -213,16 +236,20 @@ def get_consolidated_cards(user_id, year=None, month=None):
 
     cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
     card_ids = [c.id for c in cards]
+    card_closing = {c.id: c.closing_day for c in cards}
 
+    # Busca todos os entries ativos e filtra pelo mês da fatura
     all_entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None),
-        _ext3("year",  CardEntry.entry_date) == year,
-        _ext3("month", CardEntry.entry_date) == month,
+        CardEntry.status == "ativo",
     ).all() if card_ids else []
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
     for entry in all_entries:
+        closing = card_closing.get(entry.card_id)
+        bill_year, bill_month = get_billing_month(entry.entry_date, closing)
+        if bill_year != year or bill_month != month:
+            continue
         if entry.expense_id and entry.expense:
             key = entry.expense.description
             consolidated[key]["planned"] = float(entry.expense.amount)
@@ -423,7 +450,10 @@ def get_yearly_cashflow(user_id, year):
                 _CE.installments > 1,
                 (_CE.status == "ativo") | (_CE.status == None)
             ).all() if _card_ids else []
-            _parc_hist = get_parcelados_from_history(user_id)
+            try:
+                _parc_hist = get_parcelados_from_history(user_id)
+            except Exception:
+                _parc_hist = []
             _parc_entries = _parc_db + _parc_hist
 
             _groups_parc = {}
