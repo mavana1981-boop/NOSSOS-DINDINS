@@ -843,40 +843,20 @@ def _process_batch(card):
                os.environ.get("GROQ_KEY") or
                os.environ.get("groq_api_key") or "")
         if not key:
-            # Mostra quais variáveis existem para debug
             env_keys = [k for k in os.environ if "groq" in k.lower() or "GROQ" in k]
             return None, f"GROQ_API_KEY não encontrada (vars disponíveis: {env_keys})"
 
-        # Extrai texto de PDFs; usa imagens diretamente
-        content_parts = [{"type": "text", "text": PROMPT}]
-        has_content = False
-        for fd in file_data:
-            if "pdf" in fd["mime"]:
-                try:
-                    import pdfplumber, io
-                    pdf_bytes = base64.b64decode(fd["b64"])
-                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                        text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-                    if text.strip():
-                        content_parts.append({"type": "text", "text": "Conteúdo do extrato PDF:\n" + text[:15000]})
-                        has_content = True
-                except Exception as e:
-                    return None, f"Groq PDF extract: {e}"
-            elif "image" in fd["mime"]:
-                content_parts.append({"type": "image_url", "image_url": {
-                    "url": f"data:{fd['mime']};base64,{fd['b64']}"
-                }})
-                has_content = True
-
-        if not has_content:
-            return None, "Groq: sem conteúdo para processar"
-
-        payload = json.dumps({
-            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
-            "messages": [{"role": "user", "content": content_parts}],
-            "max_tokens": 8192,
-        }).encode()
-        try:
+        def _groq_call(text_chunk):
+            """Chama Groq com um chunk de texto."""
+            msgs = [{"role": "user", "content": [
+                {"type": "text", "text": PROMPT},
+                {"type": "text", "text": "Extrato:\n" + text_chunk},
+            ]}]
+            payload = json.dumps({
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                "messages": msgs,
+                "max_tokens": 8192,
+            }).encode()
             req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
                 data=payload,
@@ -885,17 +865,100 @@ def _process_batch(card):
                     "Authorization": f"Bearer {key}",
                     "User-Agent": "Mozilla/5.0 (compatible; Python/3.13)",
                     "Accept": "application/json",
-                    "Accept-Language": "en-US,en;q=0.9",
                 },
                 method="POST")
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=90) as resp:
                 result = json.loads(resp.read())
             raw = result["choices"][0]["message"]["content"]
-            return _parse_json(raw), None
-        except urllib.error.HTTPError as e:
-            return None, f"Groq {e.code}: {e.read().decode()[:200]}"
-        except Exception as e:
-            return None, f"Groq: {e}"
+            return _parse_json(raw)
+
+        # Extrai texto completo do PDF
+        all_text = ""
+        has_image = False
+        for fd in file_data:
+            if "pdf" in fd["mime"]:
+                try:
+                    import pdfplumber, io
+                    pdf_bytes = base64.b64decode(fd["b64"])
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        pages_text = []
+                        for p in pdf.pages:
+                            t = p.extract_text()
+                            if t:
+                                pages_text.append(t)
+                        all_text += "\n".join(pages_text)
+                except Exception as e:
+                    return None, f"Groq PDF extract: {e}"
+            elif "image" in fd["mime"]:
+                has_image = True
+
+        if not all_text.strip() and not has_image:
+            return None, "Groq: sem conteúdo para processar"
+
+        # Multi-chunk: divide texto em pedaços de 12.000 chars com overlap
+        all_transactions = []
+        CHUNK = 12000
+        OVERLAP = 500
+
+        if all_text.strip():
+            chunks = []
+            start = 0
+            while start < len(all_text):
+                end = min(start + CHUNK, len(all_text))
+                chunks.append(all_text[start:end])
+                if end >= len(all_text):
+                    break
+                start = end - OVERLAP  # overlap para não perder transações no corte
+
+            for i, chunk in enumerate(chunks):
+                try:
+                    result = _groq_call(chunk)
+                    if isinstance(result, list):
+                        all_transactions.extend(result)
+                except urllib.error.HTTPError as e:
+                    return None, f"Groq {e.code}: {e.read().decode()[:200]}"
+                except Exception as e:
+                    return None, f"Groq chunk {i+1}: {e}"
+
+        elif has_image:
+            # Para imagens, processa normalmente (sem chunking)
+            try:
+                img_msgs = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
+                for fd in file_data:
+                    if "image" in fd["mime"]:
+                        img_msgs[0]["content"].append({"type": "image_url",
+                            "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
+                payload = json.dumps({
+                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "messages": img_msgs, "max_tokens": 8192,
+                }).encode()
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json",
+                             "Authorization": f"Bearer {key}"},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    result = json.loads(resp.read())
+                raw = result["choices"][0]["message"]["content"]
+                all_transactions = _parse_json(raw)
+            except urllib.error.HTTPError as e:
+                return None, f"Groq {e.code}: {e.read().decode()[:200]}"
+            except Exception as e:
+                return None, f"Groq: {e}"
+
+        # Deduplicação por (description, amount, date)
+        seen = set()
+        unique = []
+        for t in all_transactions:
+            key2 = (str(t.get("description",""))[:40],
+                    str(t.get("amount","")),
+                    str(t.get("date","")))
+            if key2 not in seen:
+                seen.add(key2)
+                unique.append(t)
+
+        return unique if unique else None, None if unique else "Groq: nenhuma transação encontrada"
 
     def _try_cloudflare():
         acct = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -1057,6 +1120,23 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     flash("Lançamento aprovado.", "success")
     return redirect(url_for("cards.batch_review",
                             card_id=card_id, batch_id=batch_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/rejeitar-todos", methods=["POST"])
+@login_required
+def batch_reject_all(card_id, batch_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    entries = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).all()
+    count = len(entries)
+    for e in entries:
+        db.session.delete(e)
+    db.session.commit()
+    flash(f"{count} lançamento(s) rejeitado(s) e removidos.", "info")
+    return redirect(url_for("cards.detail_card", card_id=card_id))
 
 
 @cards_bp.route("/<int:card_id>/lote/<batch_id>/aprovar-todos", methods=["POST"])
