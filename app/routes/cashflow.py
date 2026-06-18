@@ -169,6 +169,16 @@ def debug_entries():
         } for e in entries]
     })
 
+@cashflow_bp.route("/debug-eventuais")
+@login_required
+def debug_eventuais():
+    from flask import jsonify
+    from app.models import Expense
+    exps = Expense.query.filter_by(payer_id=current_user.id, kind="pontual").all()
+    result = [{"id": e.id, "desc": e.description, "amount": float(e.amount),
+               "spent_at": str(e.spent_at), "share_mode": e.share_mode} for e in exps]
+    return jsonify({"total": len(result), "expenses": result[:30]})
+
 @cashflow_bp.route("/debug-billing")
 @login_required
 def debug_billing():
