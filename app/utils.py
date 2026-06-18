@@ -405,7 +405,8 @@ def get_yearly_cashflow(user_id, year):
             if not exp.is_active_on(year, m):
                 continue
             # Exclui registros de excedente automático (calculados dinamicamente via cartão)
-            if "- excedente" in (exp.description or "").lower() and exp.kind == "pontual":
+            _desc_low = (exp.description or "").lower()
+            if exp.kind == "pontual" and ("excedente" in _desc_low or "cartão parcelado" in _desc_low):
                 continue
             # Exclui gastos repassados dos eventuais
             if exp.share_mode in ("integral", "split") and exp.payer_id != user_id:
