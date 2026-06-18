@@ -348,3 +348,18 @@ class CardMonthHistory(db.Model):
 
     user = db.relationship("User", backref="card_histories")
     __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
+
+
+class MerchantRule(db.Model):
+    """Regras de categorização automática por nome de estabelecimento."""
+    __tablename__ = "merchant_rules"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    keyword    = db.Column(db.String(120), nullable=False)   # palavra-chave do nome
+    category   = db.Column(db.String(80),  nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    user    = db.relationship("User",    backref="merchant_rules")
+    expense = db.relationship("Expense", backref="merchant_rules")
+    __table_args__ = (db.UniqueConstraint("user_id", "keyword"),)
