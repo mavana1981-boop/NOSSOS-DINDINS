@@ -187,20 +187,39 @@ def debug_entries():
 @cashflow_bp.route("/limpar-excedentes", methods=["POST"])
 @login_required
 def limpar_excedentes():
-    """Remove todos os excedentes de cartão do usuário e recalcula."""
-    from app.models import Expense, ExpenseShare
-    # Apaga todos os excedentes existentes do usuário
+    """Remove excedentes antigos e define billing_month nos entries sem ele."""
+    from app.models import Expense, ExpenseShare, Card, CardEntry
+    from app.utils import get_billing_month
+
+    # 1. Apaga excedentes existentes do usuário
     todos = Expense.query.filter(
         Expense.payer_id == current_user.id,
         Expense.description.like("% - excedente %"),
         Expense.kind == "pontual"
     ).all()
-    count = len(todos)
+    count_exc = len(todos)
     for exp in todos:
         ExpenseShare.query.filter_by(expense_id=exp.id).delete()
         db.session.delete(exp)
+
+    # 2. Preencher billing_month nos entries que não têm
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_closing = {c.id: c.closing_day for c in cards}
+    card_ids = [c.id for c in cards]
+    entries_sem_bm = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.status == "ativo",
+        CardEntry.billing_month == None,
+    ).all() if card_ids else []
+    count_bm = 0
+    for e in entries_sem_bm:
+        closing = card_closing.get(e.card_id)
+        yr, mo = get_billing_month(e.entry_date, closing)
+        e.billing_month = f"{yr}-{mo:02d}"
+        count_bm += 1
+
     db.session.commit()
-    flash(f"✅ {count} excedente(s) removidos. Serão recalculados ao aprovar novos lançamentos.", "success")
+    flash(f"✅ {count_exc} excedente(s) removidos. {count_bm} lançamento(s) com fatura corrigida.", "success")
     return redirect(url_for("cashflow.index"))
 
 @cashflow_bp.route("/debug-env")
