@@ -209,6 +209,25 @@ def list_cards():
     from datetime import date as _dt
     today = _dt.today()
     mes_filter = request.args.get("mes", today.strftime("%Y-%m"))
+    try:
+        filter_year2  = int(mes_filter[:4])
+        filter_month2 = int(mes_filter[5:7])
+    except Exception:
+        filter_year2, filter_month2 = today.year, today.month
+        mes_filter = today.strftime("%Y-%m")
+
+    if filter_month2 == 1:
+        prev_mes = f"{filter_year2-1}-12"
+    else:
+        prev_mes = f"{filter_year2}-{filter_month2-1:02d}"
+    if filter_month2 == 12:
+        next_mes = f"{filter_year2+1}-01"
+    else:
+        next_mes = f"{filter_year2}-{filter_month2+1:02d}"
+
+    MESES_PT_C = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label = f"{MESES_PT_C[filter_month2-1]}/{filter_year2}"
 
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True)\
         .order_by(Card.name).all()
@@ -218,12 +237,6 @@ def list_cards():
     # Consolidado: todos lançamentos do usuário agrupados por gasto vinculado
     card_ids = [card.id for card in cards]
     card_map = {card.id: card.name for card in cards}
-    try:
-        filter_year2 = int(mes_filter[:4])
-        filter_month2 = int(mes_filter[5:7])
-    except Exception:
-        filter_year2, filter_month2 = today.year, today.month
-
     from sqlalchemy import extract as _extract
     import calendar as _cal
 
@@ -358,7 +371,10 @@ def list_cards():
                            hh_consolidated=hh_consolidated_sorted,
                            projecao_parcelados=projecao_parcelados,
                            historico=historico,
-                           mes_atual=today.strftime("%B/%Y"))
+                           mes_label=mes_label,
+                           mes_filter=mes_filter,
+                           prev_mes=prev_mes,
+                           next_mes=next_mes)
 
 
 @cards_bp.route("/virar-mes", methods=["POST"])
