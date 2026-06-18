@@ -312,13 +312,18 @@ def get_yearly_cashflow(user_id, year):
         day = min(dt.day, _cal.monthrange(year2, month)[1])
         return _date(year2, month, day)
 
+    # Busca parcelados ativos com info do cartão (closing_day)
+    from app.models import Card as _Card4
+    cards_user = _Card4.query.filter_by(user_id=user_id, is_active=True).all()
+    card_closing_map2 = {c.id: c.closing_day for c in cards_user}
+
     parcelados = CardEntry.query.filter_by(
         user_id=user_id,
         kind="parcelado",
         status="ativo"
     ).all()
 
-    # Agrupa valor por (ano, mês) para cada parcela futura
+    # Agrupa valor por (ano, mês da fatura) para cada parcela futura
     parcelados_por_mes = {}
     for entry in parcelados:
         if not entry.installments or entry.installment_no is None:
@@ -326,13 +331,33 @@ def get_yearly_cashflow(user_id, year):
         first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
         for i in range(entry.installment_no, entry.installments + 1):
             d = _add_months(first_date, i - 1)
-            key = (d.year, d.month)
+            # Usa billing_month se a parcela atual tiver; para futuras, calcula
+            if i == entry.installment_no and entry.billing_month:
+                try:
+                    bm_yr = int(entry.billing_month[:4])
+                    bm_mo = int(entry.billing_month[5:7])
+                    # Parcelas seguintes: soma meses ao billing_month da 1ª parcela
+                    base_yr, base_mo = bm_yr, bm_mo
+                    extra = i - entry.installment_no
+                    mo_total = base_mo - 1 + extra
+                    key = (base_yr + mo_total // 12, mo_total % 12 + 1)
+                except Exception:
+                    key = (d.year, d.month)
+            else:
+                closing = card_closing_map2.get(entry.card_id)
+                key = get_billing_month(d, closing)
             if key not in parcelados_por_mes:
                 parcelados_por_mes[key] = []
             parc_label = f" ({i}/{entry.installments})"
+            # planned = valor do gasto fixo vinculado (para cálculo do excedente)
+            planned_v = 0.0
+            if entry.expense_id and entry.expense:
+                planned_v = float(entry.expense.amount)
             parcelados_por_mes[key].append({
                 "desc": f"{entry.description}{parc_label}",
-                "amount": round(float(entry.amount), 2)
+                "amount": round(float(entry.amount), 2),
+                "expense_id": entry.expense_id,
+                "planned": planned_v,
             })
 
     # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
@@ -430,6 +455,29 @@ def get_yearly_cashflow(user_id, year):
                 "desc": f"{exp.description}{parc_fix2}",
                 "amount": v2,
             })
+        # Parcelados do cartão → apenas o EXCEDENTE vai para eventuais
+        # Agrupa por expense_id para comparar com o planejado
+        from collections import defaultdict as _dd2
+        parc_mes = parcelados_por_mes.get((year, m), [])
+        parc_por_exp = _dd2(lambda: {"total": 0.0, "planned": 0.0, "items": []})
+        for parc in parc_mes:
+            eid = parc.get("expense_id")
+            key_p = eid if eid else f"avulso_{parc['desc']}"
+            parc_por_exp[key_p]["total"] += parc["amount"]
+            parc_por_exp[key_p]["planned"] = parc.get("planned", 0.0)
+            parc_por_exp[key_p]["items"].append(parc)
+        for key_p, v_p in parc_por_exp.items():
+            excedente = round(v_p["total"] - v_p["planned"], 2)
+            if excedente > 0:
+                desc_p = v_p["items"][0]["desc"].rsplit(" (", 1)[0]  # remove label parcela
+                if v_p["planned"] > 0:
+                    desc_p = f"{desc_p} - excedente parcelado"
+                eventual_total += excedente
+                eventual_items.append({
+                    "desc": desc_p,
+                    "amount": excedente,
+                })
+
         net = income_total - fixed_total - eventual_total
 
         # Excedente: lógica diferenciada por mês
