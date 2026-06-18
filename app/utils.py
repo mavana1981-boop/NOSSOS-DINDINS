@@ -455,25 +455,23 @@ def get_yearly_cashflow(user_id, year):
                 "desc": f"{exp.description}{parc_fix2}",
                 "amount": v2,
             })
-        # Parcelados vinculados a gasto fixo → apenas o EXCEDENTE vai para eventuais
-        # Avulsos (sem expense_id) são ignorados — já aparecem no consolidado do cartão
-        from collections import defaultdict as _dd2
+        # Parcelados do cartão → excedente sobre o planejado total de parcelados
+        # Soma TODOS os parcelados do mês (avulsos + vinculados)
         parc_mes = parcelados_por_mes.get((year, m), [])
-        parc_por_exp = _dd2(lambda: {"total": 0.0, "planned": 0.0, "desc": ""})
-        for parc in parc_mes:
-            eid = parc.get("expense_id")
-            if not eid:
-                continue  # avulso: ignora
-            parc_por_exp[eid]["total"]   += parc["amount"]
-            parc_por_exp[eid]["planned"]  = parc.get("planned", 0.0)
-            parc_por_exp[eid]["desc"]     = parc["desc"].rsplit(" (", 1)[0]
-        for eid_p, v_p in parc_por_exp.items():
-            excedente = round(v_p["total"] - v_p["planned"], 2)
-            if excedente > 0:
-                eventual_total += excedente
+        total_parc_mes = sum(p["amount"] for p in parc_mes)
+        if total_parc_mes > 0:
+            # Soma o planejado de todos os gastos fixos vinculados a parcelados
+            planned_parc = sum(
+                p.get("planned", 0.0) for p in parc_mes if p.get("expense_id")
+            )
+            # Se não há nenhum gasto vinculado, usa 0 como planejado
+            # (entra o valor integral como eventual)
+            excedente_parc = round(total_parc_mes - planned_parc, 2)
+            if excedente_parc > 0:
+                eventual_total += excedente_parc
                 eventual_items.append({
-                    "desc": f"{v_p['desc']} - excedente parcelado",
-                    "amount": excedente,
+                    "desc": "Cartão parcelados - excedente",
+                    "amount": excedente_parc,
                 })
 
         net = income_total - fixed_total - eventual_total
