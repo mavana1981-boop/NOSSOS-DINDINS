@@ -860,7 +860,7 @@ def _process_batch(card):
         for fd in file_data:
             parts.append({"inline_data": {"mime_type": fd["mime"], "data": fd["b64"]}})
         payload = json.dumps({"contents": [{"parts": parts}]}).encode()
-        for model in ["gemini-2.0-flash-exp", "gemini-1.5-flash-002", "gemini-1.5-flash-001", "gemini-1.5-flash-8b-001", "gemini-1.5-pro-002", "gemini-1.5-pro-001"]:
+        for model in ["gemini-2.0-flash-exp", "gemini-1.5-flash-002", "gemini-1.5-flash-001", "gemini-1.5-flash-8b-001", "gemini-1.5-pro-002", "gemini-1.5-pro-001", "gemini-1.0-pro-vision-latest", "gemini-pro-vision"]:
             try:
                 url = (f"https://generativelanguage.googleapis.com/v1beta/"
                        f"models/{model}:generateContent?key={key}")
@@ -1038,28 +1038,73 @@ def _process_batch(card):
         key  = os.environ.get("CLOUDFLARE_API_TOKEN", "")
         if not acct or not key:
             return None, "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurados"
-        messages = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
-        has_img = False
-        for fd in file_data:
-            if "image" in fd["mime"]:
-                messages[0]["content"].append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}
-                })
-                has_img = True
-        if not has_img:
-            return None, "Cloudflare: sem imagens (apenas PDFs)"
-        payload = json.dumps({"messages": messages}).encode()
-        try:
-            url = (f"https://api.cloudflare.com/client/v4/accounts/{acct}/"
-                   f"ai/run/@cf/meta/llama-3.2-11b-vision-instruct")
+
+        def _cf_call(model, messages):
+            payload = json.dumps({"messages": messages}).encode()
+            url = f"https://api.cloudflare.com/client/v4/accounts/{acct}/ai/run/{model}"
             req = urllib.request.Request(url, data=payload,
                 headers={"Content-Type": "application/json",
                          "Authorization": f"Bearer {key}"},
                 method="POST")
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                result = json.loads(resp.read())
-            raw = result["result"]["response"]
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                return json.loads(resp.read())
+
+        # Extrai texto do PDF para usar modelo de texto (sem precisar de agreement)
+        pdf_text = ""
+        has_img = False
+        for fd in file_data:
+            if "pdf" in fd["mime"]:
+                try:
+                    import io, pdfplumber
+                    from collections import defaultdict as _dd3
+                    pdf_bytes = base64.b64decode(fd["b64"])
+                    lines_cf = []
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for page in pdf.pages:
+                            mid = page.width / 2
+                            words = page.extract_words(x_tolerance=3, y_tolerance=3)
+                            if not words:
+                                t = page.extract_text()
+                                if t: lines_cf.extend(t.split("\n"))
+                                continue
+                            left_l = _dd3(list); right_l = _dd3(list)
+                            for w in words:
+                                y = round(w["top"] / 5) * 5
+                                (left_l if w["x0"] < mid else right_l)[y].append(w["text"])
+                            for y in sorted(left_l): lines_cf.append(" ".join(left_l[y]))
+                            for y in sorted(right_l):
+                                if right_l[y]: lines_cf.append(" ".join(right_l[y]))
+                    pdf_text = "\n".join(lines_cf)
+                except Exception:
+                    pass
+            elif "image" in fd["mime"]:
+                has_img = True
+
+        try:
+            if pdf_text.strip():
+                # PDF: usa modelo de texto (sem agreement)
+                msgs = [
+                    {"role": "user", "content": PROMPT + "\n\nExtrato:\n" + pdf_text[:12000]}
+                ]
+                result = _cf_call("@cf/meta/llama-3.1-8b-instruct", msgs)
+                raw = result.get("result", {}).get("response", "")
+            elif has_img:
+                # Imagem: aceita agreement do modelo de visão, depois envia
+                agree_msgs = [{"role": "user", "content": "agree"}]
+                try:
+                    _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", agree_msgs)
+                except Exception:
+                    pass
+                img_content = [{"type": "text", "text": PROMPT}]
+                for fd in file_data:
+                    if "image" in fd["mime"]:
+                        img_content.append({"type": "image_url",
+                            "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
+                msgs = [{"role": "user", "content": img_content}]
+                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs)
+                raw = result.get("result", {}).get("response", "")
+            else:
+                return None, "Cloudflare: sem conteúdo para processar"
             return _parse_json(raw), None
         except urllib.error.HTTPError as e:
             return None, f"Cloudflare {e.code}: {e.read().decode()[:200]}"
