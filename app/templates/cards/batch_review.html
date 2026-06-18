@@ -23,6 +23,8 @@
 </div>
 
 {% if entries %}
+<!-- CSRF token global para fetch requests -->
+<input type="hidden" id="csrf-global" name="csrf_token" value="{{ csrf_token() }}">
 
 <!-- Painel: classificar por estabelecimento -->
 <div class="card mb-3" style="border-left:4px solid #9b7bb5;">
@@ -190,6 +192,19 @@
 {% endif %}
 
 <script>
+// Pega CSRF token de qualquer form existente na página
+function getCsrf() {
+  const global = document.getElementById('csrf-global');
+  if (global) return global.value;
+  const inp = document.querySelector('input[name="csrf_token"]');
+  return inp ? inp.value : '';
+}
+
+function fetchPost(url, formData) {
+  formData.set('csrf_token', getCsrf());
+  return fetch(url, { method: 'POST', body: formData, credentials: 'same-origin' });
+}
+
 function atualizarContagem() {
   const n = document.querySelectorAll('.entry-sel:checked').length;
   document.getElementById('sel-count').textContent = n + ' selecionado(s)';
@@ -216,7 +231,7 @@ function aprovarSelecionados() {
     const fd   = new FormData(form);
     if (expenseId) fd.set('expense_id', expenseId);
     fd.set('category', category);
-    return fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' });
+    return fetchPost(form.action, fd);
   })).then(() => location.reload());
 }
 
@@ -259,9 +274,8 @@ function aplicarPorEstabelecimento() {
     if (expenseId) fd.set('expense_id', expenseId);
     fd.set('category', category);
     fd.set('description', desc);
-    return fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' });
+    return fetchPost(form.action, fd);
   })).then(() => location.reload());
 }
 </script>
 {% endblock %}
- 
