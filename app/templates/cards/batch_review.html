@@ -215,7 +215,7 @@ function aprovarSelecionados() {
   Promise.all(selecionados.map(chk => {
     const id   = chk.dataset.id;
     const card = document.getElementById('entry-' + id);
-    const form = card.querySelector('form[method="POST"]');
+    const form = card.querySelector('form[action*="aprovar"]');
     const fd   = new FormData(form);
     if (expenseId) fd.set('expense_id', expenseId);
     fd.set('category', category);
@@ -248,7 +248,7 @@ function aplicarPorEstabelecimento() {
   const items = [];
   document.querySelectorAll('[id^="entry-"]').forEach(card => {
     const desc = card.querySelector('input[name="description"]');
-    const form = card.querySelector('form[method="POST"]');
+    const form = card.querySelector('form[action*="aprovar"]');
     if (desc && form && desc.value.toLowerCase().includes(merchant.toLowerCase())) {
       items.push({ form, desc: desc.value });
     }
