@@ -611,8 +611,21 @@ def detail_card(card_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
-    entries = CardEntry.query.filter_by(card_id=card_id, status="ativo")\
-        .order_by(CardEntry.entry_date.desc()).all()
+    from sqlalchemy import extract as _ext_d
+    today_d = date.today()
+    mes_filter_d = request.args.get("mes", today_d.strftime("%Y-%m"))
+    try:
+        fy = int(mes_filter_d[:4])
+        fm = int(mes_filter_d[5:7])
+    except Exception:
+        fy, fm = today_d.year, today_d.month
+
+    entries = CardEntry.query.filter(
+        CardEntry.card_id == card_id,
+        CardEntry.status == "ativo",
+        _ext_d("year",  CardEntry.entry_date) == fy,
+        _ext_d("month", CardEntry.entry_date) == fm,
+    ).order_by(CardEntry.entry_date.desc()).all()
     fixed_expenses = _get_user_fixed_expenses()
 
     by_expense = {}
