@@ -239,9 +239,11 @@ def get_consolidated_cards(user_id, year=None, month=None):
     card_closing = {c.id: c.closing_day for c in cards}
 
     # Busca todos os entries ativos e filtra pelo mês da fatura
+    # Exclui parcelados — esses são calculados separadamente via parcelados_por_mes
     all_entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         CardEntry.status == "ativo",
+        CardEntry.kind != "parcelado",
     ).all() if card_ids else []
 
     mes_str = f"{year}-{month:02d}"
@@ -483,7 +485,8 @@ def get_yearly_cashflow(user_id, year):
         # Carrega consolidado do mês (entries ativos para mês atual, histórico para passados)
         consolidated_cards = get_consolidated_cards(user_id, year, m)
 
-        # Para qualquer mês: usa consolidated_cards (banco ou histórico)
+        # Excedentes de compras pontuais do cartão (NÃO parcelados — esses já estão acima)
+        # consolidated_cards já exclui parcelados via get_consolidated_cards
         for key, grp in consolidated_cards.items():
             if grp["planned"] > 0 and grp["total"] > grp["planned"]:
                 excedente = round(grp["total"] - grp["planned"], 2)
@@ -492,47 +495,6 @@ def get_yearly_cashflow(user_id, year):
                     "desc": f"Excedente: {key}",
                     "amount": excedente,
                 })
-        else:
-            # Outros meses: parcelados do banco + parcelados reconstruídos do histórico
-            _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
-            _parc_db = _CE.query.filter(
-                _CE.card_id.in_(_card_ids),
-                _CE.installments > 1,
-                (_CE.status == "ativo") | (_CE.status == None)
-            ).all() if _card_ids else []
-            try:
-                _parc_hist = get_parcelados_from_history(user_id)
-            except Exception:
-                _parc_hist = []
-            _parc_entries = _parc_db + _parc_hist
-
-            _groups_parc = {}
-            for ce in _parc_entries:
-                if not ce.installments or not ce.installment_no:
-                    continue
-                first = _add_months(ce.entry_date, 1 - ce.installment_no)
-                for i in range(ce.installment_no, ce.installments + 1):
-                    d = _add_months(first, i - 1)
-                    if d.year == year and d.month == m:
-                        if ce.expense_id and ce.expense:
-                            key = ce.expense.description
-                            planned = float(ce.expense.amount)
-                        else:
-                            key = ce.description
-                            planned = 0.0
-                        if key not in _groups_parc:
-                            _groups_parc[key] = {"total": 0.0, "planned": planned}
-                        _groups_parc[key]["total"] += float(ce.amount)
-                        break
-
-            for key, grp in _groups_parc.items():
-                if grp["planned"] > 0 and grp["total"] > grp["planned"]:
-                    excedente = round(grp["total"] - grp["planned"], 2)
-                    eventual_total += excedente
-                    eventual_items.append({
-                        "desc": f"Excedente: {key}",
-                        "amount": excedente,
-                    })
 
         # Aplica overrides manuais
         override = overrides.get((year, m))
@@ -577,4 +539,3 @@ def get_yearly_cashflow(user_id, year):
             "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
         })
     return result
- 
