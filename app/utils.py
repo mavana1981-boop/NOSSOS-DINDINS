@@ -342,86 +342,34 @@ def get_yearly_cashflow(user_id, year):
 
 
     # Agrupa valor por (ano, mês da fatura) para cada parcela futura
+    # Agrupa valor por mês da fatura — billing_month como base
     parcelados_por_mes = {}
     for entry in parcelados:
         if not entry.installments or entry.installment_no is None:
             continue
-        first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
+        if entry.billing_month:
+            try:
+                bm_yr = int(entry.billing_month[:4])
+                bm_mo = int(entry.billing_month[5:7])
+            except Exception:
+                bm_yr, bm_mo = entry.entry_date.year, entry.entry_date.month
+        else:
+            closing = card_closing_map2.get(entry.card_id)
+            bm_yr, bm_mo = get_billing_month(entry.entry_date, closing)
+        planned_v = float(entry.expense.amount) if (entry.expense_id and entry.expense) else 0.0
         for i in range(entry.installment_no, entry.installments + 1):
-            d = _add_months(first_date, i - 1)
-            # Usa billing_month se a parcela atual tiver; para futuras, calcula
-            if i == entry.installment_no and entry.billing_month:
-                try:
-                    bm_yr = int(entry.billing_month[:4])
-                    bm_mo = int(entry.billing_month[5:7])
-                    # Parcelas seguintes: soma meses ao billing_month da 1ª parcela
-                    base_yr, base_mo = bm_yr, bm_mo
-                    extra = i - entry.installment_no
-                    mo_total = base_mo - 1 + extra
-                    key = (base_yr + mo_total // 12, mo_total % 12 + 1)
-                except Exception:
-                    key = (d.year, d.month)
-            else:
-                closing = card_closing_map2.get(entry.card_id)
-                key = get_billing_month(d, closing)
+            extra = i - entry.installment_no
+            mo_total = bm_mo - 1 + extra
+            key = (bm_yr + mo_total // 12, mo_total % 12 + 1)
             if key not in parcelados_por_mes:
                 parcelados_por_mes[key] = []
-            parc_label = f" ({i}/{entry.installments})"
-            # planned = valor do gasto fixo vinculado (para cálculo do excedente)
-            planned_v = 0.0
-            if entry.expense_id and entry.expense:
-                planned_v = float(entry.expense.amount)
             parcelados_por_mes[key].append({
-                "desc": f"{entry.description}{parc_label}",
+                "desc": f"{entry.description} ({i}/{entry.installments})",
                 "amount": round(float(entry.amount), 2),
                 "expense_id": entry.expense_id,
                 "planned": planned_v,
             })
 
-    # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
-    repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
-            Expense.payer_id == user_id,
-            Expense.share_mode.in_(["integral", "split"]),
-            ExpenseShare.user_id != user_id
-        ).all()
-
-    # Gastos repassados AO usuário por outra pessoa (o user é devedor)
-    # Aparecem como gasto eventual no fluxo do usuário
-    debitos = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
-            ExpenseShare.user_id == user_id,
-            Expense.payer_id != user_id,
-            Expense.share_mode.in_(["integral", "split"])
-        ).all()
-
-
-    incomes = Income.query.filter_by(user_id=user_id).all()
-    result = []
-    cumulative = 0.0
-    for m in range(1, 13):
-        last_day = _date(year, m, 28)
-        income_recurring = 0.0
-        income_eventual = 0.0
-        income_recurring_items = []
-        income_eventual_items = []
-        for i in incomes:
-            if i.is_recurring and i.received_at <= last_day:
-                if (year, m) >= (i.received_at.year, i.received_at.month):
-                    income_recurring += float(i.amount)
-                    income_recurring_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
-            elif i.received_at.year == year and i.received_at.month == m:
-                income_eventual += float(i.amount)
-                income_eventual_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
-        # Repasses: não somam na renda eventual
-        income_total = income_recurring + income_eventual
-        fixed_total = 0.0
-        eventual_total = 0.0
-        eventual_items = []
-        fixed_items = []
-
-        # Débitos removidos dos eventuais (repassados não impactam eventual)
-        for exp, valor in expenses:
-            if not exp.is_active_on(year, m):
-                continue
             # Exclui registros de excedente automático (calculados dinamicamente via cartão)
             _desc_low = (exp.description or "").lower()
             if exp.kind == "pontual" and ("excedente" in _desc_low or "cartão parcelado" in _desc_low):
