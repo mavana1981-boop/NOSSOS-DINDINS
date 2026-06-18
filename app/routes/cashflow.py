@@ -144,40 +144,73 @@ def ajustar():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@cashflow_bp.route("/debug-tudo")
+@login_required
+def debug_tudo():
+    from flask import jsonify
+    from app.models import Income, Expense, CardEntry, Card
+    from sqlalchemy import text
+    with db.engine.connect() as conn:
+        users   = conn.execute(text("SELECT id, username FROM users")).fetchall()
+        incomes = conn.execute(text("SELECT COUNT(*) FROM incomes")).fetchone()[0]
+        expenses= conn.execute(text("SELECT COUNT(*) FROM expenses")).fetchone()[0]
+        cards   = conn.execute(text("SELECT COUNT(*) FROM cards")).fetchone()[0]
+        entries = conn.execute(text("SELECT COUNT(*) FROM card_entries")).fetchone()[0]
+    my_incomes  = Income.query.filter_by(user_id=current_user.id).count()
+    my_expenses = Expense.query.filter_by(payer_id=current_user.id).count()
+    return jsonify({
+        "current_user": {"id": current_user.id, "username": current_user.username},
+        "todos_users": [{"id": u[0], "username": u[1]} for u in users],
+        "banco_total": {"incomes": incomes, "expenses": expenses, "cards": cards, "entries": entries},
+        "meu_user":    {"incomes": my_incomes, "expenses": my_expenses},
+    })
+
 @cashflow_bp.route("/debug-entries")
 @login_required
 def debug_entries():
     from flask import jsonify
-    from app.models import CardEntry, Card
-    # Mostra todos os cartões e entries do sistema
-    all_cards = Card.query.all()
-    my_cards = Card.query.filter_by(user_id=current_user.id).all()
-    entries = CardEntry.query.limit(10).all()
-    return jsonify({
-        "current_user_id": current_user.id,
-        "total_cards": len(all_cards),
-        "my_cards": [{"id": c.id, "name": c.name, "user_id": c.user_id} for c in my_cards],
-        "sample_entries": [{
-            "id": e.id,
-            "desc": e.description[:40],
-            "kind": e.kind,
-            "installments": e.installments,
-            "installment_no": e.installment_no,
-            "status": e.status,
-            "user_id": e.user_id,
-            "card_id": e.card_id,
-        } for e in entries]
-    })
+    from app.models import Card, CardEntry
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+    entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).order_by(CardEntry.entry_date.desc()).all()
+    result = [{"id": e.id, "desc": e.description[:30], "amount": float(e.amount),
+               "entry_date": str(e.entry_date), "card_id": e.card_id} for e in entries]
+    by_month = {}
+    for r in result:
+        key = r["entry_date"][:7]
+        by_month[key] = by_month.get(key, 0) + 1
+    return jsonify({"total": len(result), "por_mes": by_month, "primeiros_10": result[:10]})
 
-@cashflow_bp.route("/debug-eventuais")
+@cashflow_bp.route("/limpar-excedentes", methods=["POST"])
 @login_required
-def debug_eventuais():
+def limpar_excedentes():
+    """Remove todos os excedentes de cartão do usuário e recalcula."""
+    from app.models import Expense, ExpenseShare
+    # Apaga todos os excedentes existentes do usuário
+    todos = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.description.like("% - excedente %"),
+        Expense.kind == "pontual"
+    ).all()
+    count = len(todos)
+    for exp in todos:
+        ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+        db.session.delete(exp)
+    db.session.commit()
+    flash(f"✅ {count} excedente(s) removidos. Serão recalculados ao aprovar novos lançamentos.", "success")
+    return redirect(url_for("cashflow.index"))
+
+@cashflow_bp.route("/debug-env")
+@login_required
+def debug_env():
     from flask import jsonify
-    from app.models import Expense
-    exps = Expense.query.filter_by(payer_id=current_user.id, kind="pontual").all()
-    result = [{"id": e.id, "desc": e.description, "amount": float(e.amount),
-               "spent_at": str(e.spent_at), "share_mode": e.share_mode} for e in exps]
-    return jsonify({"total": len(result), "expenses": result[:30]})
+    import os
+    keys = {k: (v[:6]+"***" if len(v)>6 else "***") for k,v in os.environ.items()
+            if any(x in k.upper() for x in ["GEMINI","GROQ","CLOUD","API","KEY","TOKEN"])}
+    return jsonify(keys)
 
 @cashflow_bp.route("/debug-billing")
 @login_required
