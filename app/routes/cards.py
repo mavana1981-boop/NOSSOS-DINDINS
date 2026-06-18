@@ -929,8 +929,7 @@ def _process_batch(card):
             flash(f"Extrato analisado via {name}.", "info")
             transactions = result
             break
-        # Só registra erro real — ignora "chave não configurada"
-        if err and "não configurada" not in err:
+        if err:
             errors.append(f"{name}: {err}")
 
     if transactions is None:
@@ -1049,4 +1048,3 @@ def batch_delete_entry(card_id, batch_id, entry_id):
         return redirect(url_for("cards.detail_card", card_id=card_id))
     return redirect(url_for("cards.batch_review",
                             card_id=card_id, batch_id=batch_id))
- 
