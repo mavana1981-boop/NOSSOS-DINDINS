@@ -19,6 +19,12 @@
   <a href="{{ url_for('cashflow.index', year=year) }}" class="btn btn-primary" style="font-size:0.85rem;">
     ↺ Atualizar fluxo
   </a>
+  <form method="POST" action="{{ url_for('cashflow.limpar_excedentes') }}"
+        onsubmit="return confirm('Limpar todos os excedentes de cartão? Eles serão recalculados automaticamente.');">
+    <button class="btn btn-ghost" style="font-size:0.85rem;border:1px solid var(--red);color:var(--red);">
+      🗑 Limpar excedentes
+    </button>
+  </form>
 </div>
 
 <!-- 4 cards principais -->
