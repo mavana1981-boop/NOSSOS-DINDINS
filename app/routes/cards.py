@@ -791,13 +791,18 @@ def _process_batch(card):
         return render_template("cards/batch_upload.html", card=card)
 
     PROMPT = (
-        "Analise este extrato de cartão de crédito e extraia TODAS as transações. "
-        "Retorne SOMENTE JSON válido, sem markdown, sem texto adicional. "
-        'Formato: [{"description": "nome", "amount": 99.90, "date": "2024-01-15", "kind": "pontual"}] '
-        "Regras: amount positivo em reais. date em YYYY-MM-DD (se ausente use hoje). "
-        'kind: "pontual" compras, "recorrente" assinaturas, "parcelado" parcelados. '
-        'Se parcelado inclua "installment_no" e "installments". '
-        "Ignore taxas, juros, pagamentos. Extraia apenas compras e débitos."
+        "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações de compra. "
+        "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
+        'Formato: [{"description": "NOME DA COMPRA", "amount": 99.90, "date": "2026-05-15", "kind": "pontual"}] '
+        "REGRAS IMPORTANTES:\n"
+        "1. amount: sempre número positivo em reais (converta vírgula para ponto: 1.234,56 -> 1234.56)\n"
+        "2. date: formato YYYY-MM-DD. Se só tiver DD/MM, use ano 2026\n"
+        "3. kind: 'pontual' para compras normais, 'parcelado' para '01 DE 06' etc, 'recorrente' para assinaturas\n"
+        "4. Se parcelado (ex: '03 DE 10'): inclua installment_no=3 e installments=10\n"
+        "5. Extraia APENAS linhas marcadas com 'D' (débito). Ignore linhas com 'C' (crédito)\n"
+        "6. Ignore: TOTAL DA FATURA, PAGAMENTO, AJUSTE, saldos, limites, encargos, juros, IOF\n"
+        "7. Extraia compras de TODOS os cartões do extrato (0410, 6458, 8231, 3221)\n"
+        "8. O formato das linhas é: DD/MM DESCRICAO CIDADE VALOR D"
     )
 
     file_data = []
@@ -879,14 +884,29 @@ def _process_batch(card):
             if "pdf" in fd["mime"]:
                 try:
                     import pdfplumber, io
+                    from collections import defaultdict as _dd
                     pdf_bytes = base64.b64decode(fd["b64"])
+                    lines_all = []
                     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                        pages_text = []
-                        for p in pdf.pages:
-                            t = p.extract_text()
-                            if t:
-                                pages_text.append(t)
-                        all_text += "\n".join(pages_text)
+                        for page in pdf.pages:
+                            mid = page.width / 2
+                            words = page.extract_words(x_tolerance=3, y_tolerance=3)
+                            if not words:
+                                continue
+                            left_lines = _dd(list)
+                            right_lines = _dd(list)
+                            for w in words:
+                                y = round(w["top"] / 5) * 5
+                                if w["x0"] < mid:
+                                    left_lines[y].append(w["text"])
+                                else:
+                                    right_lines[y].append(w["text"])
+                            for y in sorted(left_lines.keys()):
+                                lines_all.append(" ".join(left_lines[y]))
+                            for y in sorted(right_lines.keys()):
+                                if right_lines[y]:
+                                    lines_all.append(" ".join(right_lines[y]))
+                    all_text += "\n".join(lines_all)
                 except Exception as e:
                     return None, f"Groq PDF extract: {e}"
             elif "image" in fd["mime"]:
