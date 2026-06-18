@@ -23,9 +23,6 @@
 </div>
 
 {% if entries %}
-<!-- CSRF token global para fetch requests -->
-<input type="hidden" id="csrf-global" name="csrf_token" value="{{ csrf_token() }}">
-
 <!-- Painel: classificar por estabelecimento -->
 <div class="card mb-3" style="border-left:4px solid #9b7bb5;">
   <div style="font-weight:600;margin-bottom:12px;">🏪 Classificar por estabelecimento</div>
@@ -192,16 +189,7 @@
 {% endif %}
 
 <script>
-// Pega CSRF token de qualquer form existente na página
-function getCsrf() {
-  const global = document.getElementById('csrf-global');
-  if (global) return global.value;
-  const inp = document.querySelector('input[name="csrf_token"]');
-  return inp ? inp.value : '';
-}
-
 function fetchPost(url, formData) {
-  formData.set('csrf_token', getCsrf());
   return fetch(url, { method: 'POST', body: formData, credentials: 'same-origin' });
 }
 
