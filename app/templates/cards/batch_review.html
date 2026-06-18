@@ -25,7 +25,7 @@
 {% if entries %}
 <div class="card mb-2" style="border-left:4px solid var(--gold);">
   <div class="text-small text-dim">
-    Revise cada lançamento abaixo. Você pode editar a descrição, vincular a um gasto fixo, 
+    Revise cada lançamento abaixo. Você pode editar a descrição, vincular a um gasto fixo,
     definir a categoria e aprovar — ou excluir se for inválido.
     Lançamentos aprovados entram no controle normal do cartão.
   </div>
@@ -62,6 +62,53 @@
   </div>
 </div>
 
+<!-- Painel: classificar por estabelecimento -->
+<div class="card mb-3" style="border-left:4px solid #9b7bb5;">
+  <div style="font-weight:600;margin-bottom:12px;">🏪 Classificar por estabelecimento</div>
+  <div class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:12px;">
+    <div class="form-group mb-0" style="flex:1;min-width:200px;">
+      <label class="form-label">Estabelecimento</label>
+      <select class="form-control" id="bulk-merchant" onchange="filtrarPorEstabelecimento()">
+        <option value="">— Selecione —</option>
+        {% set merchants = [] %}
+        {% for entry in entries %}
+          {% set words = entry.description.split() %}
+          {% set merchant = words[0] if words|length >= 1 else entry.description %}
+          {% if merchant not in merchants %}
+            {% set _ = merchants.append(merchant) %}
+            <option value="{{ merchant }}">{{ merchant }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0" style="flex:1;min-width:160px;">
+      <label class="form-label">Gasto fixo (opcional)</label>
+      <select class="form-control" id="merchant-expense">
+        <option value="">— Avulso —</option>
+        {% for exp in fixed_expenses %}
+        <option value="{{ exp.id }}">{{ exp.description }} — {{ exp.amount|brl }}/mês</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0" style="flex:1;min-width:160px;">
+      <label class="form-label">Categoria</label>
+      <select class="form-control" id="merchant-category">
+        {% set cats = ['Alimentação','Transporte','Saúde','Educação','Moradia',
+                       'Lazer','Vestuário','Beleza','Serviços','Contas','Outros','A classificar'] %}
+        {% for cat in cats %}
+        <option>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <button class="btn btn-primary" onclick="aplicarPorEstabelecimento()" style="background:#9b7bb5;">
+        ✓ Aplicar e aprovar correspondentes
+      </button>
+    </div>
+  </div>
+  <div id="merchant-preview" class="text-small text-faint" style="margin-top:8px;"></div>
+</div>
+
 {% for entry in entries %}
 <div class="card mb-2" id="entry-{{ entry.id }}"
      style="border-left:4px solid var(--gold);position:relative;">
@@ -77,12 +124,10 @@
         action="{{ url_for('cards.batch_approve_entry', card_id=card.id, batch_id=batch_id, entry_id=entry.id) }}">
 
     <div class="grid grid-3" style="gap:12px;margin-bottom:12px;">
-      <!-- Descrição -->
       <div class="form-group mb-0" style="grid-column:span 2;">
         <label class="form-label">Descrição</label>
         <input class="form-control" name="description" value="{{ entry.description }}" required>
       </div>
-      <!-- Valor -->
       <div class="form-group mb-0">
         <label class="form-label">Valor</label>
         <div class="mono" style="font-size:1.2rem;font-family:'Fraunces',serif;color:var(--red);padding-top:6px;">
@@ -98,36 +143,31 @@
     </div>
 
     <div class="grid grid-2" style="gap:12px;">
-      <!-- Vínculo com gasto fixo -->
       <div class="form-group mb-0">
-        <label class="form-label">Vincular a gasto fixo</label>
-        <select class="form-control sel-expense" name="expense_id"
-                data-category-target="cat-{{ entry.id }}">
-          <option value="">— Avulso —</option>
+        <label class="form-label">Vincular a gasto fixo (opcional)</label>
+        <select class="form-control" name="expense_id">
+          <option value="">— Avulso (sem vínculo) —</option>
           {% for exp in fixed_expenses %}
-          <option value="{{ exp.id }}"
-                  data-name="{{ exp.description }}"
-                  {% if entry.expense_id == exp.id %}selected{% endif %}>
+          <option value="{{ exp.id }}" {% if entry.expense_id == exp.id %}selected{% endif %}>
             {{ exp.description }} — {{ exp.amount|brl }}/mês
           </option>
           {% endfor %}
         </select>
       </div>
-      <!-- Categoria -->
       <div class="form-group mb-0">
         <label class="form-label">Categoria</label>
-        <select class="form-control" name="category" id="cat-{{ entry.id }}">
+        <select class="form-control" name="category">
           {% set cats = ['A classificar','Alimentação','Transporte','Saúde','Educação',
                          'Moradia','Lazer','Vestuário','Beleza','Serviços','Contas','Outros'] %}
-          {% for c in cats %}
-          <option {% if entry.category == c %}selected{% endif %}>{{ c }}</option>
+          {% for cat in cats %}
+          <option {% if entry.category == cat %}selected{% endif %}>{{ cat }}</option>
           {% endfor %}
         </select>
       </div>
     </div>
 
-    <div class="flex flex-gap mt-3">
-      <button class="btn btn-primary btn-sm">✓ Aprovar</button>
+    <div class="mt-2">
+      <button type="submit" class="btn btn-primary btn-sm">✓ Aprovar</button>
     </div>
   </form>
 </div>
@@ -136,72 +176,68 @@
 {% else %}
 <div class="card">
   <div class="empty-state">
-    <h4>Nenhum lançamento pendente neste lote</h4>
-    <p>Todos os lançamentos já foram revisados.</p>
+    <h4>Nenhum lançamento pendente</h4>
+    <p>Todos os lançamentos deste lote foram revisados.</p>
     <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-primary btn-sm mt-2">Ver cartão</a>
   </div>
 </div>
 {% endif %}
 
 <script>
-// Ao vincular a gasto fixo, atualiza a categoria automaticamente
-document.querySelectorAll('.sel-expense').forEach(sel => {
-  sel.addEventListener('change', function() {
-    const catId = this.dataset.categoryTarget;
-    const catSel = document.getElementById(catId);
-    if (!this.value) catSel.selectedIndex = 0;
-  });
-});
-
-// Aplicar categoria a todos e aprovar em massa
 function aplicarCategoriaTodos() {
-  var expense_id = document.getElementById('bulk-expense').value;
-  var category = document.getElementById('bulk-category').value;
-  if (!confirm('Aplicar categoria "' + category + '" e aprovar todos os lançamentos?')) return;
+  const expenseId = document.getElementById('bulk-expense').value;
+  const category = document.getElementById('bulk-category').value;
+  if (!confirm('Aprovar todos com a categoria "' + category + '"?')) return;
+  const forms = document.querySelectorAll('form[action*="aprovar"]:not([action*="aprovar-todos"])');
+  Promise.all([...forms].map(form => {
+    const fd = new FormData(form);
+    if (expenseId) fd.set('expense_id', expenseId);
+    fd.set('category', category);
+    return fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' });
+  })).then(() => location.reload());
+}
 
-  // Atualiza cada select individualmente
-  document.querySelectorAll('.sel-expense').forEach(function(sel) {
-    if (expense_id) sel.value = expense_id;
+function filtrarPorEstabelecimento() {
+  const merchant = document.getElementById('bulk-merchant').value.toLowerCase();
+  let count = 0;
+  document.querySelectorAll('[id^="entry-"]').forEach(card => {
+    const desc = card.querySelector('input[name="description"]');
+    if (desc && merchant && desc.value.toLowerCase().includes(merchant)) {
+      card.style.outline = '2px solid #9b7bb5';
+      count++;
+    } else {
+      card.style.outline = '';
+    }
   });
-  document.querySelectorAll('[id^="cat-"]').forEach(function(sel) {
-    for (var i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].text === category) { sel.selectedIndex = i; break; }
+  document.getElementById('merchant-preview').textContent =
+    merchant ? count + ' lançamento(s) encontrado(s) para "' + document.getElementById('bulk-merchant').value + '"' : '';
+}
+
+function aplicarPorEstabelecimento() {
+  const merchant = document.getElementById('bulk-merchant').value;
+  const expenseId = document.getElementById('merchant-expense').value;
+  const category = document.getElementById('merchant-category').value;
+  if (!merchant) { alert('Selecione um estabelecimento.'); return; }
+
+  const items = [];
+  document.querySelectorAll('[id^="entry-"]').forEach(card => {
+    const desc = card.querySelector('input[name="description"]');
+    const form = card.querySelector('form[method="POST"][action*="aprovar"]');
+    if (desc && form && desc.value.toLowerCase().includes(merchant.toLowerCase())) {
+      items.push({ form, desc: desc.value });
     }
   });
 
-  // Submete todos os formulários de aprovação sequencialmente via fetch
-  var forms = document.querySelectorAll('form[action*="aprovar"]:not([action*="aprovar-todos"])');
-  var entries = [];
-  forms.forEach(function(form) {
-    entries.push({
-      action: form.action,
-      expense_id: form.querySelector('[name="expense_id"]') ? form.querySelector('[name="expense_id"]').value : expense_id,
-      category: category,
-      description: form.querySelector('[name="description"]').value
-    });
-  });
+  if (!items.length) { alert('Nenhum lançamento encontrado.'); return; }
+  if (!confirm('Aprovar ' + items.length + ' lançamento(s) de "' + merchant + '" como "' + category + '"?')) return;
 
-  if (entries.length === 0) { window.location.reload(); return; }
-
-  var done = 0;
-  var btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Aprovando...';
-
-  function next() {
-    if (done >= entries.length) {
-      window.location.reload();
-      return;
-    }
-    var e = entries[done++];
-    var fd = new FormData();
-    fd.append('expense_id', e.expense_id || '');
-    fd.append('category', e.category);
-    fd.append('description', e.description);
-    fetch(e.action, { method: 'POST', body: fd })
-      .then(function() { next(); });
-  }
-  next();
+  Promise.all(items.map(({ form, desc }) => {
+    const fd = new FormData(form);
+    if (expenseId) fd.set('expense_id', expenseId);
+    fd.set('category', category);
+    fd.set('description', desc);
+    return fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' });
+  })).then(() => location.reload());
 }
 </script>
 {% endblock %}
