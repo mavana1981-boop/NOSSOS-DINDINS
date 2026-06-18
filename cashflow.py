@@ -1,5 +1,5 @@
 from datetime import date
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask_login import login_required, current_user
 from app.utils import get_yearly_cashflow
 from app import db
@@ -183,6 +183,114 @@ def debug_entries():
         key = r["entry_date"][:7]
         by_month[key] = by_month.get(key, 0) + 1
     return jsonify({"total": len(result), "por_mes": by_month, "primeiros_10": result[:10]})
+
+@cashflow_bp.route("/limpar-excedentes", methods=["POST"])
+@login_required
+def limpar_excedentes():
+    """Remove excedentes antigos e define billing_month nos entries sem ele."""
+    from app.models import Expense, ExpenseShare, Card, CardEntry
+    from app.utils import get_billing_month
+
+    # 1. Apaga excedentes existentes do usuário
+    todos = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.description.like("% - excedente %"),
+        Expense.kind == "pontual"
+    ).all()
+    count_exc = len(todos)
+    for exp in todos:
+        ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+        db.session.delete(exp)
+
+    # 2. Preencher billing_month nos entries que não têm
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_closing = {c.id: c.closing_day for c in cards}
+    card_ids = [c.id for c in cards]
+    entries_sem_bm = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.status == "ativo",
+        CardEntry.billing_month == None,
+    ).all() if card_ids else []
+    count_bm = 0
+    for e in entries_sem_bm:
+        closing = card_closing.get(e.card_id)
+        yr, mo = get_billing_month(e.entry_date, closing)
+        e.billing_month = f"{yr}-{mo:02d}"
+        count_bm += 1
+
+    db.session.commit()
+    flash(f"✅ {count_exc} excedente(s) removidos. {count_bm} lançamento(s) com fatura corrigida.", "success")
+    return redirect(url_for("cashflow.index"))
+
+@cashflow_bp.route("/debug-parcelados")
+@login_required
+def debug_parcelados():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    from app.utils import get_billing_month
+    import calendar as _cal
+    from datetime import date as _d
+
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_closing = {c.id: c.closing_day for c in cards}
+    card_names = {c.id: c.name for c in cards}
+    card_ids = [c.id for c in cards]
+
+    parcelados = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.status == "ativo",
+        CardEntry.installments > 1,
+    ).all()
+
+    def add_m(dt, n):
+        month = dt.month - 1 + n
+        yr = dt.year + month // 12
+        month = month % 12 + 1
+        return _d(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
+
+    proj = {}
+    for e in parcelados:
+        first = add_m(e.entry_date, 1 - (e.installment_no or 1))
+        for i in range(e.installment_no or 1, e.installments + 1):
+            d = add_m(first, i - 1)
+            if i == (e.installment_no or 1) and e.billing_month:
+                try:
+                    bm_yr = int(e.billing_month[:4])
+                    bm_mo = int(e.billing_month[5:7])
+                    extra = i - (e.installment_no or 1)
+                    mo_t = bm_mo - 1 + extra
+                    key = f"{bm_yr + mo_t // 12}-{mo_t % 12 + 1:02d}"
+                except:
+                    key = f"{d.year}-{d.month:02d}"
+            else:
+                closing = card_closing.get(e.card_id)
+                byr, bmo = get_billing_month(d, closing)
+                key = f"{byr}-{bmo:02d}"
+            if key not in proj:
+                proj[key] = 0.0
+            proj[key] += float(e.amount)
+
+    return jsonify({
+        "total_parcelados_encontrados": len(parcelados),
+        "cartoes": [{"id": c.id, "nome": c.name, "closing": c.closing_day} for c in cards],
+        "projecao_por_mes": dict(sorted(proj.items())),
+        "amostra_entries": [
+            {"desc": e.description, "amount": float(e.amount),
+             "installment_no": e.installment_no, "installments": e.installments,
+             "kind": e.kind, "billing_month": e.billing_month,
+             "card": card_names.get(e.card_id)}
+            for e in parcelados[:5]
+        ]
+    })
+
+@cashflow_bp.route("/debug-env")
+@login_required
+def debug_env():
+    from flask import jsonify
+    import os
+    keys = {k: (v[:6]+"***" if len(v)>6 else "***") for k,v in os.environ.items()
+            if any(x in k.upper() for x in ["GEMINI","GROQ","CLOUD","API","KEY","TOKEN"])}
+    return jsonify(keys)
 
 @cashflow_bp.route("/debug-billing")
 @login_required
