@@ -222,6 +222,134 @@ def limpar_excedentes():
     flash(f"✅ {count_exc} excedente(s) removidos. {count_bm} lançamento(s) com fatura corrigida.", "success")
     return redirect(url_for("cashflow.index"))
 
+@cashflow_bp.route("/debug-parcelados")
+@login_required
+def debug_parcelados():
+    from flask import jsonify
+    from app.models import CardEntry, Card
+    from app.utils import get_billing_month
+    import calendar as _cal
+    from datetime import date as _d
+
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_closing = {c.id: c.closing_day for c in cards}
+    card_names = {c.id: c.name for c in cards}
+    card_ids = [c.id for c in cards]
+
+    parcelados = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.status == "ativo",
+        CardEntry.installments > 1,
+    ).all()
+
+    def add_m(dt, n):
+        month = dt.month - 1 + n
+        yr = dt.year + month // 12
+        month = month % 12 + 1
+        return _d(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
+
+    proj = {}
+    for e in parcelados:
+        first = add_m(e.entry_date, 1 - (e.installment_no or 1))
+        for i in range(e.installment_no or 1, e.installments + 1):
+            d = add_m(first, i - 1)
+            if i == (e.installment_no or 1) and e.billing_month:
+                try:
+                    bm_yr = int(e.billing_month[:4])
+                    bm_mo = int(e.billing_month[5:7])
+                    extra = i - (e.installment_no or 1)
+                    mo_t = bm_mo - 1 + extra
+                    key = f"{bm_yr + mo_t // 12}-{mo_t % 12 + 1:02d}"
+                except:
+                    key = f"{d.year}-{d.month:02d}"
+            else:
+                closing = card_closing.get(e.card_id)
+                byr, bmo = get_billing_month(d, closing)
+                key = f"{byr}-{bmo:02d}"
+            if key not in proj:
+                proj[key] = 0.0
+            proj[key] += float(e.amount)
+
+    return jsonify({
+        "total_parcelados_encontrados": len(parcelados),
+        "cartoes": [{"id": c.id, "nome": c.name, "closing": c.closing_day} for c in cards],
+        "projecao_por_mes": dict(sorted(proj.items())),
+        "amostra_entries": [
+            {"desc": e.description, "amount": float(e.amount),
+             "installment_no": e.installment_no, "installments": e.installments,
+             "kind": e.kind, "billing_month": e.billing_month,
+             "card": card_names.get(e.card_id)}
+            for e in parcelados[:5]
+        ]
+    })
+
+@cashflow_bp.route("/debug-parc-junho")
+@login_required
+def debug_parc_junho():
+    from app.models import Card, CardEntry
+    from app.utils import get_billing_month
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+    card_map = {c.id: c.name for c in cards}
+    card_closing = {c.id: c.closing_day for c in cards}
+
+    parcelados = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.status == "ativo",
+        CardEntry.installments > 1,
+    ).all() if card_ids else []
+
+    import calendar as _cal
+    from datetime import date as _d
+
+    def add_m(dt, n):
+        mo = dt.month - 1 + n
+        yr = dt.year + mo // 12
+        mo = mo % 12 + 1
+        return _d(yr, mo, min(dt.day, _cal.monthrange(yr, mo)[1]))
+
+    junho = []
+    total = 0.0
+    for e in parcelados:
+        if e.billing_month:
+            try: bm_yr, bm_mo = int(e.billing_month[:4]), int(e.billing_month[5:7])
+            except: bm_yr, bm_mo = e.entry_date.year, e.entry_date.month
+        else:
+            bm_yr, bm_mo = get_billing_month(e.entry_date, card_closing.get(e.card_id))
+
+        for i in range(e.installment_no, e.installments + 1):
+            extra = i - e.installment_no
+            mo_t = bm_mo - 1 + extra
+            key = (bm_yr + mo_t // 12, mo_t % 12 + 1)
+            if key == (2026, 6):
+                total += float(e.amount)
+                junho.append({
+                    "id": e.id,
+                    "desc": e.description,
+                    "amount": float(e.amount),
+                    "parcela": f"{i}/{e.installments}",
+                    "billing_month": e.billing_month,
+                    "entry_date": str(e.entry_date),
+                    "cartao": card_map.get(e.card_id, "?"),
+                })
+
+    junho.sort(key=lambda x: x["amount"], reverse=True)
+
+    rows = "".join(
+        f"<tr><td>{r['id']}</td><td>{r['desc'][:40]}</td><td>{r['cartao']}</td>"
+        f"<td>{r['parcela']}</td><td>R$ {r['amount']:.2f}</td>"
+        f"<td>{r['billing_month']}</td><td>{r['entry_date']}</td></tr>"
+        for r in junho
+    )
+    return f"""<html><body style='font-family:monospace;padding:20px'>
+    <h2>Parcelados junho/2026 — Total: R$ {total:.2f}</h2>
+    <p>{len(junho)} parcelas</p>
+    <table border=1 cellpadding=4>
+    <tr><th>ID</th><th>Descrição</th><th>Cartão</th><th>Parcela</th>
+        <th>Valor</th><th>billing_month</th><th>entry_date</th></tr>
+    {rows}
+    </table></body></html>"""
+
 @cashflow_bp.route("/debug-env")
 @login_required
 def debug_env():
