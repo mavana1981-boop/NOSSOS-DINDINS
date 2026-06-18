@@ -304,7 +304,7 @@ def get_yearly_cashflow(user_id, year):
         expenses.append((exp, valor))
 
     # Lançamentos parcelados no cartão do usuário → gasto eventual por mês
-    from app.models import CardEntry
+    from app.models import CardEntry, Expense
     import calendar as _cal
 
     def _add_months(dt, n):
@@ -314,18 +314,32 @@ def get_yearly_cashflow(user_id, year):
         day = min(dt.day, _cal.monthrange(year2, month)[1])
         return _date(year2, month, day)
 
-    # Busca parcelados ativos com info do cartão (closing_day)
+    # Busca o planejado do gasto "Cartão Parcelado" para calcular excedente
+    _exp_parc = Expense.query.filter(
+        Expense.payer_id == user_id,
+        Expense.kind == "recorrente",
+        Expense.description.ilike("%cartao parcelado%"),
+    ).first()
+    if not _exp_parc:
+        _exp_parc = Expense.query.filter(
+            Expense.payer_id == user_id,
+            Expense.kind == "recorrente",
+            Expense.description.ilike("%cartão parcelado%"),
+        ).first()
+    _planned_parc = float(_exp_parc.amount) if _exp_parc else 0.0
+
+    # Busca parcelados via card_ids — mesma lógica da projeção do menu cartões
     from app.models import Card as _Card4
     cards_user = _Card4.query.filter_by(user_id=user_id, is_active=True).all()
     card_closing_map2 = {c.id: c.closing_day for c in cards_user}
+    _card_ids2 = [c.id for c in cards_user]
 
-    # Usa installments > 1 em vez de kind="parcelado"
-    # (entries importados em lote podem ter kind="pontual" mas installments setado)
     parcelados = CardEntry.query.filter(
-        CardEntry.user_id == user_id,
+        CardEntry.card_id.in_(_card_ids2),
         CardEntry.status == "ativo",
         CardEntry.installments > 1,
-    ).all()
+    ).all() if _card_ids2 else []
+
 
     # Agrupa valor por (ano, mês da fatura) para cada parcela futura
     parcelados_por_mes = {}
@@ -460,22 +474,15 @@ def get_yearly_cashflow(user_id, year):
                 "desc": f"{exp.description}{parc_fix2}",
                 "amount": v2,
             })
-        # Parcelados do cartão → excedente sobre o planejado total de parcelados
-        # Soma TODOS os parcelados do mês (avulsos + vinculados)
+        # Excedente parcelados: projeção do mês - planejado "cartao parcelado"
         parc_mes = parcelados_por_mes.get((year, m), [])
-        total_parc_mes = sum(p["amount"] for p in parc_mes)
+        total_parc_mes = round(sum(p["amount"] for p in parc_mes), 2)
         if total_parc_mes > 0:
-            # Soma o planejado de todos os gastos fixos vinculados a parcelados
-            planned_parc = sum(
-                p.get("planned", 0.0) for p in parc_mes if p.get("expense_id")
-            )
-            # Se não há nenhum gasto vinculado, usa 0 como planejado
-            # (entra o valor integral como eventual)
-            excedente_parc = round(total_parc_mes - planned_parc, 2)
+            excedente_parc = round(total_parc_mes - _planned_parc, 2)
             if excedente_parc > 0:
                 eventual_total += excedente_parc
                 eventual_items.append({
-                    "desc": "Cartão parcelados - excedente",
+                    "desc": f"Cartão Parcelado - excedente ({total_parc_mes:.2f} - {_planned_parc:.2f})",
                     "amount": excedente_parc,
                 })
 
