@@ -349,29 +349,107 @@ def list_cards():
         for k, v in sorted(proj_months.items())
     ]
 
+    from app.models import CardMonthHistory
+    historico = CardMonthHistory.query.filter_by(user_id=current_user.id)        .order_by(CardMonthHistory.billing_month.desc()).all()
+
     return render_template("cards/list.html", cards=cards,
                            consolidated=consolidated_sorted,
                            total_geral=total_geral,
                            hh_consolidated=hh_consolidated_sorted,
                            projecao_parcelados=projecao_parcelados,
-                           mes_filter=mes_filter)
+                           historico=historico,
+                           mes_atual=today.strftime("%B/%Y"))
 
 
 @cards_bp.route("/virar-mes", methods=["POST"])
 @login_required
 def virar_mes():
-    """Avança para o próximo mês — os dados ficam registrados pelo entry_date."""
+    """
+    Virar Mês:
+    1. Salva snapshot consolidado no HISTÓRICO
+    2. Apaga todos os lançamentos dos cartões
+    3. Zera gastos pontuais do mês no menu gastos
+    """
+    import json as _json
     from datetime import date as _dt
-    import calendar as _cal
+    from app.models import CardMonthHistory, Expense, ExpenseShare
+
     today = _dt.today()
-    # Calcula próximo mês
-    if today.month == 12:
-        prox_ano, prox_mes = today.year + 1, 1
+    mes_atual = today.strftime("%Y-%m")
+
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+
+    if not card_ids:
+        flash("Nenhum cartão ativo.", "warning")
+        return redirect(url_for("cards.list_cards"))
+
+    # 1. Gerar snapshot consolidado
+    entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all()
+
+    from collections import defaultdict
+    snap = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "entries": []})
+    for e in entries:
+        key = e.expense.description if (e.expense_id and e.expense) else e.description
+        if e.expense_id and e.expense:
+            snap[key]["planned"] = float(e.expense.amount)
+        snap[key]["total"] += float(e.amount)
+        snap[key]["entries"].append({
+            "desc": e.description,
+            "amount": float(e.amount),
+            "date": str(e.entry_date),
+            "parcela": f"{e.installment_no or 1}/{e.installments}" if (e.installments and e.installments > 1) else "",
+        })
+
+    total_geral = sum(v["total"] for v in snap.values())
+    snapshot = {k: dict(v) for k, v in snap.items()}
+
+    # Upsert histórico
+    hist = CardMonthHistory.query.filter_by(
+        user_id=current_user.id, billing_month=mes_atual
+    ).first()
+    if hist:
+        hist.snapshot_json = _json.dumps(snapshot, ensure_ascii=False)
+        hist.total_geral = total_geral
     else:
-        prox_ano, prox_mes = today.year, today.month + 1
-    prox = f"{prox_ano}-{prox_mes:02d}"
-    flash(f"Mês virado! Visualizando {prox}. Novos lançamentos devem ter data em {prox}.", "success")
-    return redirect(url_for("cards.list_cards", mes=prox))
+        hist = CardMonthHistory(
+            user_id=current_user.id,
+            billing_month=mes_atual,
+            snapshot_json=_json.dumps(snapshot, ensure_ascii=False),
+            total_geral=total_geral,
+        )
+        db.session.add(hist)
+
+    # 2. Apagar todos os lançamentos dos cartões
+    count = len(entries)
+    for e in entries:
+        db.session.delete(e)
+
+    # 3. Apagar gastos pontuais do mês corrente do usuário
+    from sqlalchemy import extract as _ext
+    gastos_mes = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "pontual",
+        _ext("year",  Expense.spent_at) == today.year,
+        _ext("month", Expense.spent_at) == today.month,
+    ).all()
+    for g in gastos_mes:
+        ExpenseShare.query.filter_by(expense_id=g.id).delete()
+        db.session.delete(g)
+
+    db.session.commit()
+
+    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    flash(
+        f"✅ {MESES_PT[today.month-1]}/{today.year} arquivado no Histórico — "
+        f"{count} lançamento(s) removidos. Cartões zerados para o próximo mês.",
+        "success"
+    )
+    return redirect(url_for("cards.list_cards"))
 
 
 @cards_bp.route("/novo", methods=["GET", "POST"])
