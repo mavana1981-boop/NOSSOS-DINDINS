@@ -18,7 +18,7 @@
 {% if cards %}
 <div class="grid grid-2 mb-3">
   {% for card in cards %}
-  <a href="{{ url_for('cards.detail_card', card_id=card.id) }}"
+  <a href="{{ url_for('cards.detail_card', card_id=card.id, mes=mes_filter) }}"
      style="text-decoration:none;color:inherit;display:block;" class="card">
     <div style="background:{{ card.color }};border-radius:var(--radius);padding:18px 20px;margin:-24px -24px 20px -24px;position:relative;overflow:hidden;">
       <div style="position:absolute;right:-20px;top:-20px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.08);"></div>
