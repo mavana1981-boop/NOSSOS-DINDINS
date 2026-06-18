@@ -248,17 +248,20 @@ def list_cards():
     card_map = {card.id: card.name for card in cards}
     from sqlalchemy import extract as _extract
     import calendar as _cal
-    # Filtra por mês da FATURA (billing_month), não por entry_date
-    from app.utils import get_billing_month as _gbm
-    card_closing_map = {card.id: card.closing_day for card in cards}
+    # Filtra por billing_month (mês da fatura), com fallback para entry_date
+    _mes_str = f"{filter_year2}-{filter_month2:02d}"
     _all_active = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         CardEntry.status == "ativo",
     ).all() if card_ids else []
-    all_entries = [
-        e for e in _all_active
-        if _gbm(e.entry_date, card_closing_map.get(e.card_id)) == (filter_year2, filter_month2)
-    ]
+    all_entries = []
+    for _e in _all_active:
+        if _e.billing_month:
+            if _e.billing_month == _mes_str:
+                all_entries.append(_e)
+        else:
+            if _e.entry_date.year == filter_year2 and _e.entry_date.month == filter_month2:
+                all_entries.append(_e)
 
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
@@ -654,7 +657,8 @@ def detail_card(card_id):
                            entries=entries,
                            by_expense=by_expense,
                            unlinked=unlinked,
-                           fixed_expenses=fixed_expenses)
+                           fixed_expenses=fixed_expenses,
+                           today=date.today())
 
 
 # ── Lançamentos ───────────────────────────────────────────────────────────────
@@ -777,6 +781,28 @@ def delete_entry(card_id, entry_id):
 
 # ── Lançamento em Lote ────────────────────────────────────────────────────────
 
+@cards_bp.route("/<int:card_id>/definir-mes-fatura", methods=["POST"])
+@login_required
+def definir_mes_fatura(card_id):
+    """Redefine o billing_month de todos os entries ativos do cartão."""
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    billing_month = request.form.get("billing_month", "").strip()
+    if not billing_month or len(billing_month) != 7:
+        flash("Mês da fatura inválido.", "danger")
+        return redirect(url_for("cards.detail_card", card_id=card_id))
+    entries = CardEntry.query.filter(
+        CardEntry.card_id == card_id,
+        CardEntry.status == "ativo",
+    ).all()
+    for e in entries:
+        e.billing_month = billing_month
+    db.session.commit()
+    flash(f"✅ {len(entries)} lançamento(s) atualizados para fatura {billing_month}.", "success")
+    return redirect(url_for("cards.detail_card", card_id=card_id))
+
+
 @cards_bp.route("/<int:card_id>/lote", methods=["GET", "POST"])
 @login_required
 def batch_upload(card_id):
@@ -790,11 +816,16 @@ def batch_upload(card_id):
 
 def _process_batch(card):
     import uuid, base64, json, re, os, urllib.request
+    from datetime import date as _dt_now
 
     files = request.files.getlist("files")
     if not files or not files[0].filename:
         flash("Selecione pelo menos um arquivo.", "danger")
         return render_template("cards/batch_upload.html", card=card)
+
+    # Mês da fatura: definido pelo usuário no formulário (padrão = mês atual)
+    _today_bm = _dt_now.today()
+    billing_month = request.form.get("billing_month", _today_bm.strftime("%Y-%m"))
 
     PROMPT = (
         "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações de compra. "
@@ -1068,6 +1099,7 @@ def _process_batch(card):
                 category="A classificar",
                 status="em_avaliacao",
                 batch_id=batch_id,
+                billing_month=billing_month,
             )
             db.session.add(entry)
             count += 1
