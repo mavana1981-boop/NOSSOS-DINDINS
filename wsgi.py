@@ -40,6 +40,20 @@ def bootstrap():
         _ensure_column("card_entries", "status", "VARCHAR(20) DEFAULT 'ativo'")
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
+        # Tabela de regras de categorização por estabelecimento
+        with db.engine.connect() as _conn2:
+            _conn2.execute(_text("""
+                CREATE TABLE IF NOT EXISTS merchant_rules (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    keyword VARCHAR(120) NOT NULL,
+                    category VARCHAR(80) NOT NULL,
+                    expense_id INTEGER REFERENCES expenses(id),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, keyword)
+                )
+            """))
+            _conn2.commit()
         # Tabela de histórico mensal — criada via SQLAlchemy
         try:
             from app.models import CardMonthHistory as _CMH
@@ -165,7 +179,7 @@ def bootstrap():
                     db.session.commit()
                     print(f"[bootstrap] senha do admin '{admin_username}' resetada.")
                 else:
-                     print(f"[bootstrap] admin '{admin_username}' já existe — dados preservados.")
+                    print(f"[bootstrap] admin '{admin_username}' já existe — dados preservados.")
         except Exception as e:
             print(f"[bootstrap] erro ao criar admin: {e}")
 
