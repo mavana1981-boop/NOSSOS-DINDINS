@@ -839,9 +839,13 @@ def _process_batch(card):
         return None, "Gemini: todos os modelos indisponíveis"
 
     def _try_groq():
-        key = os.environ.get("GROQ_API_KEY", "")
+        key = (os.environ.get("GROQ_API_KEY") or
+               os.environ.get("GROQ_KEY") or
+               os.environ.get("groq_api_key") or "")
         if not key:
-            return None, "GROQ_API_KEY não configurada"
+            # Mostra quais variáveis existem para debug
+            env_keys = [k for k in os.environ if "groq" in k.lower() or "GROQ" in k]
+            return None, f"GROQ_API_KEY não encontrada (vars disponíveis: {env_keys})"
 
         # Extrai texto de PDFs; usa imagens diretamente
         content_parts = [{"type": "text", "text": PROMPT}]
