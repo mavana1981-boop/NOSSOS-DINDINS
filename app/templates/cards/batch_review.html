@@ -13,6 +13,10 @@
           onsubmit="return confirm('Aprovar todos os lançamentos pendentes sem categorizar?');">
       <button class="btn btn-primary">✓ Aprovar todos</button>
     </form>
+    <form method="POST" action="{{ url_for('cards.batch_reject_all', card_id=card.id, batch_id=batch_id) }}"
+          onsubmit="return confirm('Rejeitar e apagar todos os lançamentos pendentes deste lote?');">
+      <button class="btn btn-ghost" style="border:1px solid var(--red);color:var(--red);">✗ Rejeitar todos</button>
+    </form>
     {% endif %}
     <a href="{{ url_for('cards.detail_card', card_id=card.id) }}" class="btn btn-ghost">← Ver cartão</a>
   </div>
