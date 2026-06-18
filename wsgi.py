@@ -40,6 +40,21 @@ def bootstrap():
         _ensure_column("card_entries", "status", "VARCHAR(20) DEFAULT 'ativo'")
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
+        # Tabela de histórico mensal
+        from sqlalchemy import text as _text
+        with db.engine.connect() as _conn:
+            _conn.execute(_text("""
+                CREATE TABLE IF NOT EXISTS card_month_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    billing_month VARCHAR(7) NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    total_geral NUMERIC(12,2) DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, billing_month)
+                )
+            """))
+            _conn.commit()
 
         # 3. Migra coluna photo para TEXT
         try:
