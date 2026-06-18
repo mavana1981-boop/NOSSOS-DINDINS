@@ -369,9 +369,7 @@ def get_yearly_cashflow(user_id, year):
             # Exclui gastos repassados dos eventuais
             if exp.share_mode in ("integral", "split") and exp.payer_id != user_id:
                 continue
-            # Exclui gastos eventuais (pontual) anteriores a junho/2026
-            if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
-                continue
+
             v = float(valor)
             if exp.kind == "recorrente":
                 # Desconta do fixo o valor repassado a outro usuário
