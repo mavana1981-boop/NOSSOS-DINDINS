@@ -954,6 +954,41 @@ def _process_batch(card):
         flash("Nenhuma transação encontrada no arquivo.", "warning")
         return render_template("cards/batch_upload.html", card=card)
 
+    batch_id = str(uuid.uuid4())[:8]
+    count = 0
+    for t in transactions:
+        try:
+            d_str = t.get("date", "")
+            try:
+                d = datetime.strptime(d_str, "%Y-%m-%d").date()
+            except Exception:
+                d = date.today()
+            amount = Decimal(str(t.get("amount", 0)))
+            if amount <= 0:
+                continue
+            kind = t.get("kind", "pontual")
+            entry = CardEntry(
+                card_id=card.id,
+                user_id=current_user.id,
+                description=str(t.get("description", "Sem descrição"))[:160],
+                amount=amount,
+                entry_date=d,
+                kind=kind,
+                installments=int(t.get("installments", 1)),
+                installment_no=int(t.get("installment_no", 1)),
+                category="A classificar",
+                status="em_avaliacao",
+                batch_id=batch_id,
+            )
+            db.session.add(entry)
+            count += 1
+        except Exception:
+            continue
+
+    db.session.commit()
+    flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
+    return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
+
 
 @cards_bp.route("/<int:card_id>/lote/<batch_id>/revisao")
 @login_required
