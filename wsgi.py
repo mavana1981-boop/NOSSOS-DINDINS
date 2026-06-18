@@ -165,7 +165,7 @@ def bootstrap():
                     db.session.commit()
                     print(f"[bootstrap] senha do admin '{admin_username}' resetada.")
                 else:
-                    print(f"[bootstrap] admin '{admin_username}' já existe — dados preservados.")
+                     print(f"[bootstrap] admin '{admin_username}' já existe — dados preservados.")
         except Exception as e:
             print(f"[bootstrap] erro ao criar admin: {e}")
 
