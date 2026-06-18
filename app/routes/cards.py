@@ -872,7 +872,7 @@ def _process_batch(card):
     }).encode()
 
     url = (f"https://generativelanguage.googleapis.com/v1beta/"
-           f"models/gemini-2.0-flash:generateContent?key={api_key}")
+           f"models/gemini-2.5-flash-lite-preview-06-17:generateContent?key={api_key}")
     req = urllib.request.Request(
         url, data=payload,
         headers={"Content-Type": "application/json"},
