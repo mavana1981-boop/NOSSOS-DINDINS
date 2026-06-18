@@ -319,10 +319,12 @@ def get_yearly_cashflow(user_id, year):
     cards_user = _Card4.query.filter_by(user_id=user_id, is_active=True).all()
     card_closing_map2 = {c.id: c.closing_day for c in cards_user}
 
-    parcelados = CardEntry.query.filter_by(
-        user_id=user_id,
-        kind="parcelado",
-        status="ativo"
+    # Usa installments > 1 em vez de kind="parcelado"
+    # (entries importados em lote podem ter kind="pontual" mas installments setado)
+    parcelados = CardEntry.query.filter(
+        CardEntry.user_id == user_id,
+        CardEntry.status == "ativo",
+        CardEntry.installments > 1,
     ).all()
 
     # Agrupa valor por (ano, mês da fatura) para cada parcela futura
