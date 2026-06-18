@@ -239,13 +239,17 @@ def list_cards():
     card_map = {card.id: card.name for card in cards}
     from sqlalchemy import extract as _extract
     import calendar as _cal
-    # Sempre filtra por entry_date — sem exceção para mês atual
-    all_entries = CardEntry.query.filter(
+    # Filtra por mês da FATURA (billing_month), não por entry_date
+    from app.utils import get_billing_month as _gbm
+    card_closing_map = {card.id: card.closing_day for card in cards}
+    _all_active = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None),
-        _extract("year",  CardEntry.entry_date) == filter_year2,
-        _extract("month", CardEntry.entry_date) == filter_month2,
+        CardEntry.status == "ativo",
     ).all() if card_ids else []
+    all_entries = [
+        e for e in _all_active
+        if _gbm(e.entry_date, card_closing_map.get(e.card_id)) == (filter_year2, filter_month2)
+    ]
 
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
