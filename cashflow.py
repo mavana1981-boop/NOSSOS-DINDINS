@@ -144,6 +144,27 @@ def ajustar():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@cashflow_bp.route("/debug-tudo")
+@login_required
+def debug_tudo():
+    from flask import jsonify
+    from app.models import Income, Expense, CardEntry, Card
+    from sqlalchemy import text
+    with db.engine.connect() as conn:
+        users   = conn.execute(text("SELECT id, username FROM users")).fetchall()
+        incomes = conn.execute(text("SELECT COUNT(*) FROM incomes")).fetchone()[0]
+        expenses= conn.execute(text("SELECT COUNT(*) FROM expenses")).fetchone()[0]
+        cards   = conn.execute(text("SELECT COUNT(*) FROM cards")).fetchone()[0]
+        entries = conn.execute(text("SELECT COUNT(*) FROM card_entries")).fetchone()[0]
+    my_incomes  = Income.query.filter_by(user_id=current_user.id).count()
+    my_expenses = Expense.query.filter_by(payer_id=current_user.id).count()
+    return jsonify({
+        "current_user": {"id": current_user.id, "username": current_user.username},
+        "todos_users": [{"id": u[0], "username": u[1]} for u in users],
+        "banco_total": {"incomes": incomes, "expenses": expenses, "cards": cards, "entries": entries},
+        "meu_user":    {"incomes": my_incomes, "expenses": my_expenses},
+    })
+
 @cashflow_bp.route("/debug-entries")
 @login_required
 def debug_entries():
