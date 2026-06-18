@@ -11,3 +11,4 @@ Pillow==10.4.0
 email-validator==2.2.0
 APScheduler==3.10.4
 pdfplumber==0.11.4
+pypdf==4.3.1
