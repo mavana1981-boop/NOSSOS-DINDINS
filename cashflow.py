@@ -148,41 +148,6 @@ def ajustar():
 @login_required
 def debug_entries():
     from flask import jsonify
-    from app.models import CardEntry, Card
-    # Mostra todos os cartões e entries do sistema
-    all_cards = Card.query.all()
-    my_cards = Card.query.filter_by(user_id=current_user.id).all()
-    entries = CardEntry.query.limit(10).all()
-    return jsonify({
-        "current_user_id": current_user.id,
-        "total_cards": len(all_cards),
-        "my_cards": [{"id": c.id, "name": c.name, "user_id": c.user_id} for c in my_cards],
-        "sample_entries": [{
-            "id": e.id,
-            "desc": e.description[:40],
-            "kind": e.kind,
-            "installments": e.installments,
-            "installment_no": e.installment_no,
-            "status": e.status,
-            "user_id": e.user_id,
-            "card_id": e.card_id,
-        } for e in entries]
-    })
-
-@cashflow_bp.route("/debug-eventuais")
-@login_required
-def debug_eventuais():
-    from flask import jsonify
-    from app.models import Expense
-    exps = Expense.query.filter_by(payer_id=current_user.id, kind="pontual").all()
-    result = [{"id": e.id, "desc": e.description, "amount": float(e.amount),
-               "spent_at": str(e.spent_at), "share_mode": e.share_mode} for e in exps]
-    return jsonify({"total": len(result), "expenses": result[:30]})
-
-@cashflow_bp.route("/debug-entries")
-@login_required
-def debug_entries():
-    from flask import jsonify
     from app.models import Card, CardEntry
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
     card_ids = [c.id for c in cards]
