@@ -783,144 +783,146 @@ def batch_upload(card_id):
 
 
 def _process_batch(card):
-    import uuid, base64, json, re
+    import uuid, base64, json, re, os, urllib.request
+
     files = request.files.getlist("files")
     if not files or not files[0].filename:
         flash("Selecione pelo menos um arquivo.", "danger")
         return render_template("cards/batch_upload.html", card=card)
 
-    # Monta conteúdo para a API
-    content = []
-    for f in files:
-        data = f.read()
-        mime = f.content_type or "image/jpeg"
-        if mime == "application/pdf":
-            content.append({
-                "type": "document",
-                "source": {"type": "base64", "media_type": "application/pdf",
-                           "data": base64.b64encode(data).decode()}
-            })
-        else:
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": mime,
-                           "data": base64.b64encode(data).decode()}
-            })
-
-    content.append({
-        "type": "text",
-        "text": (
-            "Analise este extrato de cartão de crédito e extraia TODAS as transações/lançamentos. "
-            "Retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações. "
-            "Formato exato:\n"
-            '[{"description": "nome do lançamento", "amount": 99.90, "date": "2024-01-15", '
-            '"kind": "pontual"}]\n'
-            'Regras: amount sempre número positivo em reais. '
-            'date no formato YYYY-MM-DD, se não encontrar use a data de hoje. '
-            'kind: "pontual" para compras normais, "recorrente" para assinaturas, '
-            '"parcelado" para parcelados. '
-            'Se parcelado, adicione "installment_no" e "installments" (ex: 2 e 6 para 2/6). '
-            'Ignore taxas, juros, pagamentos e saldo. Extraia apenas compras/débitos.'
-        )
-    })
-
-    import urllib.request
-    import os
-
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        flash("GEMINI_API_KEY não configurada nas variáveis do Railway.", "danger")
-        return render_template("cards/batch_upload.html", card=card)
-
-    # Gemini usa parts com inline_data para imagens/PDFs
-    prompt_text = (
+    PROMPT = (
         "Analise este extrato de cartão de crédito e extraia TODAS as transações. "
         "Retorne SOMENTE JSON válido, sem markdown, sem texto adicional. "
-        'Formato: [{"description": "nome", "amount": 99.90, "date": "2024-01-15", "kind": "pontual"}]\n'
-        "Regras: amount positivo em reais. date em YYYY-MM-DD. "
-        'kind: "pontual" para compras, "recorrente" para assinaturas, "parcelado" para parcelados. '
-        'Se parcelado, inclua "installment_no" e "installments". '
+        'Formato: [{"description": "nome", "amount": 99.90, "date": "2024-01-15", "kind": "pontual"}] '
+        "Regras: amount positivo em reais. date em YYYY-MM-DD (se ausente use hoje). "
+        'kind: "pontual" compras, "recorrente" assinaturas, "parcelado" parcelados. '
+        'Se parcelado inclua "installment_no" e "installments". '
         "Ignore taxas, juros, pagamentos. Extraia apenas compras e débitos."
     )
 
-    parts = [{"text": prompt_text}]
-    for item in content:
-        if item.get("type") == "image":
-            parts.append({"inline_data": {
-                "mime_type": item["source"]["media_type"],
-                "data": item["source"]["data"]
-            }})
-        elif item.get("type") == "document":
-            parts.append({"inline_data": {
-                "mime_type": "application/pdf",
-                "data": item["source"]["data"]
-            }})
+    file_data = []
+    for fi in files:
+        data = fi.read()
+        mime = fi.content_type or "image/jpeg"
+        file_data.append({"mime": mime, "b64": base64.b64encode(data).decode()})
 
-    payload = json.dumps({
-        "contents": [{"parts": parts}]
-    }).encode()
-
-    url = (f"https://generativelanguage.googleapis.com/v1beta/"
-           f"models/gemini-1.5-flash-latest:generateContent?key={api_key}")
-    req = urllib.request.Request(
-        url, data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            result = json.loads(resp.read())
-        raw = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    def _parse_json(raw):
+        raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         raw = re.sub(r"\n?```$", "", raw)
-        transactions = json.loads(raw)
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        flash(f"Erro Gemini {e.code}: {body[:400]}", "danger")
-        return render_template("cards/batch_upload.html", card=card)
-    except Exception as e:
-        flash(f"Erro ao processar arquivo: {e}", "danger")
+        return json.loads(raw)
+
+    def _try_gemini():
+        key = os.environ.get("GEMINI_API_KEY", "")
+        if not key:
+            return None, "GEMINI_API_KEY não configurada"
+        parts = [{"text": PROMPT}]
+        for fd in file_data:
+            parts.append({"inline_data": {"mime_type": fd["mime"], "data": fd["b64"]}})
+        payload = json.dumps({"contents": [{"parts": parts}]}).encode()
+        for model in ["gemini-2.0-flash-exp", "gemini-1.5-flash-002", "gemini-1.5-flash-8b"]:
+            try:
+                url = (f"https://generativelanguage.googleapis.com/v1beta/"
+                       f"models/{model}:generateContent?key={key}")
+                req = urllib.request.Request(url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    result = json.loads(resp.read())
+                raw = result["candidates"][0]["content"]["parts"][0]["text"]
+                return _parse_json(raw), None
+            except urllib.error.HTTPError as e:
+                body = e.read().decode()
+                if e.code == 404:
+                    continue
+                return None, f"Gemini {e.code}: {body[:200]}"
+            except Exception as e:
+                return None, f"Gemini: {e}"
+        return None, "Gemini: todos os modelos indisponíveis"
+
+    def _try_groq():
+        key = os.environ.get("GROQ_API_KEY", "")
+        if not key:
+            return None, "GROQ_API_KEY não configurada"
+        img_content = [{"type": "text", "text": PROMPT}]
+        has_img = False
+        for fd in file_data:
+            if "image" in fd["mime"]:
+                img_content.append({"type": "image_url", "image_url": {
+                    "url": f"data:{fd['mime']};base64,{fd['b64']}"
+                }})
+                has_img = True
+        if not has_img:
+            return None, "Groq: sem imagens (apenas PDFs)"
+        payload = json.dumps({
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [{"role": "user", "content": img_content}],
+            "max_tokens": 4096,
+        }).encode()
+        try:
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=payload,
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {key}"},
+                method="POST")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                result = json.loads(resp.read())
+            raw = result["choices"][0]["message"]["content"]
+            return _parse_json(raw), None
+        except urllib.error.HTTPError as e:
+            return None, f"Groq {e.code}: {e.read().decode()[:200]}"
+        except Exception as e:
+            return None, f"Groq: {e}"
+
+    def _try_cloudflare():
+        acct = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        key  = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+        if not acct or not key:
+            return None, "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurados"
+        messages = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
+        has_img = False
+        for fd in file_data:
+            if "image" in fd["mime"]:
+                messages[0]["content"].append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}
+                })
+                has_img = True
+        if not has_img:
+            return None, "Cloudflare: sem imagens (apenas PDFs)"
+        payload = json.dumps({"messages": messages}).encode()
+        try:
+            url = (f"https://api.cloudflare.com/client/v4/accounts/{acct}/"
+                   f"ai/run/@cf/meta/llama-3.2-11b-vision-instruct")
+            req = urllib.request.Request(url, data=payload,
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {key}"},
+                method="POST")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                result = json.loads(resp.read())
+            raw = result["result"]["response"]
+            return _parse_json(raw), None
+        except urllib.error.HTTPError as e:
+            return None, f"Cloudflare {e.code}: {e.read().decode()[:200]}"
+        except Exception as e:
+            return None, f"Cloudflare: {e}"
+
+    transactions = None
+    errors = []
+    for fn, name in [(_try_gemini, "Gemini"), (_try_groq, "Groq"), (_try_cloudflare, "Cloudflare")]:
+        result, err = fn()
+        if result is not None:
+            flash(f"Extrato analisado via {name}.", "info")
+            transactions = result
+            break
+        errors.append(f"{name}: {err}")
+
+    if transactions is None:
+        flash("Falha em todas as IAs: " + " | ".join(errors), "danger")
         return render_template("cards/batch_upload.html", card=card)
 
     if not isinstance(transactions, list) or not transactions:
         flash("Nenhuma transação encontrada no arquivo.", "warning")
         return render_template("cards/batch_upload.html", card=card)
-
-    batch_id = str(uuid.uuid4())[:8]
-    count = 0
-    for t in transactions:
-        try:
-            d_str = t.get("date", "")
-            try:
-                d = datetime.strptime(d_str, "%Y-%m-%d").date()
-            except Exception:
-                d = date.today()
-            amount = Decimal(str(t.get("amount", 0)))
-            if amount <= 0:
-                continue
-            kind = t.get("kind", "pontual")
-            entry = CardEntry(
-                card_id=card.id,
-                user_id=current_user.id,
-                description=str(t.get("description", "Sem descrição"))[:160],
-                amount=amount,
-                entry_date=d,
-                kind=kind,
-                installments=int(t.get("installments", 1)),
-                installment_no=int(t.get("installment_no", 1)),
-                category="A classificar",
-                status="em_avaliacao",
-                batch_id=batch_id,
-            )
-            db.session.add(entry)
-            count += 1
-        except Exception:
-            continue
-
-    db.session.commit()
-    flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
-    return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
 
 
 @cards_bp.route("/<int:card_id>/lote/<batch_id>/revisao")
