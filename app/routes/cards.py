@@ -376,6 +376,15 @@ def list_cards():
         for k, v in sorted(proj_months.items())
     ]
 
+    # Totais por cartão — filtrados por mês (evita card.entries que ignora filtro)
+    card_data = {}
+    for card in cards:
+        entries_card = [e for e in all_entries if e.card_id == card.id]
+        card_data[card.id] = {
+            "total": sum(float(e.amount) for e in entries_card),
+            "count": len(entries_card),
+        }
+
     from app.models import CardMonthHistory
     historico = CardMonthHistory.query.filter_by(user_id=current_user.id)        .order_by(CardMonthHistory.billing_month.desc()).all()
 
@@ -385,6 +394,7 @@ def list_cards():
                            hh_consolidated=hh_consolidated_sorted,
                            projecao_parcelados=projecao_parcelados,
                            historico=historico,
+                           card_data=card_data,
                            mes_label=mes_label,
                            mes_filter=mes_filter,
                            prev_mes=prev_mes,
