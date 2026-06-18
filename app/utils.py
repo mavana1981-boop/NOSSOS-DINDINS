@@ -396,13 +396,18 @@ def get_yearly_cashflow(user_id, year):
         income_recurring_items = []
         income_eventual_items  = []
 
-        # Rendas
+        # Rendas — mesma lógica de get_user_monthly_summary
+        from datetime import date as _d_inc
+        _last_day = _d_inc(year, m, 28)
         for inc in all_incomes:
-            if not inc.is_active_on(year, m):
-                continue
             v_inc = float(inc.amount)
-            income_recurring += v_inc
-            income_recurring_items.append({"desc": inc.description, "amount": v_inc})
+            if inc.received_at.year == year and inc.received_at.month == m:
+                income_recurring += v_inc
+                income_recurring_items.append({"desc": inc.description, "amount": v_inc})
+            elif inc.is_recurring and inc.received_at <= _last_day:
+                if (year, m) >= (inc.received_at.year, inc.received_at.month):
+                    income_recurring += v_inc
+                    income_recurring_items.append({"desc": inc.description, "amount": v_inc})
 
         # Gastos
         for exp, valor in expenses:
