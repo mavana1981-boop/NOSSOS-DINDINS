@@ -1061,6 +1061,21 @@ def _process_batch(card):
         except Exception:
             continue
 
+    # Aplicar regras de categorização automática
+    from app.models import MerchantRule
+    rules = MerchantRule.query.filter_by(user_id=current_user.id).all()
+    if rules:
+        pending = CardEntry.query.filter_by(batch_id=batch_id, status="em_avaliacao").all()
+        for e in pending:
+            desc_lower = e.description.lower()
+            for rule in rules:
+                if rule.keyword.lower() in desc_lower:
+                    e.category  = rule.category
+                    if rule.expense_id:
+                        e.expense_id = rule.expense_id
+                    break
+        db.session.commit()
+
     db.session.commit()
     flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
     return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
@@ -1074,7 +1089,7 @@ def batch_review(card_id, batch_id):
         abort(403)
     entries = CardEntry.query.filter_by(
         card_id=card_id, batch_id=batch_id, status="em_avaliacao"
-    ).order_by(CardEntry.entry_date).all()
+    ).order_by(CardEntry.amount.desc()).all()
     fixed_expenses = _get_user_fixed_expenses()
     return render_template("cards/batch_review.html",
                            card=card, entries=entries,
@@ -1126,9 +1141,29 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     entry.status = "ativo"
     db.session.commit()
 
+    # Salvar regra de categorização para uso futuro
+    if entry.category and entry.category != "A classificar":
+        from app.models import MerchantRule
+        keyword = entry.description.split()[0] if entry.description else ""
+        if len(keyword) >= 3:
+            existing = MerchantRule.query.filter_by(
+                user_id=current_user.id, keyword=keyword
+            ).first()
+            if existing:
+                existing.category   = entry.category
+                existing.expense_id = entry.expense_id
+            else:
+                rule = MerchantRule(
+                    user_id=current_user.id,
+                    keyword=keyword,
+                    category=entry.category,
+                    expense_id=entry.expense_id,
+                )
+                db.session.add(rule)
+            db.session.commit()
+
     if entry.expense_id:
         _check_excedente(entry.expense_id)
-
 
     flash("Lançamento aprovado.", "success")
     return redirect(url_for("cards.batch_review",
