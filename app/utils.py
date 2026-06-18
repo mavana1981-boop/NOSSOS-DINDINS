@@ -342,25 +342,16 @@ def get_yearly_cashflow(user_id, year):
 
 
     # Agrupa valor por (ano, mês da fatura) para cada parcela futura
-    # Agrupa valor por mês da fatura — billing_month como base
+    # Agrupa valor por mês — mesma lógica da projeção do menu cartões (entry_date)
     parcelados_por_mes = {}
     for entry in parcelados:
         if not entry.installments or entry.installment_no is None:
             continue
-        if entry.billing_month:
-            try:
-                bm_yr = int(entry.billing_month[:4])
-                bm_mo = int(entry.billing_month[5:7])
-            except Exception:
-                bm_yr, bm_mo = entry.entry_date.year, entry.entry_date.month
-        else:
-            closing = card_closing_map2.get(entry.card_id)
-            bm_yr, bm_mo = get_billing_month(entry.entry_date, closing)
         planned_v = float(entry.expense.amount) if (entry.expense_id and entry.expense) else 0.0
+        first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
         for i in range(entry.installment_no, entry.installments + 1):
-            extra = i - entry.installment_no
-            mo_total = bm_mo - 1 + extra
-            key = (bm_yr + mo_total // 12, mo_total % 12 + 1)
+            d = _add_months(first_date, i - 1)
+            key = (d.year, d.month)
             if key not in parcelados_por_mes:
                 parcelados_por_mes[key] = []
             parcelados_por_mes[key].append({
