@@ -239,24 +239,13 @@ def list_cards():
     card_map = {card.id: card.name for card in cards}
     from sqlalchemy import extract as _extract
     import calendar as _cal
-    from datetime import date as _dt_now
-    _today_now = _dt_now.today()
-    _is_current = (filter_year2 == _today_now.year and filter_month2 == _today_now.month)
-
-    if _is_current:
-        # Mês atual: mostra TODOS os entries ativos
-        all_entries = CardEntry.query.filter(
-            CardEntry.card_id.in_(card_ids),
-            (CardEntry.status == "ativo") | (CardEntry.status == None),
-        ).all() if card_ids else []
-    else:
-        # Outros meses: filtra por entry_date
-        all_entries = CardEntry.query.filter(
-            CardEntry.card_id.in_(card_ids),
-            (CardEntry.status == "ativo") | (CardEntry.status == None),
-            _extract("year",  CardEntry.entry_date) == filter_year2,
-            _extract("month", CardEntry.entry_date) == filter_month2,
-        ).all() if card_ids else []
+    # Sempre filtra por entry_date — sem exceção para mês atual
+    all_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None),
+        _extract("year",  CardEntry.entry_date) == filter_year2,
+        _extract("month", CardEntry.entry_date) == filter_month2,
+    ).all() if card_ids else []
 
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
@@ -872,7 +861,7 @@ def _process_batch(card):
     }).encode()
 
     url = (f"https://generativelanguage.googleapis.com/v1beta/"
-           f"models/gemini-2.5-flash-lite-preview-06-17:generateContent?key={api_key}")
+           f"models/gemini-1.5-flash:generateContent?key={api_key}")
     req = urllib.request.Request(
         url, data=payload,
         headers={"Content-Type": "application/json"},
