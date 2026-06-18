@@ -10,11 +10,11 @@
   <div class="flex flex-gap">
     {% if entries %}
     <form method="POST" action="{{ url_for('cards.batch_approve_all', card_id=card.id, batch_id=batch_id) }}"
-          onsubmit="return confirm('Aprovar todos os lançamentos pendentes sem categorizar?');">
+          onsubmit="return confirm('Aprovar todos sem categorizar?');">
       <button class="btn btn-primary">✓ Aprovar todos</button>
     </form>
     <form method="POST" action="{{ url_for('cards.batch_reject_all', card_id=card.id, batch_id=batch_id) }}"
-          onsubmit="return confirm('Rejeitar e apagar todos os lançamentos pendentes deste lote?');">
+          onsubmit="return confirm('Rejeitar e apagar todos?');">
       <button class="btn btn-ghost" style="border:1px solid var(--red);color:var(--red);">✗ Rejeitar todos</button>
     </form>
     {% endif %}
@@ -23,44 +23,6 @@
 </div>
 
 {% if entries %}
-<div class="card mb-2" style="border-left:4px solid var(--gold);">
-  <div class="text-small text-dim">
-    Revise cada lançamento abaixo. Você pode editar a descrição, vincular a um gasto fixo,
-    definir a categoria e aprovar — ou excluir se for inválido.
-    Lançamentos aprovados entram no controle normal do cartão.
-  </div>
-</div>
-
-<!-- Painel: categorizar e aprovar todos -->
-<div class="card mb-3" style="border-left:4px solid var(--accent);">
-  <div style="font-weight:600;margin-bottom:12px;">Aprovar todos com uma categoria</div>
-  <div class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:12px;">
-    <div class="form-group mb-0" style="flex:1;min-width:180px;">
-      <label class="form-label">Gasto fixo (opcional)</label>
-      <select class="form-control" id="bulk-expense">
-        <option value="">— Avulso —</option>
-        {% for exp in fixed_expenses %}
-        <option value="{{ exp.id }}">{{ exp.description }} — {{ exp.amount|brl }}/mês</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-group mb-0" style="flex:1;min-width:160px;">
-      <label class="form-label">Categoria para todos</label>
-      <select class="form-control" id="bulk-category">
-        {% set cats = ['A classificar','Alimentação','Transporte','Saúde','Educação',
-                       'Moradia','Lazer','Vestuário','Beleza','Serviços','Contas','Outros'] %}
-        {% for cat in cats %}
-        <option>{{ cat }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-group mb-0">
-      <button class="btn btn-primary" onclick="aplicarCategoriaTodos()">
-        ✓ Aplicar e aprovar todos
-      </button>
-    </div>
-  </div>
-</div>
 
 <!-- Painel: classificar por estabelecimento -->
 <div class="card mb-3" style="border-left:4px solid #9b7bb5;">
@@ -72,11 +34,10 @@
         <option value="">— Selecione —</option>
         {% set merchants = [] %}
         {% for entry in entries %}
-          {% set words = entry.description.split() %}
-          {% set merchant = words[0] if words|length >= 1 else entry.description %}
-          {% if merchant not in merchants %}
-            {% set _ = merchants.append(merchant) %}
-            <option value="{{ merchant }}">{{ merchant }}</option>
+          {% set word = entry.description.split()[0] if entry.description.split()|length > 0 else entry.description %}
+          {% if word not in merchants %}
+            {% set _ = merchants.append(word) %}
+            <option value="{{ word }}">{{ word }}</option>
           {% endif %}
         {% endfor %}
       </select>
@@ -93,25 +54,67 @@
     <div class="form-group mb-0" style="flex:1;min-width:160px;">
       <label class="form-label">Categoria</label>
       <select class="form-control" id="merchant-category">
-        {% set cats = ['Alimentação','Transporte','Saúde','Educação','Moradia',
-                       'Lazer','Vestuário','Beleza','Serviços','Contas','Outros','A classificar'] %}
-        {% for cat in cats %}
+        {% for cat in ['Alimentação','Supermercado','Transporte','Saúde','Farmácia',
+                       'Educação','Moradia','Lazer','Vestuário','Beleza','Serviços',
+                       'Assinatura','Contas','Outros','A classificar'] %}
         <option>{{ cat }}</option>
         {% endfor %}
       </select>
     </div>
     <div class="form-group mb-0">
       <button class="btn btn-primary" onclick="aplicarPorEstabelecimento()" style="background:#9b7bb5;">
-        ✓ Aplicar e aprovar correspondentes
+        ✓ Aplicar e aprovar
       </button>
     </div>
   </div>
   <div id="merchant-preview" class="text-small text-faint" style="margin-top:8px;"></div>
 </div>
 
+<!-- Painel: aprovar selecionados com classificação -->
+<div class="card mb-3" style="border-left:4px solid var(--accent);">
+  <div style="font-weight:600;margin-bottom:12px;">☑ Aprovar selecionados com classificação</div>
+  <div class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:12px;">
+    <div class="form-group mb-0" style="flex:1;min-width:180px;">
+      <label class="form-label">Gasto fixo (opcional)</label>
+      <select class="form-control" id="bulk-expense">
+        <option value="">— Avulso —</option>
+        {% for exp in fixed_expenses %}
+        <option value="{{ exp.id }}">{{ exp.description }} — {{ exp.amount|brl }}/mês</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0" style="flex:1;min-width:160px;">
+      <label class="form-label">Categoria</label>
+      <select class="form-control" id="bulk-category">
+        {% for cat in ['Alimentação','Supermercado','Transporte','Saúde','Farmácia',
+                       'Educação','Moradia','Lazer','Vestuário','Beleza','Serviços',
+                       'Assinatura','Contas','Outros','A classificar'] %}
+        <option>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0" style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="toggleTodos()">☑ Todos</button>
+      <button class="btn btn-primary" onclick="aprovarSelecionados()">
+        ✓ Aprovar selecionados
+      </button>
+    </div>
+  </div>
+  <div id="sel-count" class="text-small text-faint" style="margin-top:8px;">0 selecionados</div>
+</div>
+
+<!-- Lista de lançamentos (ordenados por valor desc) -->
 {% for entry in entries %}
 <div class="card mb-2" id="entry-{{ entry.id }}"
      style="border-left:4px solid var(--gold);position:relative;">
+
+  <!-- Checkbox de seleção -->
+  <div style="position:absolute;top:14px;left:14px;">
+    <input type="checkbox" class="entry-sel" data-id="{{ entry.id }}"
+           onchange="atualizarContagem()" style="width:18px;height:18px;cursor:pointer;">
+  </div>
+
+  <!-- Botão excluir -->
   <div style="position:absolute;top:12px;right:16px;">
     <form method="POST"
           action="{{ url_for('cards.batch_delete_entry', card_id=card.id, batch_id=batch_id, entry_id=entry.id) }}"
@@ -120,7 +123,7 @@
     </form>
   </div>
 
-  <form method="POST"
+  <form method="POST" style="padding-left:32px;"
         action="{{ url_for('cards.batch_approve_entry', card_id=card.id, batch_id=batch_id, entry_id=entry.id) }}">
 
     <div class="grid grid-3" style="gap:12px;margin-bottom:12px;">
@@ -129,8 +132,7 @@
         <input class="form-control" name="description" value="{{ entry.description }}" required>
       </div>
       <div class="form-group mb-0">
-        <label class="form-label">Valor</label>
-        <div class="mono" style="font-size:1.2rem;font-family:'Fraunces',serif;color:var(--red);padding-top:6px;">
+        <div class="mono" style="font-size:1.2rem;font-family:'Fraunces',serif;color:var(--red);padding-top:20px;">
           {{ entry.amount|brl }}
           {% if entry.kind == 'parcelado' %}
             <span class="badge badge-shared" style="font-size:0.65rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
@@ -144,9 +146,9 @@
 
     <div class="grid grid-2" style="gap:12px;">
       <div class="form-group mb-0">
-        <label class="form-label">Vincular a gasto fixo (opcional)</label>
+        <label class="form-label">Gasto fixo (opcional)</label>
         <select class="form-control" name="expense_id">
-          <option value="">— Avulso (sem vínculo) —</option>
+          <option value="">— Avulso —</option>
           {% for exp in fixed_expenses %}
           <option value="{{ exp.id }}" {% if entry.expense_id == exp.id %}selected{% endif %}>
             {{ exp.description }} — {{ exp.amount|brl }}/mês
@@ -155,11 +157,15 @@
         </select>
       </div>
       <div class="form-group mb-0">
-        <label class="form-label">Categoria</label>
+        <label class="form-label">Categoria
+          {% if entry.category and entry.category != 'A classificar' %}
+          <span class="badge badge-shared" style="font-size:0.6rem;">✓ auto</span>
+          {% endif %}
+        </label>
         <select class="form-control" name="category">
-          {% set cats = ['A classificar','Alimentação','Transporte','Saúde','Educação',
-                         'Moradia','Lazer','Vestuário','Beleza','Serviços','Contas','Outros'] %}
-          {% for cat in cats %}
+          {% for cat in ['Alimentação','Supermercado','Transporte','Saúde','Farmácia',
+                         'Educação','Moradia','Lazer','Vestuário','Beleza','Serviços',
+                         'Assinatura','Contas','Outros','A classificar'] %}
           <option {% if entry.category == cat %}selected{% endif %}>{{ cat }}</option>
           {% endfor %}
         </select>
@@ -184,13 +190,30 @@
 {% endif %}
 
 <script>
-function aplicarCategoriaTodos() {
+function atualizarContagem() {
+  const n = document.querySelectorAll('.entry-sel:checked').length;
+  document.getElementById('sel-count').textContent = n + ' selecionado(s)';
+}
+
+function toggleTodos() {
+  const chks = document.querySelectorAll('.entry-sel');
+  const allChecked = [...chks].every(c => c.checked);
+  chks.forEach(c => c.checked = !allChecked);
+  atualizarContagem();
+}
+
+function aprovarSelecionados() {
   const expenseId = document.getElementById('bulk-expense').value;
-  const category = document.getElementById('bulk-category').value;
-  if (!confirm('Aprovar todos com a categoria "' + category + '"?')) return;
-  const forms = document.querySelectorAll('form[action*="aprovar"]:not([action*="aprovar-todos"])');
-  Promise.all([...forms].map(form => {
-    const fd = new FormData(form);
+  const category  = document.getElementById('bulk-category').value;
+  const selecionados = [...document.querySelectorAll('.entry-sel:checked')];
+  if (!selecionados.length) { alert('Selecione pelo menos um lançamento.'); return; }
+  if (!confirm('Aprovar ' + selecionados.length + ' lançamento(s) como "' + category + '"?')) return;
+
+  Promise.all(selecionados.map(chk => {
+    const id   = chk.dataset.id;
+    const card = document.getElementById('entry-' + id);
+    const form = card.querySelector('form[method="POST"]');
+    const fd   = new FormData(form);
     if (expenseId) fd.set('expense_id', expenseId);
     fd.set('category', category);
     return fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' });
@@ -210,19 +233,19 @@ function filtrarPorEstabelecimento() {
     }
   });
   document.getElementById('merchant-preview').textContent =
-    merchant ? count + ' lançamento(s) encontrado(s) para "' + document.getElementById('bulk-merchant').value + '"' : '';
+    merchant ? count + ' lançamento(s) encontrado(s)' : '';
 }
 
 function aplicarPorEstabelecimento() {
-  const merchant = document.getElementById('bulk-merchant').value;
-  const expenseId = document.getElementById('merchant-expense').value;
-  const category = document.getElementById('merchant-category').value;
+  const merchant   = document.getElementById('bulk-merchant').value;
+  const expenseId  = document.getElementById('merchant-expense').value;
+  const category   = document.getElementById('merchant-category').value;
   if (!merchant) { alert('Selecione um estabelecimento.'); return; }
 
   const items = [];
   document.querySelectorAll('[id^="entry-"]').forEach(card => {
     const desc = card.querySelector('input[name="description"]');
-    const form = card.querySelector('form[method="POST"][action*="aprovar"]');
+    const form = card.querySelector('form[method="POST"]');
     if (desc && form && desc.value.toLowerCase().includes(merchant.toLowerCase())) {
       items.push({ form, desc: desc.value });
     }
