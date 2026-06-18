@@ -311,14 +311,12 @@ def list_cards():
         month = month % 12 + 1
         return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
 
-    # Projeção parcelados: busca todos os parcelados para calcular parcelas futuras
-    # mas o consolidado mensal usa só all_entries (já filtrado por entry_date)
+    # Projeção parcelados: busca TODOS os parcelados ativos (sem filtro de mês)
+    # para projetar parcelas futuras corretamente
     all_parc_entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         CardEntry.installments > 1,
-        (CardEntry.status == "ativo") | (CardEntry.status == None),
-        _extract("year",  CardEntry.entry_date) == filter_year2,
-        _extract("month", CardEntry.entry_date) == filter_month2,
+        CardEntry.status == "ativo",
     ).all() if card_ids else []
     parc_entries = all_parc_entries
     MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
