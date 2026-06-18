@@ -151,31 +151,53 @@ def get_credits_debits(user_id):
     return result
 
 
-def get_consolidated_cards(user_id):
-    """Retorna o consolidado de cartões do mês atual (entries sem billing_month)."""
-    from app.models import Card, CardEntry
+def get_consolidated_cards(user_id, year=None, month=None):
+    """
+    Retorna o consolidado de cartões para o mês indicado.
+    - Mês atual: usa CardEntry ativos
+    - Meses passados: usa CardMonthHistory (snapshot salvo ao virar o mês)
+    """
+    from app.models import Card, CardEntry, CardMonthHistory
     from collections import defaultdict
-    cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
-    card_ids = [c.id for c in cards]
-    # Mês atual: entries com entry_date no mês corrente
     from datetime import date as _d2
-    from sqlalchemy import extract as _ext2
+    import json as _json
+
     _today = _d2.today()
-    all_entries = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None),
-        _ext2("year",  CardEntry.entry_date) == _today.year,
-        _ext2("month", CardEntry.entry_date) == _today.month,
-    ).all() if card_ids else []
+    if year is None:
+        year = _today.year
+    if month is None:
+        month = _today.month
 
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
-    for entry in all_entries:
-        if entry.expense_id and entry.expense:
-            key = entry.expense.description
-            consolidated[key]["planned"] = float(entry.expense.amount)
-        else:
-            key = entry.description
-        consolidated[key]["total"] += float(entry.amount)
+    mes_str = f"{year}-{month:02d}"
+
+    is_current = (year == _today.year and month == _today.month)
+
+    if is_current:
+        # Mês atual: usa entries ativos
+        cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
+        card_ids = [c.id for c in cards]
+        all_entries = CardEntry.query.filter(
+            CardEntry.card_id.in_(card_ids),
+            (CardEntry.status == "ativo") | (CardEntry.status == None),
+        ).all() if card_ids else []
+        for entry in all_entries:
+            if entry.expense_id and entry.expense:
+                key = entry.expense.description
+                consolidated[key]["planned"] = float(entry.expense.amount)
+            else:
+                key = entry.description
+            consolidated[key]["total"] += float(entry.amount)
+    else:
+        # Mês passado: usa snapshot do histórico
+        hist = CardMonthHistory.query.filter_by(
+            user_id=user_id, billing_month=mes_str
+        ).first()
+        if hist:
+            snap = _json.loads(hist.snapshot_json)
+            for key, dados in snap.items():
+                consolidated[key]["total"]   = float(dados.get("total", 0))
+                consolidated[key]["planned"] = float(dados.get("planned", 0))
 
     return consolidated
 
@@ -197,8 +219,7 @@ def get_yearly_cashflow(user_id, year):
 
     # Busca EXATAMENTE igual ao menu Gastos: payer_id == user
     # O valor usado é sempre o amount do Expense (o que o user pagou)
-    # Carrega consolidado de cartões UMA VEZ — mesmos valores da tela inicial
-    consolidated_cards = get_consolidated_cards(user_id)
+    # consolidated_cards é calculado por mês dentro do loop
 
     all_expenses = Expense.query.filter(
         Expense.payer_id == user_id
@@ -353,9 +374,11 @@ def get_yearly_cashflow(user_id, year):
         # Excedente: lógica diferenciada por mês
         from app.models import CardEntry as _CE, Card as _Card2
         _today = _date.today()
+        # Carrega consolidado do mês (entries ativos para mês atual, histórico para passados)
+        consolidated_cards = get_consolidated_cards(user_id, year, m)
 
         if year == _today.year and m == _today.month:
-            # Mês atual: usa EXATAMENTE os valores da tela inicial de cartões
+            # Mês atual: usa valores da tela de cartões
             for key, grp in consolidated_cards.items():
                 if grp["planned"] > 0 and grp["total"] > grp["planned"]:
                     excedente = round(grp["total"] - grp["planned"], 2)
