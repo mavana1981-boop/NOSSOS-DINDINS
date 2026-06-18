@@ -577,3 +577,4 @@ def get_yearly_cashflow(user_id, year):
             "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
         })
     return result
+ 
