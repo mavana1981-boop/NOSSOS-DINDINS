@@ -199,15 +199,11 @@ def get_parcelados_from_history(user_id):
 
 
 def get_consolidated_cards(user_id, year=None, month=None):
-    """
-    Retorna o consolidado de cartões para o mês indicado.
-    - Mês atual: usa CardEntry ativos
-    - Meses passados: usa CardMonthHistory (snapshot salvo ao virar o mês)
-    """
-    from app.models import Card, CardEntry, CardMonthHistory
+    """Retorna consolidado de cartões para o mês indicado via entry_date."""
+    from app.models import Card, CardEntry
     from collections import defaultdict
     from datetime import date as _d2
-    import json as _json
+    from sqlalchemy import extract as _ext3
 
     _today = _d2.today()
     if year is None:
@@ -215,36 +211,24 @@ def get_consolidated_cards(user_id, year=None, month=None):
     if month is None:
         month = _today.month
 
+    cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+
+    all_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None),
+        _ext3("year",  CardEntry.entry_date) == year,
+        _ext3("month", CardEntry.entry_date) == month,
+    ).all() if card_ids else []
+
     consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
-    mes_str = f"{year}-{month:02d}"
-
-    is_current = (year == _today.year and month == _today.month)
-
-    if is_current:
-        # Mês atual: usa entries ativos
-        cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
-        card_ids = [c.id for c in cards]
-        all_entries = CardEntry.query.filter(
-            CardEntry.card_id.in_(card_ids),
-            (CardEntry.status == "ativo") | (CardEntry.status == None),
-        ).all() if card_ids else []
-        for entry in all_entries:
-            if entry.expense_id and entry.expense:
-                key = entry.expense.description
-                consolidated[key]["planned"] = float(entry.expense.amount)
-            else:
-                key = entry.description
-            consolidated[key]["total"] += float(entry.amount)
-    else:
-        # Mês passado: usa snapshot do histórico
-        hist = CardMonthHistory.query.filter_by(
-            user_id=user_id, billing_month=mes_str
-        ).first()
-        if hist:
-            snap = _json.loads(hist.snapshot_json)
-            for key, dados in snap.items():
-                consolidated[key]["total"]   = float(dados.get("total", 0))
-                consolidated[key]["planned"] = float(dados.get("planned", 0))
+    for entry in all_entries:
+        if entry.expense_id and entry.expense:
+            key = entry.expense.description
+            consolidated[key]["planned"] = float(entry.expense.amount)
+        else:
+            key = entry.description
+        consolidated[key]["total"] += float(entry.amount)
 
     return consolidated
 
