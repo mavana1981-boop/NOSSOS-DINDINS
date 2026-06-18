@@ -96,14 +96,23 @@ def _check_excedente(expense_id):
     ).all()
 
     if not parcelados:
-        # Gasto normal: verifica só mês atual
-        total = sum(float(e.amount) for e in CardEntry.query.filter(
+        # Gasto normal: agrupa por mês da FATURA (billing_month via closing_day)
+        from app.utils import get_billing_month as _gbm2
+        from app.models import Card as _Card3
+        all_entries_exp = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             (CardEntry.status == "ativo") | (CardEntry.status == None)
-        ).all())
-        mes_nome = MESES[today.month - 1]
-        desc = f"{exp.description} - excedente {mes_nome}"
-        upsert_excedente(payer, desc, round(total - planejado, 2), exp.category, today.year, today.month)
+        ).all()
+        month_totals_norm = {}
+        for e2 in all_entries_exp:
+            card2 = _Card3.query.get(e2.card_id)
+            closing2 = card2.closing_day if card2 else None
+            bm = _gbm2(e2.entry_date, closing2)
+            month_totals_norm[bm] = month_totals_norm.get(bm, 0.0) + float(e2.amount)
+        for (yr2, mo2), total in month_totals_norm.items():
+            mes_nome = MESES[mo2 - 1]
+            desc = f"{exp.description} - excedente {mes_nome}"
+            upsert_excedente(payer, desc, round(total - planejado, 2), exp.category, yr2, mo2)
         return
 
     # Parcelados: projeta meses a partir da parcela atual
