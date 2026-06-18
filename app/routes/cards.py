@@ -880,8 +880,13 @@ def _process_batch(card):
             req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
                 data=payload,
-                headers={"Content-Type": "application/json",
-                         "Authorization": f"Bearer {key}"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "User-Agent": "Mozilla/5.0 (compatible; Python/3.13)",
+                    "Accept": "application/json",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
                 method="POST")
             with urllib.request.urlopen(req, timeout=60) as resp:
                 result = json.loads(resp.read())
