@@ -42,18 +42,18 @@
              style="width:{{ card.usage_percent }}%;background:{{ 'var(--red)' if card.usage_percent > 80 else card.color }};"></div>
       </div>
       <div class="flex-between mt-1">
-        <span class="text-small" style="color:var(--red);">{{ card.total_entries|brl }} usado</span>
-        <span class="text-small" style="color:var(--green);">{{ card.available|brl }} disponível</span>
+        <span class="text-small" style="color:var(--red);">{{ card_data[card.id].total|brl }} usado</span>
+        <span class="text-small" style="color:var(--green);">{{ (card.limit_amount - card_data[card.id].total)|brl }} disponível</span>
       </div>
     </div>
     {% else %}
     <div class="mb-2">
       <span class="text-dim text-small">Total lançado: </span>
-      <span class="mono" style="color:var(--red);">{{ card.total_entries|brl }}</span>
+      <span class="mono" style="color:var(--red);">{{ card_data[card.id].total|brl }}</span>
     </div>
     {% endif %}
     <div class="flex-between">
-      <span class="text-faint text-small">{{ card.entries.count() }} lançamento(s)</span>
+      <span class="text-faint text-small">{{ card_data[card.id].count }} lançamento(s)</span>
       <span class="btn btn-ghost btn-sm">Ver detalhes →</span>
     </div>
   </a>
