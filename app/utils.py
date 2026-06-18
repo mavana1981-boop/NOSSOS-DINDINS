@@ -455,26 +455,24 @@ def get_yearly_cashflow(user_id, year):
                 "desc": f"{exp.description}{parc_fix2}",
                 "amount": v2,
             })
-        # Parcelados do cartão → apenas o EXCEDENTE vai para eventuais
-        # Agrupa por expense_id para comparar com o planejado
+        # Parcelados vinculados a gasto fixo → apenas o EXCEDENTE vai para eventuais
+        # Avulsos (sem expense_id) são ignorados — já aparecem no consolidado do cartão
         from collections import defaultdict as _dd2
         parc_mes = parcelados_por_mes.get((year, m), [])
-        parc_por_exp = _dd2(lambda: {"total": 0.0, "planned": 0.0, "items": []})
+        parc_por_exp = _dd2(lambda: {"total": 0.0, "planned": 0.0, "desc": ""})
         for parc in parc_mes:
             eid = parc.get("expense_id")
-            key_p = eid if eid else f"avulso_{parc['desc']}"
-            parc_por_exp[key_p]["total"] += parc["amount"]
-            parc_por_exp[key_p]["planned"] = parc.get("planned", 0.0)
-            parc_por_exp[key_p]["items"].append(parc)
-        for key_p, v_p in parc_por_exp.items():
+            if not eid:
+                continue  # avulso: ignora
+            parc_por_exp[eid]["total"]   += parc["amount"]
+            parc_por_exp[eid]["planned"]  = parc.get("planned", 0.0)
+            parc_por_exp[eid]["desc"]     = parc["desc"].rsplit(" (", 1)[0]
+        for eid_p, v_p in parc_por_exp.items():
             excedente = round(v_p["total"] - v_p["planned"], 2)
             if excedente > 0:
-                desc_p = v_p["items"][0]["desc"].rsplit(" (", 1)[0]  # remove label parcela
-                if v_p["planned"] > 0:
-                    desc_p = f"{desc_p} - excedente parcelado"
                 eventual_total += excedente
                 eventual_items.append({
-                    "desc": desc_p,
+                    "desc": f"{v_p['desc']} - excedente parcelado",
                     "amount": excedente,
                 })
 
