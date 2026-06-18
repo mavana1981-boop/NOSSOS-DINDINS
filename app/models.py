@@ -334,3 +334,17 @@ class CashflowOverride(db.Model):
     user = db.relationship("User", backref="cashflow_overrides")
 
     __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)
+
+
+class CardMonthHistory(db.Model):
+    """Histórico mensal de gastos dos cartões."""
+    __tablename__ = "card_month_history"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    billing_month = db.Column(db.String(7), nullable=False)   # YYYY-MM
+    snapshot_json = db.Column(db.Text, nullable=False)         # JSON consolidado
+    total_geral   = db.Column(db.Numeric(12, 2), default=0)
+    created_at    = db.Column(db.DateTime, default=db.func.now())
+
+    user = db.relationship("User", backref="card_histories")
+    __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
