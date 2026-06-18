@@ -126,10 +126,9 @@ def _check_excedente(expense_id):
             key = (d.year, d.month)
             month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
 
-    for (year, month), total in month_totals.items():
-        mes_nome = MESES[month - 1]
-        desc = f"{exp.description} - excedente {mes_nome}"
-        upsert_excedente(payer, desc, round(total - planejado, 2), exp.category, year, month)
+    # Parcelados: NÃO cria registros no banco — são calculados
+    # dinamicamente no utils.py (get_yearly_cashflow) para evitar duplicidade
+    pass
 
 
 
