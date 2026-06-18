@@ -847,6 +847,47 @@ def _process_batch(card):
         mime = fi.content_type or "image/jpeg"
         file_data.append({"mime": mime, "b64": base64.b64encode(data).decode()})
 
+    def _extract_pdf_text():
+        """Extrai texto de PDFs separando colunas. Retorna string ou vazia."""
+        import io
+        all_lines = []
+        for fd in file_data:
+            if "pdf" not in fd["mime"]:
+                continue
+            try:
+                pdf_bytes = base64.b64decode(fd["b64"])
+                try:
+                    import pdfplumber
+                    from collections import defaultdict as _dd_p
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for page in pdf.pages:
+                            mid = page.width / 2
+                            words = page.extract_words(x_tolerance=3, y_tolerance=3)
+                            if not words:
+                                t = page.extract_text()
+                                if t: all_lines.extend(t.split("\n"))
+                                continue
+                            left_l = _dd_p(list); right_l = _dd_p(list)
+                            for w in words:
+                                y = round(w["top"] / 5) * 5
+                                (left_l if w["x0"] < mid else right_l)[y].append(w["text"])
+                            for y in sorted(left_l): all_lines.append(" ".join(left_l[y]))
+                            for y in sorted(right_l):
+                                if right_l[y]: all_lines.append(" ".join(right_l[y]))
+                except Exception:
+                    # Fallback pypdf
+                    try:
+                        import pypdf
+                        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+                        for page in reader.pages:
+                            t = page.extract_text()
+                            if t: all_lines.extend(t.split("\n"))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return "\n".join(all_lines)
+
     def _parse_json(raw):
         raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         raw = re.sub(r"\n?```$", "", raw)
@@ -856,11 +897,23 @@ def _process_batch(card):
         key = os.environ.get("GEMINI_API_KEY", "")
         if not key:
             return None, "GEMINI_API_KEY não configurada"
+
+        # Extrai texto do PDF primeiro — funciona com qualquer modelo de texto
+        extracted_text = _extract_pdf_text()
+
         parts = [{"text": PROMPT}]
-        for fd in file_data:
-            parts.append({"inline_data": {"mime_type": fd["mime"], "data": fd["b64"]}})
+        if extracted_text:
+            parts.append({"text": "Extrato:\n" + extracted_text[:20000]})
+        else:
+            # Fallback: envia imagens diretamente
+            for fd in file_data:
+                if "image" in fd["mime"]:
+                    parts.append({"inline_data": {"mime_type": fd["mime"], "data": fd["b64"]}})
+
         payload = json.dumps({"contents": [{"parts": parts}]}).encode()
-        for model in ["gemini-2.0-flash-exp", "gemini-1.5-flash-002", "gemini-1.5-flash-001", "gemini-1.5-flash-8b-001", "gemini-1.5-pro-002", "gemini-1.5-pro-001", "gemini-1.0-pro-vision-latest", "gemini-pro-vision"]:
+        # Modelos de texto (sem precisar de suporte a PDF inline)
+        for model in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-latest",
+                      "gemini-1.5-pro-latest", "gemini-2.0-flash-exp", "gemini-1.0-pro"]:
             try:
                 url = (f"https://generativelanguage.googleapis.com/v1beta/"
                        f"models/{model}:generateContent?key={key}")
@@ -872,11 +925,11 @@ def _process_batch(card):
                 return _parse_json(raw), None
             except urllib.error.HTTPError as e:
                 body = e.read().decode()
-                if e.code == 404:
+                if e.code in (404, 429, 503):
                     continue
                 return None, f"Gemini {e.code}: {body[:200]}"
             except Exception as e:
-                return None, f"Gemini: {e}"
+                continue
         return None, "Gemini: todos os modelos indisponíveis"
 
     def _try_groq():
@@ -913,62 +966,13 @@ def _process_batch(card):
             raw = result["choices"][0]["message"]["content"]
             return _parse_json(raw)
 
-        # Extrai texto completo do PDF
-        all_text = ""
-        has_image = False
-        for fd in file_data:
-            if "pdf" in fd["mime"]:
-                try:
-                    import io
-                    pdf_bytes = base64.b64decode(fd["b64"])
-                    lines_all = []
-                    try:
-                        # Tenta pdfplumber com separação por colunas
-                        import pdfplumber
-                        from collections import defaultdict as _dd
-                        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                            for page in pdf.pages:
-                                mid = page.width / 2
-                                words = page.extract_words(x_tolerance=3, y_tolerance=3)
-                                if not words:
-                                    t = page.extract_text()
-                                    if t:
-                                        lines_all.extend(t.split("\n"))
-                                    continue
-                                left_lines = _dd(list)
-                                right_lines = _dd(list)
-                                for w in words:
-                                    y = round(w["top"] / 5) * 5
-                                    if w["x0"] < mid:
-                                        left_lines[y].append(w["text"])
-                                    else:
-                                        right_lines[y].append(w["text"])
-                                for y in sorted(left_lines.keys()):
-                                    lines_all.append(" ".join(left_lines[y]))
-                                for y in sorted(right_lines.keys()):
-                                    if right_lines[y]:
-                                        lines_all.append(" ".join(right_lines[y]))
-                    except Exception as e1:
-                        # Fallback: pypdf
-                        try:
-                            import pypdf
-                            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-                            for page in reader.pages:
-                                t = page.extract_text()
-                                if t:
-                                    lines_all.extend(t.split("\n"))
-                        except Exception as e2:
-                            return None, f"Groq PDF extract pdfplumber={repr(e1)} pypdf={repr(e2)}"
-                    all_text += "\n".join(lines_all)
-                except Exception as e:
-                    return None, f"Groq PDF extract: {repr(e)}"
-            elif "image" in fd["mime"]:
-                has_image = True
+        # Usa _extract_pdf_text compartilhada
+        all_text = _extract_pdf_text()
+        has_image = any("image" in fd["mime"] for fd in file_data)
 
         if not all_text.strip() and not has_image:
             return None, "Groq: sem conteúdo para processar"
 
-        # Multi-chunk: divide texto em pedaços de 12.000 chars com overlap
         all_transactions = []
         CHUNK = 12000
         OVERLAP = 500
@@ -981,7 +985,7 @@ def _process_batch(card):
                 chunks.append(all_text[start:end])
                 if end >= len(all_text):
                     break
-                start = end - OVERLAP  # overlap para não perder transações no corte
+                start = end - OVERLAP
 
             for i, chunk in enumerate(chunks):
                 try:
@@ -992,9 +996,7 @@ def _process_batch(card):
                     return None, f"Groq {e.code}: {e.read().decode()[:200]}"
                 except Exception as e:
                     return None, f"Groq chunk {i+1}: {e}"
-
-        elif has_image:
-            # Para imagens, processa normalmente (sem chunking)
+        else:
             try:
                 img_msgs = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
                 for fd in file_data:
@@ -1009,7 +1011,8 @@ def _process_batch(card):
                     "https://api.groq.com/openai/v1/chat/completions",
                     data=payload,
                     headers={"Content-Type": "application/json",
-                             "Authorization": f"Bearer {key}"},
+                             "Authorization": f"Bearer {key}",
+                             "User-Agent": "Mozilla/5.0"},
                     method="POST")
                 with urllib.request.urlopen(req, timeout=90) as resp:
                     result = json.loads(resp.read())
@@ -1020,13 +1023,10 @@ def _process_batch(card):
             except Exception as e:
                 return None, f"Groq: {e}"
 
-        # Deduplicação por (description, amount, date)
         seen = set()
         unique = []
         for t in all_transactions:
-            key2 = (str(t.get("description",""))[:40],
-                    str(t.get("amount","")),
-                    str(t.get("date","")))
+            key2 = (str(t.get("description",""))[:40], str(t.get("amount","")), str(t.get("date","")))
             if key2 not in seen:
                 seen.add(key2)
                 unique.append(t)
