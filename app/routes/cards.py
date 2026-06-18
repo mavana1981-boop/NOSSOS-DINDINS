@@ -1,517 +1,985 @@
-import os
-import uuid
-import base64
-from io import BytesIO
-from decimal import Decimal
-from datetime import datetime
-from PIL import Image
-from flask import current_app
-from flask_login import current_user
-from sqlalchemy import func
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+from flask_login import login_required, current_user
 from app import db
+from app.models import Card, CardEntry, Expense, ExpenseShare
 
-ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+cards_bp = Blueprint("cards", __name__)
+
+COLORS = ["#6b8db5", "#7ea66b", "#c4654a", "#c9a868", "#9b7bb5",
+          "#5bb5a8", "#b5756b", "#6b9eb5", "#a8b56b", "#b56b9b"]
 
 
-def allowed_image(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
-
-
-def save_profile_photo(file_storage):
-    """Converte foto para base64 e retorna data URI para salvar no banco.
-    A foto fica persistida no PostgreSQL — nunca se perde no deploy."""
-    if not file_storage or not file_storage.filename:
-        return None
-    if not allowed_image(file_storage.filename):
+def _parse(s):
+    if not s:
         return None
     try:
-        img = Image.open(file_storage)
-        img = img.convert("RGB")
-        w, h = img.size
-        side = min(w, h)
-        left = (w - side) // 2
-        top = (h - side) // 2
-        img = img.crop((left, top, left + side, top + side))
-        img = img.resize((256, 256), Image.LANCZOS)
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=80, optimize=True)
-        b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-        return f"data:image/jpeg;base64,{b64}"
-    except Exception as e:
-        print(f"Erro processando imagem: {e}")
+        return Decimal(str(s).replace(".", "").replace(",", ".").strip())
+    except (InvalidOperation, ValueError):
         return None
 
 
-def format_brl(value):
-    if value is None:
-        return "R$ 0,00"
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return "R$ 0,00"
-    s = f"{v:,.2f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}"
+def _get_user_fixed_expenses():
+    return Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente"
+    ).order_by(Expense.description).all()
 
 
-def format_date_br(d):
-    if not d:
-        return ""
-    if isinstance(d, datetime):
-        d = d.date()
-    return d.strftime("%d/%m/%Y")
+# ── Excedente ─────────────────────────────────────────────────────────────────
 
-
-def register_filters(app):
-    app.jinja_env.filters["brl"] = format_brl
-    app.jinja_env.filters["data_br"] = format_date_br
-
-
-def register_context(app):
-    @app.context_processor
-    def inject_globals():
-        return {
-            "current_year": datetime.now().year,
-            "app_name": "Nosso Dindin",
-        }
-
-
-def get_user_balance_with(user_id, other_user_id, year=None, month=None):
-    """Saldo com gastos vigentes no mês indicado (padrão: mês atual)."""
-    from app.models import Expense, ExpenseShare
-    from datetime import date as _d
-    if year is None or month is None:
-        today = _d.today()
-        year, month = today.year, today.month
-
-    def _sum_active(payer_id, share_uid):
-        exps = db.session.query(Expense, ExpenseShare)\
-            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-            .filter(Expense.payer_id == payer_id,
-                    ExpenseShare.user_id == share_uid).all()
-        return sum(float(share.share_amount) for exp, share in exps
-                   if exp.is_active_on(year, month))
-
-    a = _sum_active(user_id, other_user_id)
-    b = _sum_active(other_user_id, user_id)
-    return a - b
-
-
-def get_user_monthly_summary(user_id, year, month):
-    """Saldo = Renda - gastos próprios + cotas recebidas."""
-    from app.models import Income, Expense, ExpenseShare
+def _check_excedente(expense_id):
+    """Verifica excedente do mês atual para gastos normais.
+    Para parcelados, projeta meses futuros. Nunca duplica."""
     from datetime import date as _date
-    incomes = Income.query.filter_by(user_id=user_id).all()
-    income_total = 0.0
-    last_day = _date(year, month, 28)
-    for i in incomes:
-        if i.received_at.year == year and i.received_at.month == month:
-            income_total += float(i.amount)
-        elif i.is_recurring and i.received_at <= last_day:
-            if (year, month) >= (i.received_at.year, i.received_at.month):
-                income_total += float(i.amount)
-
-    proprios = 0.0  # o que o usuário paga de verdade
-    cotas = 0.0     # o que outros lhe devem
-
-    # Gastos onde o usuário é pagador
-    for exp in Expense.query.filter_by(payer_id=user_id).all():
-        if not exp.is_active_on(year, month):
-            continue
-        for s in exp.shares:
-            if s.user_id == user_id:
-                proprios += float(s.share_amount)
-            else:
-                cotas += float(s.share_amount)
-
-    # Gastos onde o usuário é devedor (outro pagou)
-    debitos = db.session.query(Expense, ExpenseShare)\
-        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-        .filter(ExpenseShare.user_id == user_id, Expense.payer_id != user_id).all()
-    for exp, share in debitos:
-        if exp.is_active_on(year, month):
-            proprios += float(share.share_amount)
-
-    return {
-        "income": income_total,
-        "expense": proprios,
-        "cotas": cotas,
-        "balance": income_total - proprios + cotas,
-    }
-
-
-def get_credits_debits(user_id):
-    from app.models import User
-    others = User.query.filter(User.id != user_id).all()
-    result = []
-    for o in others:
-        bal = get_user_balance_with(user_id, o.id)
-        if abs(bal) > 0.005:
-            result.append({"user": o, "balance": bal})
-    return result
-
-
-def get_parcelados_from_history(user_id):
-    """Reconstrói entries parcelados a partir do CardMonthHistory para projeção futura."""
-    from app.models import CardMonthHistory
-    import json as _json
-    from datetime import date as _d3
-    import calendar as _cal3
-
-    historicos = CardMonthHistory.query.filter_by(user_id=user_id).all()
-    parcelados = []  # lista de dicts compatível com CardEntry
-
-    for hist in historicos:
-        snap = _json.loads(hist.snapshot_json)
-        for nome, dados in snap.items():
-            for entry_data in dados.get("entries", []):
-                parcela = entry_data.get("parcela", "")
-                if not parcela or "/" not in parcela:
-                    continue
-                parts = parcela.split("/")
-                try:
-                    inst_no    = int(parts[0])
-                    inst_total = int(parts[1])
-                except Exception:
-                    continue
-                if inst_total <= 1:
-                    continue
-                try:
-                    from datetime import datetime as _dt3
-                    d = _dt3.strptime(entry_data.get("date", ""), "%Y-%m-%d").date()
-                except Exception:
-                    continue
-
-                # Simula objeto compatível com CardEntry
-                class _FakeEntry:
-                    pass
-                e = _FakeEntry()
-                e.description    = entry_data.get("desc", nome)
-                e.amount         = entry_data.get("amount", 0)
-                e.entry_date     = d
-                e.installment_no = inst_no
-                e.installments   = inst_total
-                e.expense_id     = None
-                e.expense        = None
-                parcelados.append(e)
-
-    return parcelados
-
-
-def get_consolidated_cards(user_id, year=None, month=None):
-    """
-    Retorna o consolidado de cartões para o mês indicado.
-    - Mês atual: usa CardEntry ativos
-    - Meses passados: usa CardMonthHistory (snapshot salvo ao virar o mês)
-    """
-    from app.models import Card, CardEntry, CardMonthHistory
-    from collections import defaultdict
-    from datetime import date as _d2
-    import json as _json
-
-    _today = _d2.today()
-    if year is None:
-        year = _today.year
-    if month is None:
-        month = _today.month
-
-    consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0})
-    mes_str = f"{year}-{month:02d}"
-
-    is_current = (year == _today.year and month == _today.month)
-
-    if is_current:
-        # Mês atual: usa entries ativos
-        cards = Card.query.filter_by(user_id=user_id, is_active=True).all()
-        card_ids = [c.id for c in cards]
-        all_entries = CardEntry.query.filter(
-            CardEntry.card_id.in_(card_ids),
-            (CardEntry.status == "ativo") | (CardEntry.status == None),
-        ).all() if card_ids else []
-        for entry in all_entries:
-            if entry.expense_id and entry.expense:
-                key = entry.expense.description
-                consolidated[key]["planned"] = float(entry.expense.amount)
-            else:
-                key = entry.description
-            consolidated[key]["total"] += float(entry.amount)
-    else:
-        # Mês passado: usa snapshot do histórico
-        hist = CardMonthHistory.query.filter_by(
-            user_id=user_id, billing_month=mes_str
-        ).first()
-        if hist:
-            snap = _json.loads(hist.snapshot_json)
-            for key, dados in snap.items():
-                consolidated[key]["total"]   = float(dados.get("total", 0))
-                consolidated[key]["planned"] = float(dados.get("planned", 0))
-
-    return consolidated
-
-
-def get_yearly_cashflow(user_id, year):
-    from app import db as _db
-    from app.models import Income, Expense, ExpenseShare, CashflowOverride
-    # Garante sessão limpa — fecha transação antiga se houver
-    try:
-        _db.session.commit()
-    except Exception:
-        _db.session.rollback()
-    overrides = {(o.year, o.month): o for o in
-                 CashflowOverride.query.filter_by(user_id=user_id).all()}
-    from datetime import date as _date
-    months_pt = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-                 "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    from app.models import ExpenseShare as _Share
     from decimal import Decimal as _Dec
+    from sqlalchemy import extract
+    import calendar
 
-    # Busca EXATAMENTE igual ao menu Gastos: payer_id == user
-    # O valor usado é sempre o amount do Expense (o que o user pagou)
-    # consolidated_cards é calculado por mês dentro do loop
+    MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
 
-    all_expenses = Expense.query.filter(
-        Expense.payer_id == user_id
-    ).all()
-
-    # Converte para lista (exp, valor) — valor é o que impacta o fluxo do user
-    expenses = []
-    for exp in all_expenses:
-        # Para split: o custo do user é o share_amount dele
-        if exp.share_mode in ("split", "integral"):
-            share = ExpenseShare.query.filter_by(
-                expense_id=exp.id, user_id=user_id
-            ).first()
-            valor = float(share.share_amount) if share else float(exp.amount)
-        else:
-            valor = float(exp.amount)
-        expenses.append((exp, valor))
-
-    # Lançamentos parcelados no cartão do usuário → gasto eventual por mês
-    from app.models import CardEntry
-    import calendar as _cal
-
-    def _add_months(dt, n):
+    def add_months(dt, n):
         month = dt.month - 1 + n
-        year2 = dt.year + month // 12
+        year = dt.year + month // 12
         month = month % 12 + 1
-        day = min(dt.day, _cal.monthrange(year2, month)[1])
-        return _date(year2, month, day)
+        day = min(dt.day, calendar.monthrange(year, month)[1])
+        return _date(year, month, day)
+
+    def upsert_excedente(payer, desc, amount, cat, year, month):
+        """Cria ou atualiza excedente para um mês. Remove se amount <= 0."""
+        antigo = Expense.query.filter(
+            Expense.payer_id == payer,
+            Expense.description == desc,
+            Expense.kind == "pontual",
+            extract('year', Expense.spent_at) == year,
+            extract('month', Expense.spent_at) == month,
+        ).first()
+        if amount <= 0:
+            if antigo:
+                _Share.query.filter_by(expense_id=antigo.id).delete()
+                db.session.delete(antigo)
+                db.session.commit()
+            return
+        if antigo:
+            if round(float(antigo.amount), 2) != round(amount, 2):
+                antigo.amount = amount
+                db.session.commit()
+        else:
+            dt = _date(year, month, 1)
+            novo = Expense(
+                payer_id=payer, description=desc, amount=amount,
+                kind="pontual", share_mode="solo", category=cat, spent_at=dt,
+            )
+            db.session.add(novo)
+            db.session.flush()
+            db.session.add(_Share(
+                expense_id=novo.id, user_id=payer,
+                share_amount=_Dec(str(round(amount, 2))),
+                share_percent=_Dec("100"),
+            ))
+            db.session.commit()
+            flash(f"Excedente R$ {amount:.2f} registrado: {desc}", "warning")
+
+    exp = Expense.query.get(expense_id)
+    if not exp:
+        return
+
+    planejado = float(exp.amount)
+    payer = exp.payer_id
+    today = _date.today()
 
     parcelados = CardEntry.query.filter_by(
-        user_id=user_id,
-        kind="parcelado",
-        status="ativo"
+        expense_id=exp.id, kind="parcelado", status="ativo"
     ).all()
 
-    # Agrupa valor por (ano, mês) para cada parcela futura
-    parcelados_por_mes = {}
+    if not parcelados:
+        # Gasto normal: verifica só mês atual
+        total = sum(float(e.amount) for e in CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            (CardEntry.status == "ativo") | (CardEntry.status == None)
+        ).all())
+        mes_nome = MESES[today.month - 1]
+        desc = f"{exp.description} - excedente {mes_nome}"
+        upsert_excedente(payer, desc, round(total - planejado, 2), exp.category, today.year, today.month)
+        return
+
+    # Parcelados: projeta meses a partir da parcela atual
+    month_totals = {}
     for entry in parcelados:
-        if not entry.installments or entry.installment_no is None:
+        if not entry.installments:
             continue
-        first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
-        for i in range(entry.installment_no, entry.installments + 1):
-            d = _add_months(first_date, i - 1)
+        first_date = add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+        for i in range(entry.installment_no or 1, entry.installments + 1):
+            d = add_months(first_date, i - 1)
             key = (d.year, d.month)
-            if key not in parcelados_por_mes:
-                parcelados_por_mes[key] = []
-            parc_label = f" ({i}/{entry.installments})"
-            parcelados_por_mes[key].append({
-                "desc": f"{entry.description}{parc_label}",
-                "amount": round(float(entry.amount), 2)
-            })
+            month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
 
-    # Gastos onde o usuário é o payer E tem repasse (integral/split) de outro usuário
-    repasses = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
-            Expense.payer_id == user_id,
-            Expense.share_mode.in_(["integral", "split"]),
-            ExpenseShare.user_id != user_id
+    for (year, month), total in month_totals.items():
+        mes_nome = MESES[month - 1]
+        desc = f"{exp.description} - excedente {mes_nome}"
+        upsert_excedente(payer, desc, round(total - planejado, 2), exp.category, year, month)
+
+
+
+@cards_bp.route("/admin/recalcular-excedentes")
+@login_required
+def recalcular_excedentes():
+    """Recalcula todos os excedentes de parcelados - roda manualmente."""
+    if not current_user.is_admin:
+        abort(403)
+    from app.models import ExpenseShare as _Share
+    from decimal import Decimal as _Dec
+    from datetime import date as _date
+    import calendar
+
+    MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+
+    def add_months(dt, n):
+        month = dt.month - 1 + n
+        year = dt.year + month // 12
+        month = month % 12 + 1
+        return _date(year, month, min(dt.day, calendar.monthrange(year, month)[1]))
+
+    # Apaga todos os excedentes existentes
+    todos = Expense.query.filter(
+        Expense.description.like("% - excedente %"),
+        Expense.kind == "pontual"
+    ).all()
+    removed = len(todos)
+    for exp in todos:
+        _Share.query.filter_by(expense_id=exp.id).delete()
+        db.session.delete(exp)
+    db.session.commit()
+
+    # Recria só para parcelados
+    expense_ids = set(
+        e.expense_id for e in CardEntry.query.filter(
+            CardEntry.expense_id != None,
+            CardEntry.kind == "parcelado",
+            CardEntry.status == "ativo"
         ).all()
-
-    # Gastos repassados AO usuário por outra pessoa (o user é devedor)
-    # Aparecem como gasto eventual no fluxo do usuário
-    debitos = db.session.query(Expense, ExpenseShare)        .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)        .filter(
-            ExpenseShare.user_id == user_id,
-            Expense.payer_id != user_id,
-            Expense.share_mode.in_(["integral", "split"])
+    )
+    today = _date.today()
+    generated = 0
+    for eid in expense_ids:
+        exp = Expense.query.get(eid)
+        if not exp or "celular denise" in exp.description.lower():
+            continue
+        planejado = float(exp.amount)
+        payer = exp.payer_id
+        parcelados = CardEntry.query.filter_by(
+            expense_id=eid, kind="parcelado", status="ativo"
         ).all()
+        month_totals = {}
+        for entry in parcelados:
+            if not entry.installments:
+                continue
+            first_date = add_months(entry.entry_date, 1 - (entry.installment_no or 1))
+            for i in range(entry.installment_no or 1, entry.installments + 1):
+                d = add_months(first_date, i - 1)
+                key = (d.year, d.month)
+                month_totals[key] = month_totals.get(key, 0.0) + float(entry.amount)
+        for (year, month), total in month_totals.items():
+            excedente = round(total - planejado, 2)
+            if excedente <= 0:
+                continue
+            mes_nome = MESES[month - 1]
+            desc = f"{exp.description} - excedente {mes_nome}"
+            dt = _date(year, month, 1)
+            novo = Expense(payer_id=payer, description=desc, amount=excedente,
+                kind="pontual", share_mode="solo", category=exp.category, spent_at=dt)
+            db.session.add(novo)
+            db.session.flush()
+            db.session.add(_Share(expense_id=novo.id, user_id=payer,
+                share_amount=_Dec(str(excedente)), share_percent=_Dec("100")))
+            generated += 1
+    db.session.commit()
+    return f"<pre>Removidos: {removed}\nGerados: {generated}</pre>"
 
 
-    incomes = Income.query.filter_by(user_id=user_id).all()
-    result = []
-    cumulative = 0.0
-    for m in range(1, 13):
-        last_day = _date(year, m, 28)
-        income_recurring = 0.0
-        income_eventual = 0.0
-        income_recurring_items = []
-        income_eventual_items = []
-        for i in incomes:
-            if i.is_recurring and i.received_at <= last_day:
-                if (year, m) >= (i.received_at.year, i.received_at.month):
-                    income_recurring += float(i.amount)
-                    income_recurring_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
-            elif i.received_at.year == year and i.received_at.month == m:
-                income_eventual += float(i.amount)
-                income_eventual_items.append({"desc": i.description, "amount": round(float(i.amount), 2)})
-        # Repasses: não somam na renda eventual
-        income_total = income_recurring + income_eventual
-        fixed_total = 0.0
-        eventual_total = 0.0
-        eventual_items = []
-        fixed_items = []
+# ── Cartões ───────────────────────────────────────────────────────────────────
 
-        # Débitos removidos dos eventuais (repassados não impactam eventual)
-        for exp, valor in expenses:
-            if not exp.is_active_on(year, m):
-                continue
-            # Exclui registros de excedente automático (calculados dinamicamente via cartão)
-            if "- excedente" in (exp.description or "").lower() and exp.kind == "pontual":
-                continue
-            # Exclui gastos repassados dos eventuais
-            if exp.share_mode in ("integral", "split") and exp.payer_id != user_id:
-                continue
-            # Exclui gastos eventuais (pontual) anteriores a junho/2026
-            if exp.kind == "pontual" and (year < 2026 or (year == 2026 and m < 6)):
-                continue
-            v = float(valor)
-            if exp.kind == "recorrente":
-                # Desconta do fixo o valor repassado a outro usuário
-                if exp.share_mode in ("integral", "split"):
-                    from app.models import ExpenseShare as _ES2
-                    repasse_share = _ES2.query.filter(
-                        _ES2.expense_id == exp.id,
-                        _ES2.user_id != user_id
-                    ).all()
-                    repasse_v = sum(float(s.share_amount) for s in repasse_share)
-                    v = max(0.0, round(v - repasse_v, 2))
-                fixed_total += v
-                parc_fix = ""
-                if exp.recurrence_months:
-                    md = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
-                    parc_fix = f" ({md}/{exp.recurrence_months})"
-                fixed_items.append({
-                    "desc": exp.description + parc_fix,
-                    "amount": round(float(v), 2),
-                })
-                # Excedente calculado de forma consolidada após o loop
-            else:
-                eventual_total += v
-                eventual_items.append({
-                    "desc": exp.description,
-                    "amount": round(float(v), 2),
-                })
+@cards_bp.route("/")
+@login_required
+def list_cards():
+    from datetime import date as _dt
+    today = _dt.today()
+    mes_filter = request.args.get("mes", today.strftime("%Y-%m"))
 
-        # Gastos repassados ao usuário → gastos fixos no fluxo dele
-        for exp, share in debitos:
-            if not exp.is_active_on(year, m):
-                continue
-            v2 = round(float(share.share_amount), 2)
-            if v2 <= 0:
-                continue
-            parc_fix2 = ""
-            if exp.kind == "recorrente" and exp.recurrence_months:
-                md2 = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
-                parc_fix2 = f" ({md2}/{exp.recurrence_months})"
-            fixed_total += v2
-            fixed_items.append({
-                "desc": f"{exp.description}{parc_fix2}",
-                "amount": v2,
-            })
-        net = income_total - fixed_total - eventual_total
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True)\
+        .order_by(Card.name).all()
 
-        # Excedente: lógica diferenciada por mês
-        from app.models import CardEntry as _CE, Card as _Card2
-        _today = _date.today()
-        # Carrega consolidado do mês (entries ativos para mês atual, histórico para passados)
-        consolidated_cards = get_consolidated_cards(user_id, year, m)
+    # Consolidado: soma lançamentos por nome do gasto, agrupando entre todos os cartões
+    from collections import defaultdict
+    # Consolidado: todos lançamentos do usuário agrupados por gasto vinculado
+    card_ids = [card.id for card in cards]
+    card_map = {card.id: card.name for card in cards}
+    try:
+        filter_year2 = int(mes_filter[:4])
+        filter_month2 = int(mes_filter[5:7])
+    except Exception:
+        filter_year2, filter_month2 = today.year, today.month
 
-        # Para qualquer mês: usa consolidated_cards (banco ou histórico)
-        for key, grp in consolidated_cards.items():
-            if grp["planned"] > 0 and grp["total"] > grp["planned"]:
-                excedente = round(grp["total"] - grp["planned"], 2)
-                eventual_total += excedente
-                eventual_items.append({
-                    "desc": f"Excedente: {key}",
-                    "amount": excedente,
-                })
+    from sqlalchemy import extract as _extract
+    import calendar as _cal
+
+    all_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None),
+        _extract("year",  CardEntry.entry_date) == filter_year2,
+        _extract("month", CardEntry.entry_date) == filter_month2,
+    ).all() if card_ids else []
+
+
+    consolidated = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "cards": {}, "entries": []})
+    for entry in all_entries:
+        if entry.expense_id and entry.expense:
+            key = entry.expense.description
+            consolidated[key]["planned"] = float(entry.expense.amount)
         else:
-            # Outros meses: parcelados do banco + parcelados reconstruídos do histórico
-            _card_ids = [c2.id for c2 in _Card2.query.filter_by(user_id=user_id).all()]
-            _parc_db = _CE.query.filter(
-                _CE.card_id.in_(_card_ids),
-                _CE.installments > 1,
-                (_CE.status == "ativo") | (_CE.status == None)
-            ).all() if _card_ids else []
-            _parc_hist = get_parcelados_from_history(user_id)
-            _parc_entries = _parc_db + _parc_hist
-
-            _groups_parc = {}
-            for ce in _parc_entries:
-                if not ce.installments or not ce.installment_no:
-                    continue
-                first = _add_months(ce.entry_date, 1 - ce.installment_no)
-                for i in range(ce.installment_no, ce.installments + 1):
-                    d = _add_months(first, i - 1)
-                    if d.year == year and d.month == m:
-                        if ce.expense_id and ce.expense:
-                            key = ce.expense.description
-                            planned = float(ce.expense.amount)
-                        else:
-                            key = ce.description
-                            planned = 0.0
-                        if key not in _groups_parc:
-                            _groups_parc[key] = {"total": 0.0, "planned": planned}
-                        _groups_parc[key]["total"] += float(ce.amount)
-                        break
-
-            for key, grp in _groups_parc.items():
-                if grp["planned"] > 0 and grp["total"] > grp["planned"]:
-                    excedente = round(grp["total"] - grp["planned"], 2)
-                    eventual_total += excedente
-                    eventual_items.append({
-                        "desc": f"Excedente: {key}",
-                        "amount": excedente,
-                    })
-
-        # Aplica overrides manuais
-        override = overrides.get((year, m))
-        def _ov(attr, default):
-            v = getattr(override, attr, None) if override else None
-            return float(v) if v is not None else default
-
-        income_recurring_f = _ov("income_recurring_override", income_recurring)
-        income_eventual_f  = _ov("income_eventual_override",  income_eventual)
-        fixed_total_f      = _ov("fixed_override",            fixed_total)
-        eventual_total_f   = _ov("eventual_override",         eventual_total)
-        net_calc = (income_recurring_f + income_eventual_f) - (fixed_total_f + eventual_total_f)
-
-        # Maio/2026: ponto de referência — zera saldo, acumulado e renda eventual
-        if year == 2026 and m == 5:
-            income_eventual_f  = _ov("income_eventual_override", 0.0)
-            net_final        = _ov("net_override", 0.0)
-            cumulative_final = _ov("cumulative_override", 0.0)
-            cumulative = cumulative_final
-        else:
-            net_final        = _ov("net_override", net_calc)
-            cumulative_final = _ov("cumulative_override", cumulative + net_final)
-            if override and override.cumulative_override is not None:
-                cumulative = cumulative_final
-            else:
-                cumulative += net_final
-
-        result.append({
-            "month": m,
-            "month_name": months_pt[m - 1],
-            "income_recurring": income_recurring_f,
-            "income_eventual": income_eventual_f,
-            "income": income_recurring_f + income_eventual_f,
-            "fixed_expense": fixed_total_f,
-            "eventual_expense": eventual_total_f,
-            "total_expense": fixed_total_f + eventual_total_f,
-            "net": net_final,
-            "cumulative": cumulative_final,
-            "eventual_items": sorted(eventual_items, key=lambda x: x["amount"], reverse=True),
-            "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
-            "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
-            "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
+            key = entry.description
+        card_name = card_map.get(entry.card_id, "?")
+        consolidated[key]["total"] += float(entry.amount)
+        consolidated[key]["cards"][card_name] = \
+            consolidated[key]["cards"].get(card_name, 0.0) + float(entry.amount)
+        parcela_label = ""
+        if entry.installments and entry.installments > 1:
+            no = entry.installment_no or 1
+            parcela_label = f"{no}/{entry.installments}"
+        consolidated[key]["entries"].append({
+            "desc": entry.description,
+            "card": card_name,
+            "amount": float(entry.amount),
+            "date": entry.entry_date.strftime("%d/%m/%Y") if entry.entry_date else "",
+            "parcela": parcela_label,
         })
-    return result
+
+    consolidated_sorted = sorted(
+        [{"name": k, "total": v["total"], "planned": v["planned"],
+          "pct": round(v["total"]/v["planned"]*100,1) if v["planned"] > 0 else None,
+          "cards": v["cards"],
+          "entries": sorted(v["entries"], key=lambda x: x["amount"], reverse=True)}
+         for k, v in consolidated.items()],
+        key=lambda x: x["total"], reverse=True
+    )
+    total_geral = sum(x["total"] for x in consolidated_sorted)
+
+    # Consolidado gastos da casa: soma por categoria vinculada a HouseholdExpense
+    from app.models import HouseholdExpense
+    from collections import defaultdict as _dd
+    hh_links = HouseholdExpense.query.filter_by(owner_id=current_user.id).all()
+    hh_consolidated = _dd(lambda: {"total": 0.0, "planned": 0.0})
+    for hh in hh_links:
+        exp = hh.expense
+        if not exp:
+            continue
+        entries = CardEntry.query.filter_by(expense_id=exp.id, status="ativo").all()
+        spent = sum(float(e.amount) for e in entries)
+        hh_consolidated[exp.description]["total"] += spent
+        hh_consolidated[exp.description]["planned"] = float(exp.amount)
+
+    hh_consolidated_sorted = sorted(
+        [{"name": k, "total": v["total"], "planned": v["planned"],
+          "pct": min(round(v["total"]/v["planned"]*100,1) if v["planned"] > 0 else 0, 999)}
+         for k, v in hh_consolidated.items()],
+        key=lambda x: x["total"], reverse=True
+    )
+
+    # Projeção mês a mês dos parcelados
+    import calendar as _cal
+    from datetime import date as _date2
+    def _add_m(dt, n):
+        month = dt.month - 1 + n
+        yr = dt.year + month // 12
+        month = month % 12 + 1
+        return _date2(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
+
+    # Projeção usa TODOS os parcelados, independente do mês filtrado
+    all_parc_entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        CardEntry.installments > 1,
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all() if card_ids else []
+    parc_entries = all_parc_entries
+    MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+    today2 = _date2.today()
+    proj_months = {}
+    for ce in parc_entries:
+        installment_no = ce.installment_no or 1
+        first = _add_m(ce.entry_date, 1 - installment_no)
+        for i in range(installment_no, ce.installments + 1):
+            d = _add_m(first, i - 1)
+            if (d.year, d.month) < (today2.year, today2.month):
+                continue
+            key = (d.year, d.month)
+            proj_months[key] = proj_months.get(key, 0.0) + float(ce.amount)
+
+    # Detalhe por mês: cada entry que impacta o mês
+    proj_detail = {}
+    for ce in parc_entries:
+        installment_no = ce.installment_no or 1
+        first = _add_m(ce.entry_date, 1 - installment_no)
+        for i in range(installment_no, ce.installments + 1):
+            d = _add_m(first, i - 1)
+            if (d.year, d.month) < (today2.year, today2.month):
+                continue
+            key = (d.year, d.month)
+            if key not in proj_detail:
+                proj_detail[key] = []
+            proj_detail[key].append({
+                "desc": ce.description,
+                "parcela": f"{i}/{ce.installments}",
+                "amount": float(ce.amount),
+                "card": card_map.get(ce.card_id, "?"),
+            })
+
+    import json as _json
+    projecao_parcelados = [
+        {
+            "label": f"{MESES_PT[k[1]-1]}/{k[0]}",
+            "total": round(v, 2),
+            "key": f"{k[0]}-{k[1]:02d}",
+            "items": sorted(proj_detail.get(k, []), key=lambda x: x["amount"], reverse=True),
+            "items_json": _json.dumps(sorted(proj_detail.get(k, []), key=lambda x: x["amount"], reverse=True), ensure_ascii=False),
+        }
+        for k, v in sorted(proj_months.items())
+    ]
+
+    from app.models import CardMonthHistory
+    historico = CardMonthHistory.query.filter_by(user_id=current_user.id)        .order_by(CardMonthHistory.billing_month.desc()).all()
+
+    return render_template("cards/list.html", cards=cards,
+                           consolidated=consolidated_sorted,
+                           total_geral=total_geral,
+                           hh_consolidated=hh_consolidated_sorted,
+                           projecao_parcelados=projecao_parcelados,
+                           historico=historico,
+                           mes_atual=today.strftime("%B/%Y"))
+
+
+@cards_bp.route("/virar-mes", methods=["POST"])
+@login_required
+def virar_mes():
+    """
+    Virar Mês:
+    1. Salva snapshot consolidado no HISTÓRICO
+    2. Apaga todos os lançamentos dos cartões
+    3. Zera gastos pontuais do mês no menu gastos
+    """
+    import json as _json
+    from datetime import date as _dt
+    from app.models import CardMonthHistory, Expense, ExpenseShare
+
+    today = _dt.today()
+    mes_atual = today.strftime("%Y-%m")
+
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_ids = [c.id for c in cards]
+
+    if not card_ids:
+        flash("Nenhum cartão ativo.", "warning")
+        return redirect(url_for("cards.list_cards"))
+
+    # 1. Gerar snapshot consolidado
+    entries = CardEntry.query.filter(
+        CardEntry.card_id.in_(card_ids),
+        (CardEntry.status == "ativo") | (CardEntry.status == None)
+    ).all()
+
+    from collections import defaultdict
+    snap = defaultdict(lambda: {"total": 0.0, "planned": 0.0, "entries": []})
+    for e in entries:
+        key = e.expense.description if (e.expense_id and e.expense) else e.description
+        if e.expense_id and e.expense:
+            snap[key]["planned"] = float(e.expense.amount)
+        snap[key]["total"] += float(e.amount)
+        snap[key]["entries"].append({
+            "desc": e.description,
+            "amount": float(e.amount),
+            "date": str(e.entry_date),
+            "parcela": f"{e.installment_no or 1}/{e.installments}" if (e.installments and e.installments > 1) else "",
+        })
+
+    total_geral = sum(v["total"] for v in snap.values())
+    snapshot = {k: dict(v) for k, v in snap.items()}
+
+    # Upsert histórico
+    hist = CardMonthHistory.query.filter_by(
+        user_id=current_user.id, billing_month=mes_atual
+    ).first()
+    if hist:
+        hist.snapshot_json = _json.dumps(snapshot, ensure_ascii=False)
+        hist.total_geral = total_geral
+    else:
+        hist = CardMonthHistory(
+            user_id=current_user.id,
+            billing_month=mes_atual,
+            snapshot_json=_json.dumps(snapshot, ensure_ascii=False),
+            total_geral=total_geral,
+        )
+        db.session.add(hist)
+
+    # 2. Apagar todos os lançamentos dos cartões
+    count = len(entries)
+    for e in entries:
+        db.session.delete(e)
+
+    # Nota: gastos do menu Gastos NÃO são apagados — só lançamentos de cartão
+
+    db.session.commit()
+
+    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    flash(
+        f"✅ {MESES_PT[today.month-1]}/{today.year} arquivado no Histórico — "
+        f"{count} lançamento(s) removidos. Cartões zerados para o próximo mês.",
+        "success"
+    )
+    return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/reverter-mes", methods=["POST"])
+@login_required
+def reverter_mes():
+    """Restaura o mês mais recente do histórico."""
+    import json as _json
+    from app.models import CardMonthHistory
+    from datetime import datetime as _dt2
+
+    # Pega o histórico mais recente
+    hist = CardMonthHistory.query.filter_by(user_id=current_user.id)        .order_by(CardMonthHistory.billing_month.desc()).first()
+
+    if not hist:
+        flash("Nenhum histórico encontrado para reverter.", "warning")
+        return redirect(url_for("cards.list_cards"))
+
+    snap = _json.loads(hist.snapshot_json)
+    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
+    card_map = {card.name: card.id for card in cards}
+    default_card_id = cards[0].id if cards else None
+
+    if not default_card_id:
+        flash("Nenhum cartão ativo para restaurar.", "warning")
+        return redirect(url_for("cards.list_cards"))
+
+    count = 0
+    for nome, dados in snap.items():
+        for entry_data in dados.get("entries", []):
+            try:
+                d_str = entry_data.get("date", "")
+                try:
+                    d = _dt2.strptime(d_str, "%Y-%m-%d").date()
+                except Exception:
+                    from datetime import date as _dt3
+                    d = _dt3.today()
+
+                parcela = entry_data.get("parcela", "")
+                inst_no, inst_total = 1, 1
+                if "/" in parcela:
+                    parts = parcela.split("/")
+                    inst_no    = int(parts[0]) if parts[0].isdigit() else 1
+                    inst_total = int(parts[1]) if parts[1].isdigit() else 1
+
+                entry = CardEntry(
+                    card_id=default_card_id,
+                    user_id=current_user.id,
+                    description=entry_data.get("desc", nome)[:160],
+                    amount=entry_data.get("amount", 0),
+                    entry_date=d,
+                    kind="parcelado" if inst_total > 1 else "pontual",
+                    installments=inst_total,
+                    installment_no=inst_no,
+                    category="Restaurado",
+                    status="ativo",
+                )
+                db.session.add(entry)
+                count += 1
+            except Exception:
+                continue
+
+    # Remove o histórico restaurado
+    db.session.delete(hist)
+    db.session.commit()
+
+    flash(f"✅ Mês {hist.billing_month} restaurado — {count} lançamento(s) recriados.", "success")
+    return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/novo", methods=["GET", "POST"])
+@login_required
+def new_card():
+    if request.method == "POST":
+        return _save_card(None)
+    return render_template("cards/form.html", card=None, colors=COLORS)
+
+
+@cards_bp.route("/<int:card_id>/editar", methods=["GET", "POST"])
+@login_required
+def edit_card(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    if request.method == "POST":
+        return _save_card(card)
+    return render_template("cards/form.html", card=card, colors=COLORS)
+
+
+def _save_card(card):
+    name = request.form.get("name", "").strip()
+    last_digits = request.form.get("last_digits", "").strip()
+    limit_amount = _parse(request.form.get("limit_amount"))
+    closing_day = request.form.get("closing_day", "").strip()
+    due_day = request.form.get("due_day", "").strip()
+    color = request.form.get("color", "#6b8db5")
+
+    if not name:
+        flash("Nome é obrigatório.", "danger")
+        return render_template("cards/form.html", card=card, colors=COLORS)
+
+    is_new = card is None
+    if is_new:
+        card = Card(user_id=current_user.id)
+        db.session.add(card)
+
+    card.name = name
+    card.last_digits = last_digits[:4] if last_digits else None
+    card.limit_amount = limit_amount or 0
+    card.closing_day = int(closing_day) if closing_day.isdigit() else None
+    card.due_day = int(due_day) if due_day.isdigit() else None
+    card.color = color
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Erro ao salvar cartão: {e}", "danger")
+        return render_template("cards/form.html", card=card, colors=COLORS)
+
+    flash("Cartão salvo com sucesso.", "success")
+    return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/<int:card_id>/excluir", methods=["POST"])
+@login_required
+def delete_card(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    card.is_active = False
+    db.session.commit()
+    flash("Cartão removido.", "info")
+    return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/<int:card_id>")
+@login_required
+def detail_card(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    entries = CardEntry.query.filter_by(card_id=card_id, status="ativo")\
+        .order_by(CardEntry.entry_date.desc()).all()
+    fixed_expenses = _get_user_fixed_expenses()
+
+    by_expense = {}
+    unlinked = []
+    for e in entries:
+        if e.expense_id:
+            eid = e.expense_id
+            if eid not in by_expense:
+                by_expense[eid] = {
+                    "expense": e.expense,
+                    "entries": [],
+                    "total": 0
+                }
+            by_expense[eid]["entries"].append(e)
+            by_expense[eid]["total"] += float(e.amount)
+        else:
+            unlinked.append(e)
+
+    return render_template("cards/detail.html",
+                           card=card,
+                           entries=entries,
+                           by_expense=by_expense,
+                           unlinked=unlinked,
+                           fixed_expenses=fixed_expenses)
+
+
+# ── Lançamentos ───────────────────────────────────────────────────────────────
+
+@cards_bp.route("/<int:card_id>/lancamento/novo", methods=["GET", "POST"])
+@login_required
+def new_entry(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    fixed_expenses = _get_user_fixed_expenses()
+    if request.method == "POST":
+        return _save_entry(None, card)
+    return render_template("cards/entry_form.html",
+                           card=card, entry=None,
+                           fixed_expenses=fixed_expenses)
+
+
+@cards_bp.route("/<int:card_id>/lancamento/<int:entry_id>/editar", methods=["GET", "POST"])
+@login_required
+def edit_entry(card_id, entry_id):
+    card = Card.query.get_or_404(card_id)
+    entry = CardEntry.query.get_or_404(entry_id)
+    if card.user_id != current_user.id or entry.card_id != card_id:
+        abort(403)
+    fixed_expenses = _get_user_fixed_expenses()
+    if request.method == "POST":
+        return _save_entry(entry, card)
+    return render_template("cards/entry_form.html",
+                           card=card, entry=entry,
+                           fixed_expenses=fixed_expenses)
+
+
+def _save_entry(entry, card):
+    fixed_expenses = _get_user_fixed_expenses()
+    desc = request.form.get("description", "").strip()
+    amount = _parse(request.form.get("amount"))
+    expense_id_raw = request.form.get("expense_id", "").strip()
+    expense_id = expense_id_raw if expense_id_raw and expense_id_raw.isdigit() else None
+    category = request.form.get("category", "Outros")
+    kind = request.form.get("kind", "pontual")
+    installments = request.form.get("installments", "1")
+    installment_no = request.form.get("installment_no", "1")
+    notes = request.form.get("notes", "").strip()
+    d_str = request.form.get("entry_date")
+
+    if not desc or not amount or amount <= 0:
+        flash("Descrição e valor são obrigatórios.", "danger")
+        return render_template("cards/entry_form.html",
+                               card=card, entry=entry,
+                               fixed_expenses=fixed_expenses)
+    try:
+        d = datetime.strptime(d_str, "%Y-%m-%d").date() if d_str else date.today()
+    except ValueError:
+        d = date.today()
+
+    if entry is None:
+        entry = CardEntry(card_id=card.id, user_id=current_user.id)
+        db.session.add(entry)
+
+    entry.description = desc
+    entry.amount = amount
+    entry.expense_id = int(expense_id) if expense_id else None
+    if entry.expense_id:
+        linked_exp = Expense.query.get(entry.expense_id)
+        if linked_exp:
+            entry.category = linked_exp.description[:60]
+    else:
+        entry.category = category
+    entry.kind = kind if kind in ("pontual", "recorrente", "parcelado") else "pontual"
+    if kind == "parcelado":
+        entry.installments = max(1, int(installments) if str(installments).isdigit() else 1)
+        entry.installment_no = max(1, int(installment_no) if str(installment_no).isdigit() else 1)
+    else:
+        entry.installments = 1
+        entry.installment_no = 1
+    entry.notes = notes
+    entry.entry_date = d
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Erro ao salvar lançamento: {e}", "danger")
+        return render_template("cards/entry_form.html",
+                               card=card, entry=entry,
+                               fixed_expenses=fixed_expenses)
+
+    # Verifica excedente ao salvar lançamento normal
+    if entry.expense_id:
+        _check_excedente(entry.expense_id)
+
+    # Projeta parcelas futuras como eventuais
+
+    flash("Lançamento salvo.", "success")
+    return redirect(url_for("cards.detail_card", card_id=card.id))
+
+
+@cards_bp.route("/<int:card_id>/lancamento/<int:entry_id>/excluir", methods=["POST"])
+@login_required
+def delete_entry(card_id, entry_id):
+    entry = CardEntry.query.get_or_404(entry_id)
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    expense_id = entry.expense_id
+    db.session.delete(entry)
+    db.session.commit()
+    # Recalcula excedente após exclusão
+    if expense_id:
+        _check_excedente(expense_id)
+    flash("Lançamento removido.", "info")
+    # Retorna JSON se chamado via fetch (Ajax), redirect se form normal
+    from flask import request as _req
+    if _req.headers.get("Accept") == "application/json" or        _req.headers.get("X-Requested-With") == "XMLHttpRequest":
+        from flask import jsonify
+        return jsonify({"ok": True})
+    return redirect(url_for("cards.detail_card", card_id=card_id))
+
+
+# ── Lançamento em Lote ────────────────────────────────────────────────────────
+
+@cards_bp.route("/<int:card_id>/lote", methods=["GET", "POST"])
+@login_required
+def batch_upload(card_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    if request.method == "POST":
+        return _process_batch(card)
+    return render_template("cards/batch_upload.html", card=card)
+
+
+def _process_batch(card):
+    import uuid, base64, json, re
+    files = request.files.getlist("files")
+    if not files or not files[0].filename:
+        flash("Selecione pelo menos um arquivo.", "danger")
+        return render_template("cards/batch_upload.html", card=card)
+
+    # Monta conteúdo para a API
+    content = []
+    for f in files:
+        data = f.read()
+        mime = f.content_type or "image/jpeg"
+        if mime == "application/pdf":
+            content.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf",
+                           "data": base64.b64encode(data).decode()}
+            })
+        else:
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime,
+                           "data": base64.b64encode(data).decode()}
+            })
+
+    content.append({
+        "type": "text",
+        "text": (
+            "Analise este extrato de cartão de crédito e extraia TODAS as transações/lançamentos. "
+            "Retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações. "
+            "Formato exato:\n"
+            '[{"description": "nome do lançamento", "amount": 99.90, "date": "2024-01-15", '
+            '"kind": "pontual"}]\n'
+            'Regras: amount sempre número positivo em reais. '
+            'date no formato YYYY-MM-DD, se não encontrar use a data de hoje. '
+            'kind: "pontual" para compras normais, "recorrente" para assinaturas, '
+            '"parcelado" para parcelados. '
+            'Se parcelado, adicione "installment_no" e "installments" (ex: 2 e 6 para 2/6). '
+            'Ignore taxas, juros, pagamentos e saldo. Extraia apenas compras/débitos.'
+        )
+    })
+
+    import urllib.request
+    import os
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        flash("GEMINI_API_KEY não configurada nas variáveis do Railway.", "danger")
+        return render_template("cards/batch_upload.html", card=card)
+
+    # Gemini usa parts com inline_data para imagens/PDFs
+    prompt_text = (
+        "Analise este extrato de cartão de crédito e extraia TODAS as transações. "
+        "Retorne SOMENTE JSON válido, sem markdown, sem texto adicional. "
+        'Formato: [{"description": "nome", "amount": 99.90, "date": "2024-01-15", "kind": "pontual"}]\n'
+        "Regras: amount positivo em reais. date em YYYY-MM-DD. "
+        'kind: "pontual" para compras, "recorrente" para assinaturas, "parcelado" para parcelados. '
+        'Se parcelado, inclua "installment_no" e "installments". '
+        "Ignore taxas, juros, pagamentos. Extraia apenas compras e débitos."
+    )
+
+    parts = [{"text": prompt_text}]
+    for item in content:
+        if item.get("type") == "image":
+            parts.append({"inline_data": {
+                "mime_type": item["source"]["media_type"],
+                "data": item["source"]["data"]
+            }})
+        elif item.get("type") == "document":
+            parts.append({"inline_data": {
+                "mime_type": "application/pdf",
+                "data": item["source"]["data"]
+            }})
+
+    payload = json.dumps({
+        "contents": [{"parts": parts}]
+    }).encode()
+
+    url = (f"https://generativelanguage.googleapis.com/v1/"
+           f"models/gemini-2.5-flash:generateContent?key={api_key}")
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            result = json.loads(resp.read())
+        raw = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+        transactions = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        flash(f"Erro Gemini {e.code}: {body[:400]}", "danger")
+        return render_template("cards/batch_upload.html", card=card)
+    except Exception as e:
+        flash(f"Erro ao processar arquivo: {e}", "danger")
+        return render_template("cards/batch_upload.html", card=card)
+
+    if not isinstance(transactions, list) or not transactions:
+        flash("Nenhuma transação encontrada no arquivo.", "warning")
+        return render_template("cards/batch_upload.html", card=card)
+
+    batch_id = str(uuid.uuid4())[:8]
+    count = 0
+    for t in transactions:
+        try:
+            d_str = t.get("date", "")
+            try:
+                d = datetime.strptime(d_str, "%Y-%m-%d").date()
+            except Exception:
+                d = date.today()
+            amount = Decimal(str(t.get("amount", 0)))
+            if amount <= 0:
+                continue
+            kind = t.get("kind", "pontual")
+            entry = CardEntry(
+                card_id=card.id,
+                user_id=current_user.id,
+                description=str(t.get("description", "Sem descrição"))[:160],
+                amount=amount,
+                entry_date=d,
+                kind=kind,
+                installments=int(t.get("installments", 1)),
+                installment_no=int(t.get("installment_no", 1)),
+                category="A classificar",
+                status="em_avaliacao",
+                batch_id=batch_id,
+            )
+            db.session.add(entry)
+            count += 1
+        except Exception:
+            continue
+
+    db.session.commit()
+    flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
+    return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/revisao")
+@login_required
+def batch_review(card_id, batch_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    entries = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).order_by(CardEntry.entry_date).all()
+    fixed_expenses = _get_user_fixed_expenses()
+    return render_template("cards/batch_review.html",
+                           card=card, entries=entries,
+                           batch_id=batch_id,
+                           fixed_expenses=fixed_expenses)
+
+
+@cards_bp.route("/<int:card_id>/lote/pendentes")
+@login_required
+def batch_pending(card_id):
+    """Lista todos os lotes pendentes de avaliação."""
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    try:
+        batches = db.session.query(
+            CardEntry.batch_id,
+            db.func.count(CardEntry.id).label("count"),
+            db.func.sum(CardEntry.amount).label("total"),
+            db.func.min(CardEntry.entry_date).label("min_date"),
+        ).filter(
+            CardEntry.card_id == card_id,
+            CardEntry.status == "em_avaliacao"
+        ).group_by(CardEntry.batch_id).all()
+    except Exception as e:
+        from flask import abort
+        return f"<pre>ERRO batch_pending: {e}</pre>", 500
+    return render_template("cards/batch_pending.html",
+                           card=card, batches=batches)
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/aprovar/<int:entry_id>", methods=["POST"])
+@login_required
+def batch_approve_entry(card_id, batch_id, entry_id):
+    card = Card.query.get_or_404(card_id)
+    entry = CardEntry.query.get_or_404(entry_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    expense_id_raw = request.form.get("expense_id", "").strip()
+    expense_id = int(expense_id_raw) if expense_id_raw.isdigit() else None
+    entry.expense_id = expense_id
+    if expense_id:
+        linked = Expense.query.get(expense_id)
+        if linked:
+            entry.category = linked.description[:60]
+    else:
+        entry.category = request.form.get("category", "Outros")
+    entry.description = request.form.get("description", entry.description)
+    entry.status = "ativo"
+    db.session.commit()
+
+    if entry.expense_id:
+        _check_excedente(entry.expense_id)
+
+
+    flash("Lançamento aprovado.", "success")
+    return redirect(url_for("cards.batch_review",
+                            card_id=card_id, batch_id=batch_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/aprovar-todos", methods=["POST"])
+@login_required
+def batch_approve_all(card_id, batch_id):
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    entries = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).all()
+    for e in entries:
+        e.status = "ativo"
+    db.session.commit()
+    flash(f"{len(entries)} lançamento(s) aprovado(s).", "success")
+    return redirect(url_for("cards.detail_card", card_id=card_id))
+
+
+@cards_bp.route("/<int:card_id>/lote/<batch_id>/excluir/<int:entry_id>", methods=["POST"])
+@login_required
+def batch_delete_entry(card_id, batch_id, entry_id):
+    entry = CardEntry.query.get_or_404(entry_id)
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    db.session.delete(entry)
+    db.session.commit()
+    remaining = CardEntry.query.filter_by(
+        card_id=card_id, batch_id=batch_id, status="em_avaliacao"
+    ).count()
+    if remaining == 0:
+        flash("Lote concluído.", "info")
+        return redirect(url_for("cards.detail_card", card_id=card_id))
+    return redirect(url_for("cards.batch_review",
+                            card_id=card_id, batch_id=batch_id))
