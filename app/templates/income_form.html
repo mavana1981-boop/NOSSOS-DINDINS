@@ -44,11 +44,19 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Recorrente</label>
-        <label class="form-check">
-          <input type="checkbox" name="is_recurring" {% if income and income.is_recurring %}checked{% endif %}>
-          <span>Esta renda se repete mensalmente</span>
-        </label>
+        <label class="form-label">Tipo de renda</label>
+        <div class="flex flex-gap" style="gap:16px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="radio" name="is_recurring" value="1"
+              {% if not income or income.is_recurring %}checked{% endif %}>
+            <span>🔁 Recorrente — aparece todo mês (salário, hora extra)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="radio" name="is_recurring" value="0"
+              {% if income and not income.is_recurring %}checked{% endif %}>
+            <span>📅 Eventual — aparece só no mês cadastrado</span>
+          </label>
+        </div>
       </div>
     </div>
 
