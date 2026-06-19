@@ -33,7 +33,7 @@ def new_income():
         desc = request.form.get("description", "").strip()
         amount = _parse_decimal(request.form.get("amount"))
         cat = request.form.get("category", "Salário").strip() or "Salário"
-        rec = bool(request.form.get("is_recurring"))
+        rec = request.form.get("is_recurring", "0") == "1"
         notes = request.form.get("notes", "").strip()
         d_str = request.form.get("received_at")
 
