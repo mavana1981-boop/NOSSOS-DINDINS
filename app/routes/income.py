@@ -26,6 +26,19 @@ def list_incomes():
     return render_template("income/list.html", incomes=incomes, total=total)
 
 
+@income_bp.route("/<int:income_id>/toggle-recorrente", methods=["POST"])
+@login_required
+def toggle_recorrente(income_id):
+    from app.models import Income
+    inc = Income.query.get_or_404(income_id)
+    if inc.user_id != current_user.id:
+        abort(403)
+    inc.is_recurring = not inc.is_recurring
+    db.session.commit()
+    from flask import jsonify
+    return jsonify({"ok": True, "is_recurring": inc.is_recurring})
+
+
 @income_bp.route("/novo", methods=["GET", "POST"])
 @login_required
 def new_income():
@@ -68,7 +81,7 @@ def edit_income(income_id):
         if amount and amount > 0:
             i.amount = amount
         i.category = request.form.get("category", i.category).strip() or "Salário"
-        i.is_recurring = bool(request.form.get("is_recurring"))
+        i.is_recurring = request.form.get("is_recurring", "0") == "1"
         i.notes = request.form.get("notes", "").strip()
         d_str = request.form.get("received_at")
         if d_str:
