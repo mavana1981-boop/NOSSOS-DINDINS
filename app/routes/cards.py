@@ -901,6 +901,7 @@ def _process_batch(card):
         extracted_text = _extract_pdf_text()
         if not extracted_text.strip():
             return None, "Gemini: sem texto extraído do PDF"
+        errors = []
 
         prompt_parcelado = (
             "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações. "
@@ -963,11 +964,13 @@ def _process_batch(card):
             except urllib.error.HTTPError as e:
                 body = e.read().decode()
                 if e.code in (404, 429, 503):
+                    errors.append(f"{model}:{e.code}")
                     continue
                 return None, f"Gemini {e.code} ({model}): {body[:200]}"
-            except Exception:
+            except Exception as _ex:
+                errors.append(f"{model}:{repr(_ex)[:80]}")
                 continue
-        return None, "Gemini: todos os modelos indisponíveis"
+        return None, f"Gemini indisponível. Tentados: {', '.join(errors)}"
 
     def _try_groq():
         key = (os.environ.get("GROQ_API_KEY") or
