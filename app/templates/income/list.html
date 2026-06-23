@@ -1,5 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Rendas{% endblock %}
+{% block title %}Rendas<script>
+function toggleRec(id, btn) {
+  fetch(`/rendas/${id}/toggle-recorrente`, {method:'POST', credentials:'same-origin'})
+    .then(r => r.json())
+    .then(d => {
+      btn.textContent = d.is_recurring ? '🔁 Recorrente' : '📅 Eventual';
+      btn.className = btn.className.replace(
+        d.is_recurring ? 'btn-ghost' : 'btn-primary',
+        d.is_recurring ? 'btn-primary' : 'btn-ghost'
+      );
+    });
+}
+</script>
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -32,7 +45,14 @@
               {% if i.notes %}<div class="text-faint text-small">{{ i.notes }}</div>{% endif %}
           </td>
           <td><span class="badge badge-solo">{{ i.category }}</span></td>
-          <td>{% if i.is_recurring %}<span class="badge badge-credit">Mensal</span>{% else %}—{% endif %}</td>
+          <td>
+            <button onclick="toggleRec({{ i.id }}, this)"
+              class="btn btn-sm {% if i.is_recurring %}btn-primary{% else %}btn-ghost{% endif %}"
+              style="font-size:0.75rem;padding:2px 10px;"
+              title="Clique para alternar">
+              {% if i.is_recurring %}🔁 Recorrente{% else %}📅 Eventual{% endif %}
+            </button>
+          </td>
           <td class="text-right amount" style="color:var(--green);">{{ i.amount|brl }}</td>
           <td class="text-right">
             <a href="{{ url_for('income.edit_income', income_id=i.id) }}" class="btn btn-ghost btn-sm">Editar</a>
