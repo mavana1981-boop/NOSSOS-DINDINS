@@ -378,30 +378,15 @@ def list_cards():
         for k, v in sorted(proj_months.items())
     ]
 
-    # Totais por cartão — filtrado pelo mês selecionado (via billing_month ou get_billing_month)
-    from app.utils import get_billing_month as _gbm
+    # Totais por cartão — só billing_month explícito do mês selecionado
     card_data = {}
-    all_card_entries_raw = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        CardEntry.status == "ativo",
-    ).all() if card_ids else []
-    card_closing_map = {card.id: card.closing_day for card in cards}
     for card in cards:
-        entries_card = []
-        for e in all_card_entries_raw:
-            if e.card_id != card.id:
-                continue
-            if e.billing_month:
-                matches = (e.billing_month == mes_filter)
-            else:
-                byr, bmo = _gbm(e.entry_date, card_closing_map.get(e.card_id))
-                matches = (byr == filter_year2 and bmo == filter_month2)
-            if matches:
-                entries_card.append(e)
+        entries_card = [e for e in all_entries if e.card_id == card.id]
         card_data[card.id] = {
             "total": sum(float(e.amount) for e in entries_card),
             "count": len(entries_card),
         }
+
 
     from app.models import CardMonthHistory
     historico = CardMonthHistory.query.filter_by(user_id=current_user.id)        .order_by(CardMonthHistory.billing_month.desc()).all()
@@ -639,11 +624,13 @@ def detail_card(card_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
-    # Detalhe do cartão mostra TODOS os lançamentos ativos — sem filtro de mês
-    # (fatura pode cruzar meses, ex: fecha dia 16 = entries de mai+jun)
+    # Detalhe filtrado pelo billing_month do mês selecionado
+    from datetime import date as _dt_d
+    mes_filter_d = request.args.get("mes", _dt_d.today().strftime("%Y-%m"))
     entries = CardEntry.query.filter(
         CardEntry.card_id == card_id,
         CardEntry.status == "ativo",
+        CardEntry.billing_month == mes_filter_d,
     ).order_by(CardEntry.entry_date.desc()).all()
     fixed_expenses = _get_user_fixed_expenses()
 
