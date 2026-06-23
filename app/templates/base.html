@@ -31,6 +31,9 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
       <span class="nav-label">Cartões</span>
     </a>
+    <a href="{{ url_for('payments.index') }}" class="nav-link {% if 'payments' in request.endpoint %}active{% endif %}">
+      💳 Pagamentos
+    </a>
     <a href="{{ url_for('cashflow.index') }}" class="nav-link {% if 'cashflow' in request.endpoint %}active{% endif %}">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
       Fluxo de Caixa
