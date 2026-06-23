@@ -378,14 +378,25 @@ def list_cards():
         for k, v in sorted(proj_months.items())
     ]
 
-    # Totais por cartão — usa TODOS os entries ativos (igual ao detalhe do cartão)
+    # Totais por cartão — filtrado pelo mês selecionado (via billing_month ou get_billing_month)
     card_data = {}
-    all_card_entries = CardEntry.query.filter(
+    all_card_entries_raw = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
         CardEntry.status == "ativo",
     ).all() if card_ids else []
+    card_closing_map = {card.id: card.closing_day for card in cards}
     for card in cards:
-        entries_card = [e for e in all_card_entries if e.card_id == card.id]
+        entries_card = []
+        for e in all_card_entries_raw:
+            if e.card_id != card.id:
+                continue
+            if e.billing_month:
+                matches = (e.billing_month == mes_filter)
+            else:
+                byr, bmo = _gbm(e.entry_date, card_closing_map.get(e.card_id))
+                matches = (byr == filter_year2 and bmo == filter_month2)
+            if matches:
+                entries_card.append(e)
         card_data[card.id] = {
             "total": sum(float(e.amount) for e in entries_card),
             "count": len(entries_card),
