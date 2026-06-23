@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
-from app import db
+from app import db 
 from decimal import Decimal, InvalidOperation
 
 payments_bp = Blueprint("payments", __name__)
