@@ -53,6 +53,24 @@ def bootstrap():
                     UNIQUE(user_id, keyword)
                 )
             """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS payment_plans (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) UNIQUE,
+                    saldo_inicial NUMERIC(12,2) DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS payment_items (
+                    id SERIAL PRIMARY KEY,
+                    plan_id INTEGER REFERENCES payment_plans(id) ON DELETE CASCADE,
+                    description VARCHAR(200) NOT NULL,
+                    amount NUMERIC(12,2) NOT NULL,
+                    expense_id INTEGER REFERENCES expenses(id),
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             _conn2.commit()
         # Tabela de histórico mensal — criada via SQLAlchemy
         try:
