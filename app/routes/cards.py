@@ -379,6 +379,7 @@ def list_cards():
     ]
 
     # Totais por cartão — filtrado pelo mês selecionado (via billing_month ou get_billing_month)
+    from app.utils import get_billing_month as _gbm
     card_data = {}
     all_card_entries_raw = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
