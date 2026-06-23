@@ -50,9 +50,19 @@ def index():
         user_id=current_user.id, mes_ref=mes_filter
     ).first()
     if not plan:
-        plan = PaymentPlan(user_id=current_user.id, saldo_inicial=0, mes_ref=mes_filter)
-        db.session.add(plan)
-        db.session.commit()
+        try:
+            plan = PaymentPlan(user_id=current_user.id, saldo_inicial=0, mes_ref=mes_filter)
+            db.session.add(plan)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            plan = PaymentPlan.query.filter_by(
+                user_id=current_user.id, mes_ref=mes_filter
+            ).first()
+            if not plan:
+                plan = PaymentPlan(user_id=current_user.id, saldo_inicial=0, mes_ref=mes_filter)
+                db.session.add(plan)
+                db.session.commit()
 
     # Cartões ativos — total filtrado pelo mês da fatura (billing_month)
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True).order_by(Card.name).all()
