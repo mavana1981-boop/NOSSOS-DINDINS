@@ -7,17 +7,22 @@
     <h1>💳 Gerenciar Pagamentos</h1>
     <p>Planeje seus pagamentos e acompanhe o saldo disponível.</p>
   </div>
-  <form method="POST" action="{{ url_for('payments.reset_plan') }}"
-        onsubmit="return confirm('Reiniciar plano? Todos os itens serão removidos.');">
-    <button class="btn btn-ghost" style="color:var(--red);border:1px solid var(--red);">
-      🗑 Reiniciar
-    </button>
-  </form>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;">
+    <a href="{{ url_for('payments.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
+    <strong style="min-width:130px;text-align:center;">{{ mes_label }}</strong>
+    <a href="{{ url_for('payments.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
+    <form method="POST" action="{{ url_for('payments.reset_plan', mes=mes_filter) }}"
+          onsubmit="return confirm('Reiniciar plano de {{ mes_label }}? Todos os itens serão removidos.');">
+      <button class="btn btn-ghost" style="color:var(--red);border:1px solid var(--red);">
+        🗑 Reiniciar mês
+      </button>
+    </form>
+  </div>
 </div>
 
 <!-- Saldo Conta Corrente -->
 <div class="card mb-3" style="border-left:4px solid var(--green);">
-  <form method="POST" action="{{ url_for('payments.update_saldo') }}" class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:16px;">
+  <form method="POST" action="{{ url_for('payments.update_saldo', mes=mes_filter) }}" class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:16px;">
     <div class="form-group mb-0" style="flex:1;min-width:200px;">
       <label class="form-label">💰 Saldo inicial conta corrente</label>
       <input type="text" name="saldo_inicial" class="form-control mono"
@@ -69,7 +74,7 @@
   <div style="font-weight:600;margin-bottom:12px;">📋 Gastos a pagar</div>
 
   <!-- Adicionar gasto -->
-  <form method="POST" action="{{ url_for('payments.add_item') }}"
+  <form method="POST" action="{{ url_for('payments.add_item', mes=mes_filter) }}"
         class="flex flex-gap mb-3" style="align-items:flex-end;flex-wrap:wrap;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--border);">
     <div class="form-group mb-0" style="flex:2;min-width:200px;">
       <label class="form-label">Descrição</label>
