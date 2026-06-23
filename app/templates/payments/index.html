@@ -1,1 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Gerenciar Pagamentos{% endblock %}
+{% block content %}
 
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>💳 Gerenciar Pagamentos</h1>
+    <p>Planeje seus pagamentos e acompanhe o saldo disponível.</p>
+  </div>
+  <form method="POST" action="{{ url_for('payments.reset_plan') }}"
+        onsubmit="return confirm('Reiniciar plano? Todos os itens serão removidos.');">
+    <button class="btn btn-ghost" style="color:var(--red);border:1px solid var(--red);">
+      🗑 Reiniciar
+    </button>
+  </form>
+</div>
+
+<!-- Saldo Conta Corrente -->
+<div class="card mb-3" style="border-left:4px solid var(--green);">
+  <form method="POST" action="{{ url_for('payments.update_saldo') }}" class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:16px;">
+    <div class="form-group mb-0" style="flex:1;min-width:200px;">
+      <label class="form-label">💰 Saldo inicial conta corrente</label>
+      <input type="text" name="saldo_inicial" class="form-control mono"
+             value="{{ plan.saldo_inicial|brl }}"
+             placeholder="0,00" style="font-size:1.1rem;">
+    </div>
+    <div class="form-group mb-0">
+      <button class="btn btn-primary">✓ Atualizar saldo</button>
+    </div>
+    <div style="flex:1;min-width:200px;">
+      <div class="text-dim text-small">SALDO ATUALIZADO</div>
+      <div class="mono" style="font-size:1.5rem;font-weight:700;color:{% if saldo_atualizado >= 0 %}var(--green){% else %}var(--red){% endif %};">
+        {{ saldo_atualizado|brl }}
+      </div>
+      <div class="text-faint text-small">
+        Inicial {{ plan.saldo_inicial|brl }} − Cartões {{ total_cartoes|brl }} − Gastos {{ total_debitos|brl }}
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Fechamento dos Cartões -->
+{% if cards %}
+<div class="card mb-3" style="border-left:4px solid var(--accent);">
+  <div style="font-weight:600;margin-bottom:12px;">📊 Fechamento dos cartões</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+    {% for card in cards %}
+    <div class="card" style="background:var(--surface2);border-left:4px solid {{ card.color or '#6b8db5' }};">
+      <div class="text-small" style="font-weight:600;color:{{ card.color or '#6b8db5' }};">{{ card.name }}</div>
+      {% if card.due_day %}
+      <div class="text-faint text-small">Vence dia {{ card.due_day }}</div>
+      {% endif %}
+      <div class="mono" style="font-size:1.2rem;color:var(--red);margin-top:4px;">
+        {{ card_totals[card.id]|brl }}
+      </div>
+      <div class="text-faint text-small">{{ card_totals[card.id] | default(0) | round(0) | int }} lançamentos ativos</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="flex-between mt-2" style="padding-top:8px;border-top:1px solid var(--border);">
+    <span class="text-dim">Total faturas</span>
+    <span class="mono" style="font-weight:700;color:var(--red);">{{ total_cartoes|brl }}</span>
+  </div>
+</div>
+{% endif %}
+
+<!-- Gastos a Pagar -->
+<div class="card mb-3" style="border-left:4px solid var(--gold);">
+  <div style="font-weight:600;margin-bottom:12px;">📋 Gastos a pagar</div>
+
+  <!-- Adicionar gasto -->
+  <form method="POST" action="{{ url_for('payments.add_item') }}"
+        class="flex flex-gap mb-3" style="align-items:flex-end;flex-wrap:wrap;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+    <div class="form-group mb-0" style="flex:2;min-width:200px;">
+      <label class="form-label">Descrição</label>
+      <input type="text" name="description" id="desc-input" class="form-control" placeholder="Nome do gasto" required>
+    </div>
+    <div class="form-group mb-0" style="flex:1;min-width:140px;">
+      <label class="form-label">Valor</label>
+      <input type="text" name="amount" class="form-control mono" placeholder="0,00" required>
+    </div>
+    <div class="form-group mb-0" style="flex:2;min-width:200px;">
+      <label class="form-label">Gasto fixo (opcional)</label>
+      <select name="expense_id" class="form-control" onchange="preencherGasto(this)">
+        <option value="">— Avulso —</option>
+        {% for exp in fixed_expenses %}
+        <option value="{{ exp.id }}" data-amount="{{ exp.amount }}" data-desc="{{ exp.description }}">
+          {{ exp.description }} — {{ exp.amount|brl }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <button class="btn btn-primary">+ Adicionar</button>
+    </div>
+  </form>
+
+  <!-- Lista de itens -->
+  {% if plan_items %}
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th class="text-right">Valor</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in plan_items %}
+      <tr>
+        <td>
+          {{ item.description }}
+          {% if item.expense %}
+          <span class="badge badge-solo text-small">fixo</span>
+          {% endif %}
+        </td>
+        <td class="text-right mono" style="color:var(--red);">{{ item.amount|brl }}</td>
+        <td class="text-right">
+          <form method="POST" action="{{ url_for('payments.remove_item', item_id=item.id) }}"
+                onsubmit="return confirm('Remover este item?');" style="display:inline;">
+            <button class="btn btn-ghost btn-sm" style="color:var(--red);">× Remover</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      <tr style="border-top:2px solid var(--border);">
+        <td><strong>Total gastos</strong></td>
+        <td class="text-right mono" style="color:var(--red);font-weight:700;">{{ total_debitos|brl }}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <div class="text-faint text-center" style="padding:20px;">
+    Nenhum gasto adicionado. Use o formulário acima para adicionar.
+  </div>
+  {% endif %}
+</div>
+
+<!-- Resumo Final -->
+<div class="card" style="background:var(--surface2);">
+  <div style="font-weight:700;font-size:1.1rem;margin-bottom:12px;">📊 Resumo</div>
+  <div style="display:grid;gap:10px;">
+    <div class="flex-between">
+      <span class="text-dim">💰 Saldo inicial</span>
+      <span class="mono">{{ plan.saldo_inicial|brl }}</span>
+    </div>
+    <div class="flex-between">
+      <span class="text-dim">💳 Total faturas cartões</span>
+      <span class="mono" style="color:var(--red);">− {{ total_cartoes|brl }}</span>
+    </div>
+    <div class="flex-between">
+      <span class="text-dim">📋 Total gastos</span>
+      <span class="mono" style="color:var(--red);">− {{ total_debitos|brl }}</span>
+    </div>
+    <div class="flex-between" style="border-top:2px solid var(--border);padding-top:10px;margin-top:4px;">
+      <strong>💵 Saldo disponível</strong>
+      <span class="mono" style="font-size:1.3rem;font-weight:700;color:{% if saldo_atualizado >= 0 %}var(--green){% else %}var(--red){% endif %};">
+        {{ saldo_atualizado|brl }}
+      </span>
+    </div>
+  </div>
+</div>
+
+<script>
+function preencherGasto(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const desc = opt.dataset.desc || '';
+  const amount = opt.dataset.amount || '';
+  if (desc) document.getElementById('desc-input').value = desc;
+  if (amount) {
+    const v = parseFloat(amount).toFixed(2).replace('.', ',');
+    sel.closest('form').querySelector('input[name="amount"]').value = v;
+  }
+}
+</script>
+{% endblock %}
