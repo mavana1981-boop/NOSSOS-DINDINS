@@ -105,3 +105,4 @@ def delete_income(income_id):
     db.session.commit()
     flash("Renda removida.", "info")
     return redirect(url_for("income.list_incomes"))
+ 
