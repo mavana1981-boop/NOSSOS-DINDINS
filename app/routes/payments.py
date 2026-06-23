@@ -68,21 +68,16 @@ def index():
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True).order_by(Card.name).all()
     card_closing = {c.id: c.closing_day for c in cards}
 
+    # Só conta entries com billing_month explícito — sem billing_month = sem fatura definida
     all_entries = CardEntry.query.filter(
         CardEntry.card_id.in_([c.id for c in cards]),
         CardEntry.status == "ativo",
+        CardEntry.billing_month == mes_filter,
     ).all()
 
     card_totals = {c.id: 0.0 for c in cards}
     for entry in all_entries:
-        if entry.billing_month:
-            bm = entry.billing_month
-            matches = (bm == mes_filter)
-        else:
-            byr, bmo = get_billing_month(entry.entry_date, card_closing.get(entry.card_id))
-            matches = (byr == filter_year and bmo == filter_month)
-        if matches:
-            card_totals[entry.card_id] = card_totals.get(entry.card_id, 0.0) + float(entry.amount)
+        card_totals[entry.card_id] = card_totals.get(entry.card_id, 0.0) + float(entry.amount)
 
     for k in card_totals:
         card_totals[k] = round(card_totals[k], 2)
@@ -114,7 +109,12 @@ def index():
     plan_items = PaymentItem.query.filter_by(plan_id=plan.id).order_by(PaymentItem.id).all()
 
     total_debitos = round(sum(float(item.amount) for item in plan_items), 2)
-    total_cartoes = round(sum(card_totals.values()), 2)
+    # Usa amount_override se definido, senão valor calculado
+    total_cartoes = round(sum(
+        float(card_status[c.id].amount_override) if (c.id in card_status and card_status[c.id].amount_override)
+        else card_totals.get(c.id, 0.0)
+        for c in cards
+    ), 2)
     saldo_atualizado = round(float(plan.saldo_inicial) - total_debitos - total_cartoes, 2)
 
     return render_template("payments/index.html",
@@ -268,5 +268,44 @@ def set_card_due(card_id):
             cs.due_date = _dt3.strptime(d_str, "%Y-%m-%d").date()
         except Exception:
             cs.due_date = None
+        db.session.commit()
+    return redirect(url_for("payments.index", mes=mes))
+
+
+@payments_bp.route("/item/<int:item_id>/edit", methods=["POST"])
+@login_required
+def edit_item(item_id):
+    from app.models import PaymentItem, PaymentPlan
+    item = PaymentItem.query.get_or_404(item_id)
+    plan = PaymentPlan.query.get(item.plan_id)
+    if plan.user_id != current_user.id:
+        from flask import abort
+        abort(403)
+    desc = request.form.get("description", "").strip()
+    amount = _parse(request.form.get("amount", "0"))
+    if desc:
+        item.description = desc
+    if amount > 0:
+        item.amount = amount
+    db.session.commit()
+    return redirect(url_for("payments.index", mes=plan.mes_ref))
+
+
+@payments_bp.route("/card/<int:card_id>/override", methods=["POST"])
+@login_required
+def override_card_amount(card_id):
+    """Permite sobrescrever o valor calculado da fatura do cartão."""
+    from app.models import PaymentPlan, PaymentCardStatus
+    mes = request.args.get("mes", "")
+    plan = PaymentPlan.query.filter_by(user_id=current_user.id, mes_ref=mes).first()
+    if not plan:
+        return redirect(url_for("payments.index", mes=mes))
+    cs = PaymentCardStatus.query.filter_by(plan_id=plan.id, card_id=card_id).first()
+    if cs:
+        raw = request.form.get("amount_override", "").strip()
+        if raw:
+            cs.amount_override = _parse(raw)
+        else:
+            cs.amount_override = None
         db.session.commit()
     return redirect(url_for("payments.index", mes=mes))
