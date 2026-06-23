@@ -92,6 +92,16 @@ function excluirSelecionados() {
   <div class="flex flex-gap">
     <a href="{{ url_for('cards.new_entry', card_id=card.id) }}" class="btn btn-primary">+ Lançamento</a>
     <a href="{{ url_for('cards.batch_upload', card_id=card.id) }}" class="btn btn-ghost">📎 Lançamento em lote</a>
+    <!-- Redefinir mês da fatura -->
+    <form method="POST" action="{{ url_for('cards.definir_mes_fatura', card_id=card.id) }}"
+          style="display:inline-flex;gap:6px;align-items:center;"
+          onsubmit="return confirm('Atualizar mês da fatura de todos os lançamentos ativos deste cartão?');">
+      <input type="month" name="billing_month" class="form-control"
+             style="width:160px;font-size:0.8rem;padding:4px 8px;"
+             value="{{ today.strftime('%Y-%m') if today is defined else '' }}"
+             placeholder="Mês fatura">
+      <button class="btn btn-ghost" style="font-size:0.8rem;white-space:nowrap;">📅 Definir mês fatura</button>
+    </form>
     <a href="{{ url_for('cards.edit_card', card_id=card.id) }}" class="btn btn-ghost">Editar</a>
     <form method="POST" action="{{ url_for('cards.delete_card', card_id=card.id) }}"
           style="display:inline;" onsubmit="return confirm('Remover este cartão e todos os lançamentos?');">
@@ -109,6 +119,7 @@ function excluirSelecionados() {
 </div>
 
 <!-- Resumo do cartão -->
+{% set total_mes = entries | sum(attribute='amount') | float %}
 <div class="card mb-3" style="border-top:4px solid {{ card.color }};">
   {% if card.limit_amount and card.limit_amount > 0 %}
   <div class="grid grid-3 mb-3">
@@ -118,7 +129,7 @@ function excluirSelecionados() {
     </div>
     <div>
       <div class="stat-label">Utilizado</div>
-      <div class="mono" style="font-size:1.4rem;font-family:'Fraunces',serif;color:var(--red);">{{ card.total_entries|brl }}</div>
+      <div class="mono" style="font-size:1.4rem;font-family:'Fraunces',serif;color:var(--red);">{{ total_mes|brl }}</div>
     </div>
     <div>
       <div class="stat-label">Disponível</div>
@@ -136,7 +147,7 @@ function excluirSelecionados() {
   {% else %}
   <div>
     <div class="stat-label">Total lançado</div>
-    <div class="mono" style="font-size:1.6rem;font-family:'Fraunces',serif;color:var(--red);">{{ card.total_entries|brl }}</div>
+    <div class="mono" style="font-size:1.6rem;font-family:'Fraunces',serif;color:var(--red);">{{ total_mes|brl }}</div>
   </div>
   {% endif %}
 </div>
