@@ -18,7 +18,7 @@ def _parse(s):
 @payments_bp.route("/", methods=["GET"])
 @login_required
 def index():
-    from app.models import Card, CardEntry, Expense, PaymentPlan, PaymentItem
+    from app.models import Card, CardEntry, Expense, PaymentPlan, PaymentItem, PaymentCardStatus
     from app.utils import get_billing_month
     from datetime import date as _dt
 
@@ -77,6 +77,23 @@ def index():
     for k in card_totals:
         card_totals[k] = round(card_totals[k], 2)
 
+    # Status de pagamento de cada cartão no mês
+    card_status = {}
+    for card in cards:
+        cs = PaymentCardStatus.query.filter_by(plan_id=plan.id, card_id=card.id).first()
+        if not cs:
+            from datetime import date as _d2
+            due = None
+            if card.due_day:
+                try:
+                    due = _d2(filter_year, filter_month, card.due_day)
+                except Exception:
+                    due = None
+            cs = PaymentCardStatus(plan_id=plan.id, card_id=card.id, is_paid=False, due_date=due)
+            db.session.add(cs)
+        card_status[card.id] = cs
+    db.session.commit()
+
     # Gastos recorrentes do usuário (para seleção)
     fixed_expenses = Expense.query.filter(
         Expense.payer_id == current_user.id,
@@ -99,6 +116,7 @@ def index():
                            total_debitos=total_debitos,
                            total_cartoes=total_cartoes,
                            saldo_atualizado=saldo_atualizado,
+                           card_status=card_status,
                            mes_filter=mes_filter,
                            mes_label=mes_label,
                            prev_mes=prev_mes,
@@ -172,4 +190,73 @@ def reset_plan():
         plan.saldo_inicial = 0
         db.session.commit()
     flash("Plano de pagamento reiniciado.", "info")
+    return redirect(url_for("payments.index", mes=mes))
+
+
+@payments_bp.route("/item/<int:item_id>/toggle", methods=["POST"])
+@login_required
+def toggle_item(item_id):
+    from app.models import PaymentItem, PaymentPlan
+    item = PaymentItem.query.get_or_404(item_id)
+    plan = PaymentPlan.query.get(item.plan_id)
+    if plan.user_id != current_user.id:
+        from flask import abort
+        abort(403)
+    item.is_paid = not item.is_paid
+    db.session.commit()
+    mes = plan.mes_ref
+    return redirect(url_for("payments.index", mes=mes))
+
+
+@payments_bp.route("/item/<int:item_id>/due", methods=["POST"])
+@login_required
+def set_item_due(item_id):
+    from app.models import PaymentItem, PaymentPlan
+    from datetime import datetime as _dt2
+    item = PaymentItem.query.get_or_404(item_id)
+    plan = PaymentPlan.query.get(item.plan_id)
+    if plan.user_id != current_user.id:
+        from flask import abort
+        abort(403)
+    d_str = request.form.get("due_date", "")
+    try:
+        item.due_date = _dt2.strptime(d_str, "%Y-%m-%d").date()
+    except Exception:
+        item.due_date = None
+    db.session.commit()
+    return redirect(url_for("payments.index", mes=plan.mes_ref))
+
+
+@payments_bp.route("/card/<int:card_id>/toggle", methods=["POST"])
+@login_required
+def toggle_card(card_id):
+    from app.models import PaymentPlan, PaymentCardStatus
+    mes = request.args.get("mes", "")
+    plan = PaymentPlan.query.filter_by(user_id=current_user.id, mes_ref=mes).first()
+    if not plan:
+        return redirect(url_for("payments.index", mes=mes))
+    cs = PaymentCardStatus.query.filter_by(plan_id=plan.id, card_id=card_id).first()
+    if cs:
+        cs.is_paid = not cs.is_paid
+        db.session.commit()
+    return redirect(url_for("payments.index", mes=mes))
+
+
+@payments_bp.route("/card/<int:card_id>/due", methods=["POST"])
+@login_required
+def set_card_due(card_id):
+    from app.models import PaymentPlan, PaymentCardStatus
+    from datetime import datetime as _dt3
+    mes = request.args.get("mes", "")
+    plan = PaymentPlan.query.filter_by(user_id=current_user.id, mes_ref=mes).first()
+    if not plan:
+        return redirect(url_for("payments.index", mes=mes))
+    cs = PaymentCardStatus.query.filter_by(plan_id=plan.id, card_id=card_id).first()
+    if cs:
+        d_str = request.form.get("due_date", "")
+        try:
+            cs.due_date = _dt3.strptime(d_str, "%Y-%m-%d").date()
+        except Exception:
+            cs.due_date = None
+        db.session.commit()
     return redirect(url_for("payments.index", mes=mes))
