@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
-from app import db 
+from app import db
 from decimal import Decimal, InvalidOperation
 
 payments_bp = Blueprint("payments", __name__)
@@ -43,7 +43,6 @@ def index():
     fixed_expenses = Expense.query.filter(
         Expense.payer_id == current_user.id,
         Expense.kind == "recorrente",
-        Expense.is_active == True,
     ).order_by(Expense.description).all()
 
     # Itens do plano atual
