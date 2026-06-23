@@ -5,9 +5,12 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Olá, <em style="font-style:italic;color:var(--accent);">{{ current_user.full_name.split()[0] }}</em></h1>
-    <p>Aqui está o resumo da sua vida financeira hoje.</p>
+    <p>Resumo financeiro de <strong>{{ mes_label_dash }}</strong></p>
   </div>
-  <div class="flex flex-gap">
+  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <a href="{{ url_for('dashboard.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
+    <strong style="min-width:130px;text-align:center;">{{ mes_label_dash }}</strong>
+    <a href="{{ url_for('dashboard.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
     <a href="{{ url_for('income.new_income') }}" class="btn btn-ghost btn-sm">+ Renda</a>
     <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm">+ Gasto</a>
   </div>
