@@ -363,3 +363,26 @@ class MerchantRule(db.Model):
     user    = db.relationship("User",    backref="merchant_rules")
     expense = db.relationship("Expense", backref="merchant_rules")
     __table_args__ = (db.UniqueConstraint("user_id", "keyword"),)
+
+
+class PaymentPlan(db.Model):
+    """Plano de gerenciamento de pagamentos do usuário."""
+    __tablename__ = "payment_plans"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+    saldo_inicial = db.Column(db.Numeric(12, 2), default=0)
+    updated_at    = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+    user  = db.relationship("User", backref="payment_plan")
+    items = db.relationship("PaymentItem", backref="plan", cascade="all, delete-orphan")
+
+
+class PaymentItem(db.Model):
+    """Item de gasto no plano de pagamento."""
+    __tablename__ = "payment_items"
+    id          = db.Column(db.Integer, primary_key=True)
+    plan_id     = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
+    description = db.Column(db.String(200), nullable=False)
+    amount      = db.Column(db.Numeric(12, 2), nullable=False)
+    expense_id  = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    created_at  = db.Column(db.DateTime, default=db.func.now())
+    expense = db.relationship("Expense", backref="payment_items")
