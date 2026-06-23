@@ -24,12 +24,12 @@ def index():
     import calendar as _cal
     mes_nome = _cal.month_name[filter_month]
 
-    summary = get_user_monthly_summary(current_user.id, today.year, today.month)
+    summary = get_user_monthly_summary(current_user.id, filter_year, filter_month)
 
     # Dados do fluxo de caixa para os cards do dashboard
-    cf_months = get_yearly_cashflow(current_user.id, today.year)
+    cf_months = get_yearly_cashflow(current_user.id, filter_year)
     cf_current = next(
-        (m for m in cf_months if m["month"] == today.month),
+        (m for m in cf_months if m["month"] == filter_month),
         cf_months[0] if cf_months else {}
     )
     cf_dec = next((m for m in cf_months if m["month"] == 12), cf_months[-1] if cf_months else {})
@@ -185,6 +185,20 @@ def index():
         if household_total_planned > 0 else 0, 100
     )
 
+    # Navegação de mês
+    if filter_month == 1:
+        prev_mes = f"{filter_year-1}-12"
+    else:
+        prev_mes = f"{filter_year}-{filter_month-1:02d}"
+    if filter_month == 12:
+        next_mes = f"{filter_year+1}-01"
+    else:
+        next_mes = f"{filter_year}-{filter_month+1:02d}"
+
+    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label_dash = f"{MESES_PT[filter_month-1]}/{filter_year}"
+
     return render_template(
         "dashboard.html",
         summary=summary,
@@ -206,4 +220,7 @@ def index():
         filter_month=filter_month,
         mes_nome=mes_nome,
         mes_atual=today.strftime("%B/%Y").capitalize(),
+        prev_mes=prev_mes,
+        next_mes=next_mes,
+        mes_label_dash=mes_label_dash,
     )
