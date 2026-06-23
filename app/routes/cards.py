@@ -898,22 +898,52 @@ def _process_batch(card):
         if not key:
             return None, "GEMINI_API_KEY não configurada"
 
-        # Extrai texto do PDF primeiro — funciona com qualquer modelo de texto
         extracted_text = _extract_pdf_text()
+        if not extracted_text.strip():
+            return None, "Gemini: sem texto extraído do PDF"
 
-        parts = [{"text": PROMPT}]
-        if extracted_text:
-            parts.append({"text": "Extrato:\n" + extracted_text[:20000]})
-        else:
-            # Fallback: envia imagens diretamente
-            for fd in file_data:
-                if "image" in fd["mime"]:
-                    parts.append({"inline_data": {"mime_type": fd["mime"], "data": fd["b64"]}})
+        prompt_parcelado = (
+            "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações. "
+            "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
+            'Formato: [{"description":"NOME","amount":99.90,"date":"2026-05-15","kind":"pontual"}] '
+            "REGRAS CRÍTICAS:\n"
+            "1. amount: número positivo em reais (1.234,56 → 1234.56)\n"
+            "2. date: YYYY-MM-DD. Se só DD/MM use ano 2026\n"
+            "3. Extraia APENAS linhas com 'D' (débito). Ignore 'C' (crédito)\n"
+            "4. Ignore: TOTAL DA FATURA, PAGAMENTO, AJUSTE, IOF, encargos, juros\n"
+            "5. PARCELADOS — MUITO IMPORTANTE: quando a linha contiver 'XX DE YY' (ex: '03 DE 10'):\n"
+            '   - kind = "parcelado"\n'
+            "   - installment_no = XX (número da parcela atual)\n"
+            "   - installments = YY (total de parcelas)\n"
+            '   Exemplo: "VIA ODONTOLOGIA 03 DE 10 BRASILIA 1000.00D" →\n'
+            '   {"description":"VIA ODONTOLOGIA","amount":1000.00,"date":"2026-04-02",'
+            '"kind":"parcelado","installment_no":3,"installments":10}\n'
+            "6. Extraia compras de TODOS os cartões (0410, 6458, 8231, 3221 etc.)\n"
+            "7. Retorne TODOS os lançamentos sem omitir nenhum"
+        )
 
+        parts = [
+            {"text": prompt_parcelado},
+            {"text": "Extrato:\n" + extracted_text[:20000]},
+        ]
         payload = json.dumps({"contents": [{"parts": parts}]}).encode()
-        # Modelos de texto (sem precisar de suporte a PDF inline)
-        for model in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-latest",
-                      "gemini-1.5-pro-latest", "gemini-2.0-flash-exp", "gemini-1.0-pro"]:
+
+        # Cache dinâmico: tenta o último modelo que funcionou primeiro
+        from flask import current_app as _app
+        MODELS = [
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-pro-latest",
+            "gemini-1.5-flash-8b",
+            "gemini-1.0-pro",
+        ]
+        cached = getattr(_app, "_gemini_batch_model", None)
+        if cached and cached in MODELS:
+            MODELS = [cached] + [m for m in MODELS if m != cached]
+
+        for model in MODELS:
             try:
                 url = (f"https://generativelanguage.googleapis.com/v1beta/"
                        f"models/{model}:generateContent?key={key}")
@@ -922,13 +952,20 @@ def _process_batch(card):
                 with urllib.request.urlopen(req, timeout=90) as resp:
                     result = json.loads(resp.read())
                 raw = result["candidates"][0]["content"]["parts"][0]["text"]
-                return _parse_json(raw), None
+                parsed = _parse_json(raw)
+                # Salva modelo que funcionou para próxima chamada
+                try:
+                    _app._gemini_batch_model = model
+                except Exception:
+                    pass
+                flash(f"IA: {model}", "info")
+                return parsed, None
             except urllib.error.HTTPError as e:
                 body = e.read().decode()
                 if e.code in (404, 429, 503):
                     continue
-                return None, f"Gemini {e.code}: {body[:200]}"
-            except Exception as e:
+                return None, f"Gemini {e.code} ({model}): {body[:200]}"
+            except Exception:
                 continue
         return None, "Gemini: todos os modelos indisponíveis"
 
@@ -1113,22 +1150,15 @@ def _process_batch(card):
 
     transactions = None
     errors = []
-    for fn, name in [(_try_gemini, "Gemini"), (_try_groq, "Groq"), (_try_cloudflare, "Cloudflare")]:
-        result, err = fn()
-        if result is not None:
-            flash(f"Extrato analisado via {name}.", "info")
-            transactions = result
-            break
-        if err:
-            errors.append(f"{name}: {err}")
+    # Usa somente Gemini para lote (com cache dinâmico de modelo)
+    result, err = _try_gemini()
+    if result is not None:
+        transactions = result
+    else:
+        errors.append(err or "Gemini falhou")
 
     if transactions is None:
-        msg = "Falha ao analisar extrato."
-        if errors:
-            msg += " " + " | ".join(errors)
-        else:
-            msg += " Configure GEMINI_API_KEY, GROQ_API_KEY ou CLOUDFLARE_API_TOKEN no Railway."
-        flash(msg, "danger")
+        flash("Falha ao analisar extrato. " + " | ".join(errors), "danger")
         return render_template("cards/batch_upload.html", card=card)
 
     if not isinstance(transactions, list) or not transactions:
@@ -1148,6 +1178,10 @@ def _process_batch(card):
             if amount <= 0:
                 continue
             kind = t.get("kind", "pontual")
+            inst    = int(t.get("installments", 1))
+            inst_no = int(t.get("installment_no", 1))
+            if inst > 1:
+                kind = "parcelado"
             entry = CardEntry(
                 card_id=card.id,
                 user_id=current_user.id,
@@ -1155,8 +1189,8 @@ def _process_batch(card):
                 amount=amount,
                 entry_date=d,
                 kind=kind,
-                installments=int(t.get("installments", 1)),
-                installment_no=int(t.get("installment_no", 1)),
+                installments=inst,
+                installment_no=inst_no,
                 category="A classificar",
                 status="em_avaliacao",
                 batch_id=batch_id,
