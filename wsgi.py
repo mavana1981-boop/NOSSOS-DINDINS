@@ -40,6 +40,9 @@ def bootstrap():
         _ensure_column("card_entries", "status", "VARCHAR(20) DEFAULT 'ativo'")
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
+        _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
+        _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
+        _ensure_column("payment_items", "due_date", "DATE")
         # Tabela de regras de categorização por estabelecimento
         with db.engine.connect() as _conn2:
             _conn2.execute(text("""
@@ -56,9 +59,11 @@ def bootstrap():
             _conn2.execute(text("""
                 CREATE TABLE IF NOT EXISTS payment_plans (
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) UNIQUE,
+                    user_id INTEGER REFERENCES users(id),
+                    mes_ref VARCHAR(7) NOT NULL DEFAULT '',
                     saldo_inicial NUMERIC(12,2) DEFAULT 0,
-                    updated_at TIMESTAMP DEFAULT NOW()
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, mes_ref)
                 )
             """))
             _conn2.execute(text("""
@@ -68,7 +73,19 @@ def bootstrap():
                     description VARCHAR(200) NOT NULL,
                     amount NUMERIC(12,2) NOT NULL,
                     expense_id INTEGER REFERENCES expenses(id),
+                    is_paid BOOLEAN DEFAULT FALSE,
+                    due_date DATE,
                     created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS payment_card_status (
+                    id SERIAL PRIMARY KEY,
+                    plan_id INTEGER REFERENCES payment_plans(id) ON DELETE CASCADE,
+                    card_id INTEGER REFERENCES cards(id),
+                    is_paid BOOLEAN DEFAULT FALSE,
+                    due_date DATE,
+                    UNIQUE(plan_id, card_id)
                 )
             """))
             _conn2.commit()
