@@ -41,6 +41,21 @@ def bootstrap():
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
         _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
+        # Corrigir constraint: de UNIQUE(user_id) para UNIQUE(user_id, mes_ref)
+        try:
+            with db.engine.connect() as _conn_fix:
+                _conn_fix.execute(text(
+                    "ALTER TABLE payment_plans DROP CONSTRAINT IF EXISTS payment_plans_user_id_key"
+                ))
+                _conn_fix.execute(text(
+                    "DO $$ BEGIN "
+                    "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_plans_user_id_mes_ref_key') "
+                    "THEN ALTER TABLE payment_plans ADD CONSTRAINT payment_plans_user_id_mes_ref_key UNIQUE(user_id, mes_ref); "
+                    "END IF; END $$"
+                ))
+                _conn_fix.commit()
+        except Exception as _e_fix:
+            print(f"[migrate] payment_plans constraint: {_e_fix}")
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
         _ensure_column("payment_items", "due_date", "DATE")
         # Tabela de regras de categorização por estabelecimento
