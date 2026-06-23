@@ -1,5 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Gastos{% endblock %}
+{% block title %}Gastos<style>
+.th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+.th-sort:hover { color:var(--accent); }
+.sort-icon { font-size:0.75rem; opacity:0.5; }
+.th-sort.asc .sort-icon::after  { content:"↑"; }
+.th-sort.desc .sort-icon::after { content:"↓"; }
+.th-sort.asc  .sort-icon, .th-sort.desc .sort-icon { opacity:1; }
+</style>
+<script>
+let _sortCol = -1, _sortAsc = true;
+
+function sortTable(col) {
+  const table = document.querySelector('.tbl tbody');
+  const rows  = Array.from(table.querySelectorAll('tr'));
+
+  // Alterna direção se mesma coluna
+  if (_sortCol === col) _sortAsc = !_sortAsc;
+  else { _sortCol = col; _sortAsc = true; }
+
+  // Atualiza ícones
+  document.querySelectorAll('.th-sort').forEach(th => {
+    th.classList.remove('asc','desc');
+  });
+  const ths = document.querySelectorAll('#expense-header .th-sort');
+  const colMap = [0,1,2,3,5]; // índices reais de th-sort → coluna da tabela
+  const thIdx  = colMap.indexOf(col);
+  if (thIdx >= 0) ths[thIdx].classList.add(_sortAsc ? 'asc' : 'desc');
+
+  rows.sort((a, b) => {
+    const ca = a.children[col]?.innerText.trim() || '';
+    const cb = b.children[col]?.innerText.trim() || '';
+
+    // Tenta numérico (valor em BRL)
+    const na = parseFloat(ca.replace(/[^\d,]/g,'').replace(',','.'));
+    const nb = parseFloat(cb.replace(/[^\d,]/g,'').replace(',','.'));
+    if (!isNaN(na) && !isNaN(nb)) return _sortAsc ? na-nb : nb-na;
+
+    // Tenta data DD/MM/AAAA
+    const da = ca.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    const db = cb.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (da && db) {
+      const va = new Date(da[3],da[2]-1,da[1]);
+      const vb = new Date(db[3],db[2]-1,db[1]);
+      return _sortAsc ? va-vb : vb-va;
+    }
+
+    // Texto
+    return _sortAsc ? ca.localeCompare(cb,'pt') : cb.localeCompare(ca,'pt');
+  });
+
+  rows.forEach(r => table.appendChild(r));
+}
+</script>
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -18,13 +71,13 @@
   <div class="table-wrap">
     <table class="tbl">
       <thead>
-        <tr>
-          <th>Data</th>
-          <th>Descrição</th>
-          <th>Categoria</th>
-          <th>Pagador</th>
+        <tr id="expense-header">
+          <th class="th-sort" onclick="sortTable(0)">Data <span class="sort-icon">↕</span></th>
+          <th class="th-sort" onclick="sortTable(1)">Descrição <span class="sort-icon">↕</span></th>
+          <th class="th-sort" onclick="sortTable(2)">Categoria <span class="sort-icon">↕</span></th>
+          <th class="th-sort" onclick="sortTable(3)">Pagador <span class="sort-icon">↕</span></th>
           <th>Compartilhamento</th>
-          <th class="text-right">Valor</th>
+          <th class="th-sort text-right" onclick="sortTable(5)">Valor <span class="sort-icon">↕</span></th>
           <th></th>
         </tr>
       </thead>
