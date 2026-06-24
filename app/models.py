@@ -406,3 +406,14 @@ class PaymentCardStatus(db.Model):
     amount_override = db.Column(db.Numeric(12, 2), nullable=True)  # valor manual
     __table_args__ = (db.UniqueConstraint("plan_id", "card_id"),)
     card = db.relationship("Card", backref="payment_status")
+
+
+class ClosedMonth(db.Model):
+    """Meses fechados no menu Meus Cartões (por usuário)."""
+    __tablename__ = "closed_months"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    billing_month = db.Column(db.String(7), nullable=False)   # YYYY-MM
+    closed_at     = db.Column(db.DateTime, default=db.func.now())
+    __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
+    user = db.relationship("User", backref="closed_months")
