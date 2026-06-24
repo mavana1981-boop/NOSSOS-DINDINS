@@ -388,20 +388,75 @@ def list_cards():
         }
 
 
-    from app.models import CardMonthHistory
-    historico = CardMonthHistory.query.filter_by(user_id=current_user.id)        .order_by(CardMonthHistory.billing_month.desc()).all()
+    from app.models import ClosedMonth
+    # Meses fechados do usuário
+    closed_set = {
+        cm.billing_month
+        for cm in ClosedMonth.query.filter_by(user_id=current_user.id).all()
+    }
+    mes_fechado = mes_filter in closed_set
+
+    # Se abrindo sem parâmetro de mês, avançar até primeiro mês não fechado
+    if not request.args.get("mes"):
+        from datetime import date as _dt2
+        _candidate = _dt2.today().strftime("%Y-%m")
+        for _ in range(24):
+            if _candidate not in closed_set:
+                break
+            _yr, _mo = int(_candidate[:4]), int(_candidate[5:7])
+            _mo += 1
+            if _mo > 12: _yr += 1; _mo = 1
+            _candidate = f"{_yr}-{_mo:02d}"
+        if _candidate != mes_filter:
+            from flask import redirect as _redir
+            return _redir(url_for("cards.list_cards", mes=_candidate))
+
+    # Histórico de meses fechados (para exibir no menu)
+    closed_months_list = ClosedMonth.query.filter_by(
+        user_id=current_user.id
+    ).order_by(ClosedMonth.billing_month.desc()).all()
 
     return render_template("cards/list.html", cards=cards,
                            consolidated=consolidated_sorted,
                            total_geral=total_geral,
                            hh_consolidated=hh_consolidated_sorted,
                            projecao_parcelados=projecao_parcelados,
-                           historico=historico,
                            card_data=card_data,
                            mes_label=mes_label,
                            mes_filter=mes_filter,
                            prev_mes=prev_mes,
-                           next_mes=next_mes)
+                           next_mes=next_mes,
+                           mes_fechado=mes_fechado,
+                           closed_months_list=closed_months_list)
+
+
+@cards_bp.route("/fechar-mes", methods=["POST"])
+@login_required
+def fechar_mes_geral():
+    from app.models import ClosedMonth
+    mes = request.form.get("mes", "").strip()
+    if not mes:
+        flash("Mês não informado.", "danger")
+        return redirect(url_for("cards.list_cards"))
+    existente = ClosedMonth.query.filter_by(user_id=current_user.id, billing_month=mes).first()
+    if not existente:
+        db.session.add(ClosedMonth(user_id=current_user.id, billing_month=mes))
+        db.session.commit()
+        flash(f"Mês {mes} fechado. Avançando para o próximo.", "success")
+    return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/reabrir-mes", methods=["POST"])
+@login_required
+def reabrir_mes():
+    from app.models import ClosedMonth
+    mes = request.form.get("mes", "").strip()
+    cm = ClosedMonth.query.filter_by(user_id=current_user.id, billing_month=mes).first()
+    if cm:
+        db.session.delete(cm)
+        db.session.commit()
+        flash(f"Mês {mes} reaberto.", "info")
+    return redirect(url_for("cards.list_cards", mes=mes))
 
 
 @cards_bp.route("/virar-mes", methods=["POST"])
