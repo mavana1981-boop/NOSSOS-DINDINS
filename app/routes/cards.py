@@ -650,13 +650,32 @@ def detail_card(card_id):
         else:
             unlinked.append(e)
 
+    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    _fy, _fm = int(mes_filter_d[:4]), int(mes_filter_d[5:7])
+    if _fm == 1: _prev = f"{_fy-1}-12"
+    else:        _prev = f"{_fy}-{_fm-1:02d}"
+    if _fm == 12: _next = f"{_fy+1}-01"
+    else:         _next = f"{_fy}-{_fm+1:02d}"
+
+    # Histórico de meses fechados para este cartão
+    from app.models import CardMonthHistory
+    historico_card = CardMonthHistory.query.filter_by(
+        user_id=current_user.id, card_id=card_id
+    ).order_by(CardMonthHistory.billing_month.desc()).all()
+
     return render_template("cards/detail.html",
                            card=card,
                            entries=entries,
                            by_expense=by_expense,
                            unlinked=unlinked,
                            fixed_expenses=fixed_expenses,
-                           today=date.today())
+                           today=date.today(),
+                           mes_filter_d=mes_filter_d,
+                           mes_label_d=f"{MESES_PT[_fm-1]}/{_fy}",
+                           prev_mes_d=_prev,
+                           next_mes_d=_next,
+                           historico_card=historico_card)
 
 
 # ── Lançamentos ───────────────────────────────────────────────────────────────
@@ -668,11 +687,13 @@ def new_entry(card_id):
     if card.user_id != current_user.id:
         abort(403)
     fixed_expenses = _get_user_fixed_expenses()
+    mes = request.args.get("mes", date.today().strftime("%Y-%m"))
     if request.method == "POST":
         return _save_entry(None, card)
     return render_template("cards/entry_form.html",
                            card=card, entry=None,
-                           fixed_expenses=fixed_expenses)
+                           fixed_expenses=fixed_expenses,
+                           mes_filter=mes)
 
 
 @cards_bp.route("/<int:card_id>/lancamento/<int:entry_id>/editar", methods=["GET", "POST"])
@@ -702,6 +723,7 @@ def _save_entry(entry, card):
     installment_no = request.form.get("installment_no", "1")
     notes = request.form.get("notes", "").strip()
     d_str = request.form.get("entry_date")
+    billing_month_form = request.form.get("billing_month", "").strip()
 
     if not desc or not amount or amount <= 0:
         flash("Descrição e valor são obrigatórios.", "danger")
@@ -735,6 +757,13 @@ def _save_entry(entry, card):
         entry.installment_no = 1
     entry.notes = notes
     entry.entry_date = d
+    # billing_month: usa o do form se informado, senão calcula pelo closing_day
+    if billing_month_form:
+        entry.billing_month = billing_month_form
+    elif not entry.billing_month:
+        from app.utils import get_billing_month as _gbm_save
+        byr, bmo = _gbm_save(d, card.closing_day)
+        entry.billing_month = f"{byr}-{bmo:02d}"
 
     try:
         db.session.commit()
@@ -752,7 +781,8 @@ def _save_entry(entry, card):
     # Projeta parcelas futuras como eventuais
 
     flash("Lançamento salvo.", "success")
-    return redirect(url_for("cards.detail_card", card_id=card.id))
+    mes_back = entry.billing_month or date.today().strftime("%Y-%m")
+    return redirect(url_for("cards.detail_card", card_id=card.id, mes=mes_back))
 
 
 @cards_bp.route("/<int:card_id>/lancamento/<int:entry_id>/excluir", methods=["POST"])
@@ -1368,3 +1398,78 @@ def batch_delete_entry(card_id, batch_id, entry_id):
         return redirect(url_for("cards.detail_card", card_id=card_id))
     return redirect(url_for("cards.batch_review",
                             card_id=card_id, batch_id=batch_id))
+
+
+@cards_bp.route("/<int:card_id>/fechar-mes", methods=["POST"])
+@login_required
+def fechar_mes(card_id):
+    from app.models import CardMonthHistory
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+
+    mes = request.form.get("mes", "").strip()
+    if not mes:
+        flash("Mês não informado.", "danger")
+        return redirect(url_for("cards.detail_card", card_id=card_id))
+
+    # Evita fechar o mesmo mês duas vezes
+    existente = CardMonthHistory.query.filter_by(
+        user_id=current_user.id, card_id=card_id, billing_month=mes
+    ).first()
+    if existente:
+        flash(f"Mês {mes} já foi fechado.", "warning")
+        return redirect(url_for("cards.detail_card", card_id=card_id, mes=mes))
+
+    # Busca entries do mês
+    entries = CardEntry.query.filter(
+        CardEntry.card_id == card_id,
+        CardEntry.status == "ativo",
+        CardEntry.billing_month == mes,
+    ).all()
+
+    total = round(sum(float(e.amount) for e in entries), 2)
+    count = len(entries)
+
+    import json as _json
+    snapshot = _json.dumps([{
+        "id": e.id,
+        "description": e.description,
+        "amount": float(e.amount),
+        "date": str(e.entry_date),
+        "kind": e.kind,
+        "category": e.category,
+        "installment_no": e.installment_no,
+        "installments": e.installments,
+    } for e in entries], ensure_ascii=False)
+
+    hist = CardMonthHistory(
+        user_id=current_user.id,
+        card_id=card_id,
+        billing_month=mes,
+        total_geral=total,
+        entry_count=count,
+        snapshot=snapshot,
+    )
+    db.session.add(hist)
+    db.session.commit()
+
+    flash(f"Mês {mes} fechado com {count} lançamentos — total {total:,.2f}.", "success")
+    return redirect(url_for("cards.detail_card", card_id=card_id, mes=mes))
+
+
+@cards_bp.route("/<int:card_id>/historico/<string:mes>")
+@login_required
+def historico_mes(card_id, mes):
+    from app.models import CardMonthHistory
+    import json as _json
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    hist = CardMonthHistory.query.filter_by(
+        user_id=current_user.id, card_id=card_id, billing_month=mes
+    ).first_or_404()
+    entries = _json.loads(hist.snapshot or "[]")
+    return render_template("cards/historico_mes.html",
+                           card=card, hist=hist,
+                           entries=entries, mes=mes)
