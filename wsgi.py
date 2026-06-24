@@ -41,6 +41,9 @@ def bootstrap():
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
         _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
+        _ensure_column("card_month_history", "card_id", "INTEGER REFERENCES cards(id)")
+        _ensure_column("card_month_history", "snapshot", "TEXT")
+        _ensure_column("card_month_history", "entry_count", "INTEGER DEFAULT 0")
         # Corrigir constraint: de UNIQUE(user_id) para UNIQUE(user_id, mes_ref)
         try:
             with db.engine.connect() as _conn_fix:
