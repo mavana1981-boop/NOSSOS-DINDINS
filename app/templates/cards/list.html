@@ -1,5 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Cartões{% endblock %}
+{% block title %}Cartões{% if closed_months_list %}
+<div class="card mt-3" style="border-left:4px solid var(--gold);">
+  <div style="font-weight:600;margin-bottom:10px;">📚 Histórico — meses fechados</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;">
+    {% for cm in closed_months_list %}
+    <a href="{{ url_for('cards.list_cards', mes=cm.billing_month) }}"
+       class="btn btn-ghost btn-sm"
+       style="border:1px solid var(--gold);color:var(--gold);">
+      🔒 {{ cm.billing_month }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -9,8 +23,26 @@
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <a href="{{ url_for('cards.list_cards', mes=prev_mes) }}" class="btn btn-ghost" title="Mês anterior">←</a>
-    <span style="font-weight:700;font-size:1rem;min-width:130px;text-align:center;">{{ mes_label }}</span>
+    <span style="font-weight:700;font-size:1rem;min-width:130px;text-align:center;">
+      {{ mes_label }}
+      {% if mes_fechado %}<span style="font-size:0.7rem;color:var(--gold);margin-left:4px;">🔒 fechado</span>{% endif %}
+    </span>
     <a href="{{ url_for('cards.list_cards', mes=next_mes) }}" class="btn btn-ghost" title="Próximo mês">→</a>
+
+    {% if mes_fechado %}
+      <form method="POST" action="{{ url_for('cards.reabrir_mes') }}"
+            onsubmit="return confirm('Reabrir {{ mes_label }}?');">
+        <input type="hidden" name="mes" value="{{ mes_filter }}">
+        <button class="btn btn-ghost" style="color:var(--gold);border:1px solid var(--gold);">🔓 Reabrir</button>
+      </form>
+    {% else %}
+      <form method="POST" action="{{ url_for('cards.fechar_mes_geral') }}"
+            onsubmit="return confirm('Fechar {{ mes_label }}? O app avançará para o próximo mês.');">
+        <input type="hidden" name="mes" value="{{ mes_filter }}">
+        <button class="btn btn-ghost" style="color:var(--gold);border:1px solid var(--gold);">🔒 Fechar mês</button>
+      </form>
+    {% endif %}
+
     <a href="{{ url_for('cards.new_card') }}" class="btn btn-primary" style="margin-left:8px;">+ Novo cartão</a>
   </div>
 </div>
