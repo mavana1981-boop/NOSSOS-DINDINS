@@ -299,8 +299,8 @@ class CardEntry(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    user = db.relationship("User", backref="card_entries")
-    expense = db.relationship("Expense", backref="card_entries")
+    user = db.relationship("User", backref="user_card_entries")
+    expense = db.relationship("Expense", backref="expense_card_entries")
 
 
 class HouseholdExpense(db.Model):
@@ -363,8 +363,8 @@ class MerchantRule(db.Model):
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
-    user    = db.relationship("User",    backref="merchant_rules")
-    expense = db.relationship("Expense", backref="merchant_rules")
+    user    = db.relationship("User",    backref="user_merchant_rules")
+    expense = db.relationship("Expense", backref="expense_merchant_rules")
     __table_args__ = (db.UniqueConstraint("user_id", "keyword"),)
 
 
