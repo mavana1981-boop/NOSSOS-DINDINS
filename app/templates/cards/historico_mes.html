@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Histórico {{ mes }} — {{ card.name }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>🔒 {{ card.name }} — {{ mes }}</h1>
+    <p>Mês fechado em {{ hist.created_at.strftime('%d/%m/%Y às %H:%M') }}</p>
+  </div>
+  <a href="{{ url_for('cards.detail_card', card_id=card.id, mes=mes) }}" class="btn btn-ghost">← Voltar</a>
+</div>
+
+<div class="card mb-3" style="border-left:4px solid var(--gold);">
+  <div class="grid grid-3">
+    <div class="stat">
+      <div class="stat-label">Total fatura</div>
+      <div class="stat-value" style="color:var(--red);">{{ hist.total_geral|brl }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Lançamentos</div>
+      <div class="stat-value">{{ hist.entry_count }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Mês de referência</div>
+      <div class="stat-value">{{ mes }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Descrição</th>
+        <th>Categoria</th>
+        <th>Tipo</th>
+        <th class="text-right">Valor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="text-small">{{ e.date[:10] if e.date else '—' }}</td>
+        <td>
+          {{ e.description }}
+          {% if e.installments and e.installments > 1 %}
+          <span class="badge badge-solo text-small">{{ e.installment_no }}/{{ e.installments }}</span>
+          {% endif %}
+        </td>
+        <td class="text-small text-dim">{{ e.category or '—' }}</td>
+        <td class="text-small">{{ e.kind or 'pontual' }}</td>
+        <td class="text-right mono" style="color:var(--red);">{{ e.amount|brl }}</td>
+      </tr>
+      {% endfor %}
+      <tr style="border-top:2px solid var(--border);font-weight:700;">
+        <td colspan="4">Total</td>
+        <td class="text-right mono" style="color:var(--red);">{{ hist.total_geral|brl }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
