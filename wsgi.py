@@ -58,6 +58,7 @@ def bootstrap():
             print(f"[migrate] payment_plans constraint: {_e_fix}")
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
         _ensure_column("payment_items", "due_date", "DATE")
+        _ensure_column("payment_card_status", "amount_override", "NUMERIC(12,2)")
         # Tabela de regras de categorização por estabelecimento
         with db.engine.connect() as _conn2:
             _conn2.execute(text("""
