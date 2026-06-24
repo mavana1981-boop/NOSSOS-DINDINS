@@ -1,5 +1,18 @@
 {% extends "base.html" %}
-{% block title %}{{ card.name }}{% endblock %}
+{% block title %}{{ card.name }}{% if historico_card %}
+<div class="card mt-3" style="border-left:4px solid var(--gold);">
+  <div style="font-weight:600;margin-bottom:10px;">📚 Meses fechados</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;">
+    {% for h in historico_card %}
+    <a href="{{ url_for('cards.historico_mes', card_id=card.id, mes=h.billing_month) }}"
+       class="btn btn-ghost btn-sm" style="border:1px solid var(--gold);color:var(--gold);">
+      🔒 {{ h.billing_month }} — {{ h.total_geral|brl }} ({{ h.entry_count }} lanç.)
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
 {% block content %}
 <script>
 function atualizarBarra() {
@@ -89,9 +102,22 @@ function excluirSelecionados() {
       {% if card.due_day %}Vence dia {{ card.due_day }}{% endif %}
     </p>
   </div>
-  <div class="flex flex-gap">
-    <a href="{{ url_for('cards.new_entry', card_id=card.id) }}" class="btn btn-primary">+ Lançamento</a>
-    <a href="{{ url_for('cards.batch_upload', card_id=card.id) }}" class="btn btn-ghost">📎 Lançamento em lote</a>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <a href="{{ url_for('cards.detail_card', card_id=card.id, mes=prev_mes_d) }}" class="btn btn-ghost btn-sm">←</a>
+    <strong style="min-width:120px;text-align:center;">{{ mes_label_d }}</strong>
+    <a href="{{ url_for('cards.detail_card', card_id=card.id, mes=next_mes_d) }}" class="btn btn-ghost btn-sm">→</a>
+    <a href="{{ url_for('cards.new_entry', card_id=card.id, mes=mes_filter_d) }}" class="btn btn-primary">+ Lançamento</a>
+    <a href="{{ url_for('cards.batch_upload', card_id=card.id, mes=mes_filter_d) }}" class="btn btn-ghost">📎 Lançamento em lote</a>
+    {% set ja_fechado = historico_card | selectattr('billing_month','eq',mes_filter_d) | list | length > 0 %}
+    {% if ja_fechado %}
+      <span class="btn btn-ghost" style="opacity:0.5;cursor:default;">🔒 Mês fechado</span>
+    {% else %}
+      <form method="POST" action="{{ url_for('cards.fechar_mes', card_id=card.id) }}"
+            onsubmit="return confirm('Fechar {{ mes_label_d }}? O snapshot será salvo no histórico.');">
+        <input type="hidden" name="mes" value="{{ mes_filter_d }}">
+        <button class="btn btn-ghost" style="border:1px solid var(--gold);color:var(--gold);">🔒 Fechar mês</button>
+      </form>
+    {% endif %}
     <!-- Redefinir mês da fatura -->
     <form method="POST" action="{{ url_for('cards.definir_mes_fatura', card_id=card.id) }}"
           style="display:inline-flex;gap:6px;align-items:center;"
@@ -308,7 +334,7 @@ function excluirSelecionados() {
   <div class="empty-state">
     <h4>Nenhum lançamento ainda</h4>
     <p>Registre os gastos deste cartão e vincule-os aos gastos fixos.</p>
-    <a href="{{ url_for('cards.new_entry', card_id=card.id) }}" class="btn btn-primary btn-sm mt-2">Novo lançamento</a>
+    <a href="{{ url_for('cards.new_entry', card_id=card.id, mes=mes_filter_d) }}" class="btn btn-primary btn-sm mt-2">Novo lançamento</a>
   </div>
 </div>
 {% endif %}
