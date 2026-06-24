@@ -337,17 +337,20 @@ class CashflowOverride(db.Model):
 
 
 class CardMonthHistory(db.Model):
-    """Histórico mensal de gastos dos cartões."""
+    """Histórico mensal de gastos por cartão."""
     __tablename__ = "card_month_history"
     id            = db.Column(db.Integer, primary_key=True)
     user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    billing_month = db.Column(db.String(7), nullable=False)   # YYYY-MM
-    snapshot_json = db.Column(db.Text, nullable=False)         # JSON consolidado
+    card_id       = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
+    billing_month = db.Column(db.String(7), nullable=False)
+    snapshot      = db.Column(db.Text, nullable=True)
     total_geral   = db.Column(db.Numeric(12, 2), default=0)
+    entry_count   = db.Column(db.Integer, default=0)
     created_at    = db.Column(db.DateTime, default=db.func.now())
 
     user = db.relationship("User", backref="card_histories")
-    __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
+    card = db.relationship("Card", backref="month_histories")
+    __table_args__ = (db.UniqueConstraint("user_id", "card_id", "billing_month"),)
 
 
 class MerchantRule(db.Model):
@@ -395,10 +398,11 @@ class PaymentItem(db.Model):
 class PaymentCardStatus(db.Model):
     """Status de pagamento de fatura de cartão por mês."""
     __tablename__ = "payment_card_status"
-    id       = db.Column(db.Integer, primary_key=True)
-    plan_id  = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
-    card_id  = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
-    is_paid  = db.Column(db.Boolean, default=False)
-    due_date = db.Column(db.Date, nullable=True)
+    id              = db.Column(db.Integer, primary_key=True)
+    plan_id         = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
+    card_id         = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
+    is_paid         = db.Column(db.Boolean, default=False)
+    due_date        = db.Column(db.Date, nullable=True)
+    amount_override = db.Column(db.Numeric(12, 2), nullable=True)  # valor manual
     __table_args__ = (db.UniqueConstraint("plan_id", "card_id"),)
     card = db.relationship("Card", backref="payment_status")
