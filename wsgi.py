@@ -54,21 +54,6 @@ def bootstrap():
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
         _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
         _ensure_column("card_month_history", "card_id", "INTEGER REFERENCES cards(id)")
-        # Tabela de meses fechados
-        try:
-            with db.engine.connect() as _cc:
-                _cc.execute(text("""
-                    CREATE TABLE IF NOT EXISTS closed_months (
-                        id SERIAL PRIMARY KEY,
-                        user_id INTEGER REFERENCES users(id),
-                        billing_month VARCHAR(7) NOT NULL,
-                        closed_at TIMESTAMP DEFAULT NOW(),
-                        UNIQUE(user_id, billing_month)
-                    )
-                """))
-                _cc.commit()
-        except Exception as _e:
-            print(f"[migrate] closed_months: {_e}")
         _ensure_column("card_month_history", "snapshot", "TEXT")
         _ensure_column("card_month_history", "entry_count", "INTEGER DEFAULT 0")
         # Corrigir constraint: de UNIQUE(user_id) para UNIQUE(user_id, mes_ref)
@@ -132,6 +117,15 @@ def bootstrap():
                     is_paid BOOLEAN DEFAULT FALSE,
                     due_date DATE,
                     UNIQUE(plan_id, card_id)
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS closed_months (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    billing_month VARCHAR(7) NOT NULL,
+                    closed_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, billing_month)
                 )
             """))
             _conn2.commit()
