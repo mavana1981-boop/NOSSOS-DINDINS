@@ -1053,17 +1053,16 @@ def _process_batch(card):
                 parsed = _parse_json(raw)
                 try:
                     _app._gemini_batch_model = model
+                    _app._gemini_last_used = f"{api_ver}/{model}"
                 except Exception:
                     pass
-                flash(f"IA: {api_ver}/{model}", "info")
                 return parsed, None
             except urllib.error.HTTPError as e:
                 body = e.read().decode()
                 errors.append(f"{api_ver}/{model}:{e.code}")
-                # 503 = alta demanda: aguarda 2s e tenta próximo
-                if e.code == 503:
-                    import time as _time; _time.sleep(2)
-                # 404 = modelo não existe; 429 = quota; outros = erro real
+                if e.code in (429, 503):
+                    # Alta demanda ou quota: aguarda e tenta próximo
+                    import time as _time; _time.sleep(3)
                 continue
             except Exception as _ex:
                 errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
@@ -1251,16 +1250,26 @@ def _process_batch(card):
 
     transactions = None
     errors = []
-    # Usa somente Gemini para lote (com cache dinâmico de modelo)
-    result, err = _try_gemini()
-    if result is not None:
-        transactions = result
-    else:
-        errors.append(err or "Gemini falhou")
+    # Chain: Gemini → Groq → Cloudflare
+    ia_usada = None
+    for _fn, _name in [(_try_gemini, "Gemini"), (_try_groq, "Groq"), (_try_cloudflare, "Cloudflare")]:
+        _result, _err = _fn()
+        if _result is not None:
+            ia_usada = _name
+            transactions = _result
+            break
+        errors.append(f"{_name}: {_err or 'falhou'}")
 
     if transactions is None:
         flash("Falha ao analisar extrato. " + " | ".join(errors), "danger")
         return render_template("cards/batch_upload.html", card=card)
+
+    # Aviso de qual IA processou
+    if ia_usada == "Gemini":
+        modelo = getattr(_app, "_gemini_last_used", "Gemini")
+        flash(f"✅ Extrato processado via {modelo}", "success")
+    elif ia_usada:
+        flash(f"✅ Extrato processado via {ia_usada}", "success")
 
     if not isinstance(transactions, list) or not transactions:
         flash("Nenhuma transação encontrada no arquivo.", "warning")
