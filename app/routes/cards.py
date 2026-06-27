@@ -1015,28 +1015,35 @@ def _process_batch(card):
 
         # Cache dinâmico: tenta o último modelo que funcionou primeiro
         from flask import current_app as _app
-        MODELS = [
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-preview-05-20",
-            "gemini-2.0-flash-exp",
-            "gemini-2.0-flash-lite",
-            "gemini-1.5-flash-002",
-            "gemini-1.5-flash-001",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash-8b-001",
-            "gemini-1.5-pro-002",
-            "gemini-1.5-pro-001",
-            "gemini-1.5-pro",
-            "gemini-pro",
+        # Tenta v1 e v1beta para cada modelo
+        CANDIDATES = [
+            ("v1",    "gemini-2.0-flash-001"),
+            ("v1",    "gemini-2.0-flash"),
+            ("v1",    "gemini-1.5-flash-8b"),
+            ("v1",    "gemini-1.5-flash-001"),
+            ("v1",    "gemini-1.5-flash-002"),
+            ("v1",    "gemini-1.5-flash"),
+            ("v1",    "gemini-1.5-pro-001"),
+            ("v1beta","gemini-2.5-flash"),
+            ("v1beta","gemini-2.5-flash-preview-05-20"),
+            ("v1beta","gemini-2.0-flash-exp"),
+            ("v1beta","gemini-2.0-flash-lite"),
+            ("v1beta","gemini-1.5-flash-002"),
+            ("v1beta","gemini-1.5-flash-001"),
+            ("v1beta","gemini-1.5-flash"),
+            ("v1beta","gemini-1.5-flash-8b-001"),
+            ("v1beta","gemini-1.5-pro-002"),
+            ("v1beta","gemini-1.5-pro"),
+            ("v1beta","gemini-pro"),
         ]
+        # Cache dinâmico: tenta o último que funcionou primeiro
         cached = getattr(_app, "_gemini_batch_model", None)
-        if cached and cached in MODELS:
-            MODELS = [cached] + [m for m in MODELS if m != cached]
+        if cached:
+            CANDIDATES = [c for c in CANDIDATES if c[1]==cached] +                          [c for c in CANDIDATES if c[1]!=cached]
 
-        for model in MODELS:
+        for api_ver, model in CANDIDATES:
             try:
-                url = (f"https://generativelanguage.googleapis.com/v1beta/"
+                url = (f"https://generativelanguage.googleapis.com/{api_ver}/"
                        f"models/{model}:generateContent?key={key}")
                 req = urllib.request.Request(url, data=payload,
                     headers={"Content-Type": "application/json"}, method="POST")
@@ -1044,21 +1051,22 @@ def _process_batch(card):
                     result = json.loads(resp.read())
                 raw = result["candidates"][0]["content"]["parts"][0]["text"]
                 parsed = _parse_json(raw)
-                # Salva modelo que funcionou para próxima chamada
                 try:
                     _app._gemini_batch_model = model
                 except Exception:
                     pass
-                flash(f"IA: {model}", "info")
+                flash(f"IA: {api_ver}/{model}", "info")
                 return parsed, None
             except urllib.error.HTTPError as e:
                 body = e.read().decode()
-                if e.code in (404, 429, 503):
-                    errors.append(f"{model}:{e.code}")
-                    continue
-                return None, f"Gemini {e.code} ({model}): {body[:200]}"
+                errors.append(f"{api_ver}/{model}:{e.code}")
+                # 503 = alta demanda: aguarda 2s e tenta próximo
+                if e.code == 503:
+                    import time as _time; _time.sleep(2)
+                # 404 = modelo não existe; 429 = quota; outros = erro real
+                continue
             except Exception as _ex:
-                errors.append(f"{model}:{repr(_ex)[:80]}")
+                errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
                 continue
         return None, f"Gemini indisponível. Tentados: {', '.join(errors)}"
 
