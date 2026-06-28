@@ -426,13 +426,17 @@ def delete_planejado(planned_id):
     p = PlannedInstallment.query.get_or_404(planned_id)
     if p.user_id != current_user.id:
         abort(403)
-    # Registrar exclusão permanente para não recriar no próximo boot
+    # Registrar exclusão permanente (ignora se já existe)
     try:
-        d = PlannedInstallmentDeletion(
+        exists_del = PlannedInstallmentDeletion.query.filter_by(
             user_id=p.user_id, card_id=p.card_id,
             description=p.description, installment_no=p.installment_no,
-        )
-        db.session.add(d)
+        ).first()
+        if not exists_del:
+            db.session.add(PlannedInstallmentDeletion(
+                user_id=p.user_id, card_id=p.card_id,
+                description=p.description, installment_no=p.installment_no,
+            ))
     except Exception:
         pass
     db.session.delete(p)
@@ -458,10 +462,15 @@ def delete_planejados_bulk():
             if p and p.user_id == current_user.id:
                 try:
                     from app.models import PlannedInstallmentDeletion
-                    db.session.add(PlannedInstallmentDeletion(
+                    _ed = PlannedInstallmentDeletion.query.filter_by(
                         user_id=p.user_id, card_id=p.card_id,
                         description=p.description, installment_no=p.installment_no,
-                    ))
+                    ).first()
+                    if not _ed:
+                        db.session.add(PlannedInstallmentDeletion(
+                            user_id=p.user_id, card_id=p.card_id,
+                            description=p.description, installment_no=p.installment_no,
+                        ))
                 except Exception:
                     pass
                 db.session.delete(p)
