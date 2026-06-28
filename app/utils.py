@@ -371,37 +371,38 @@ def get_yearly_cashflow(user_id, year):
     import re as _re
 
     def _norm_desc(desc):
-        """Remove notação de parcela da descrição para deduplicar corretamente."""
+        """Remove notação de parcela (XX DE YY, XX/YY, ou XX YY) da descrição."""
         d = (desc or "").upper().strip()
-        d = _re.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', d)  # " 01 DE 10"
-        d = _re.sub(r'\s+\d{1,2}/\d{1,2}$', '', d)         # " 01/10"
+        d = _re.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', d)   # "04 DE 10"
+        d = _re.sub(r'\s+\d{1,2}/\d{1,2}', '', d)            # "04/10"
+        d = _re.sub(r'\s+\d{1,2}\s+\d{1,2}(?=\s|$)', '', d) # "04 10" (sem DE)
         return d[:25].strip()
 
-    # Coletar todos os billing_months existentes por (desc_norm, installments, card_id)
-    # para evitar projetar installments que já foram importados
-    _existing_keys = set()
+    # Conjunto de (desc_norm, card_id, installment_no) já existentes no banco
+    # Usado para NÃO projetar installments que já foram importados
+    _existing = set()  # (desc_norm, card_id, installment_no)
     for entry in parcelados:
-        if entry.billing_month and entry.installment_no:
-            _dk = (_norm_desc(entry.description), entry.installments, entry.card_id)
-            _existing_keys.add((_dk, entry.installment_no))
+        if entry.installment_no:
+            _existing.add((_norm_desc(entry.description), entry.card_id, entry.installment_no))
 
+    # Para cada série, pegar o entry com maior installment_no (mais recente)
     _latest = {}
     for entry in parcelados:
         if not entry.installments or entry.installment_no is None:
             continue
-        _key = (_norm_desc(entry.description), entry.installments, entry.card_id)
-        if _key not in _latest or entry.installment_no > _latest[_key].installment_no:
+        _key = (_norm_desc(entry.description), entry.card_id)
+        prev = _latest.get(_key)
+        if prev is None or entry.installment_no > prev.installment_no:
             _latest[_key] = entry
 
     parcelados_por_mes = {}
-    for (_nk, _ni, _cid), entry in _latest.items():
+    for (_nk, _cid), entry in _latest.items():
         planned_v = float(entry.expense.amount) if (entry.expense_id and entry.expense) else 0.0
         first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
-        # Projetar apenas installments ainda não importados
         for i in range(entry.installment_no + 1, entry.installments + 1):
-            _ek = ((_nk, _ni, _cid), i)
-            if _ek in _existing_keys:
-                continue  # já existe no banco — não projetar
+            # Pular se este installment já existe no banco
+            if (_nk, _cid, i) in _existing:
+                continue
             d = _add_months(first_date, i - 1)
             key = (d.year, d.month)
             if key not in parcelados_por_mes:
