@@ -398,13 +398,29 @@ def get_yearly_cashflow(user_id, year):
     parcelados_por_mes = {}
     for (_nk, _cid), entry in _latest.items():
         planned_v = float(entry.expense.amount) if (entry.expense_id and entry.expense) else 0.0
-        first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
+        # Usar billing_month como âncora para projeção (não entry_date)
+        # billing_month da parcela atual + N meses = billing_month da parcela N
+        if entry.billing_month:
+            try:
+                _byr = int(entry.billing_month[:4])
+                _bmo = int(entry.billing_month[5:7])
+            except Exception:
+                _byr, _bmo = entry.entry_date.year, entry.entry_date.month
+        else:
+            _byr, _bmo = entry.entry_date.year, entry.entry_date.month
+
+        delta = entry.installment_no  # parcela atual → offset 0
+
         for i in range(entry.installment_no + 1, entry.installments + 1):
             # Pular se este installment já existe no banco
             if (_nk, _cid, i) in _existing:
                 continue
-            d = _add_months(first_date, i - 1)
-            key = (d.year, d.month)
+            # Mês projetado = billing_month da parcela atual + (i - installment_no) meses
+            _steps = i - entry.installment_no
+            _pmo = _bmo + _steps - 1
+            _pyr = _byr + _pmo // 12
+            _pmo = (_pmo % 12) + 1
+            key = (_pyr, _pmo)
             if key not in parcelados_por_mes:
                 parcelados_por_mes[key] = []
             parcelados_por_mes[key].append({
