@@ -906,13 +906,20 @@ def batch_upload(card_id):
         abort(403)
     if request.method == "POST":
         return _process_batch(card)
-    # Default: primeiro mês aberto a partir do mês atual
+    # Default: mês passado via ?mes= (do detalhe do cartão) ou primeiro mês aberto
     from datetime import date as _dt_bu
     from app.utils import get_open_billing_month as _gobm_bu
     _mes_default = request.args.get("mes", _dt_bu.today().strftime("%Y-%m"))
     _mes_default = _gobm_bu(current_user.id, _mes_default)
+    # Verificar se o mês já tem entries (aviso de possível reimportação)
+    _ja_tem = CardEntry.query.filter(
+        CardEntry.card_id == card_id,
+        CardEntry.billing_month == _mes_default,
+        CardEntry.status != "excluido",
+    ).count()
     return render_template("cards/batch_upload.html", card=card,
-                           billing_month_default=_mes_default)
+                           billing_month_default=_mes_default,
+                           ja_tem_entries=_ja_tem)
 
 
 def _process_batch(card):
