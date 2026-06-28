@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Projeção Planejados {{ year }}{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>📋 Projeção de Planejados</h1>
+    <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
+  </div>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;">
+    <a href="{{ url_for('cashflow.planejados', year=prev_year) }}" class="btn btn-ghost btn-sm">←</a>
+    <strong style="min-width:60px;text-align:center;">{{ year }}</strong>
+    <a href="{{ url_for('cashflow.planejados', year=next_year) }}" class="btn btn-ghost btn-sm">→</a>
+  </div>
+</div>
+
+{% if not por_mes %}
+<div class="card text-center text-faint" style="padding:40px;">
+  Nenhuma parcela planejada para {{ year }}.
+</div>
+{% else %}
+{% for bm, items in por_mes.items() %}
+{% set total_mes = items | sum(attribute='amount') | float %}
+<div class="card mb-3">
+  <div class="flex-between mb-2">
+    <strong style="font-size:1rem;">{{ bm }}</strong>
+    <span class="mono" style="color:var(--red);">{{ total_mes|brl }}</span>
+  </div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th style="text-align:center;">Parcela</th>
+        <th class="text-right">Valor</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for p in items %}
+    <tr>
+      <td>{{ p.description }}</td>
+      <td style="text-align:center;color:var(--text-dim);">
+        {{ p.installment_no }}/{{ p.installments }}
+      </td>
+      <td class="text-right mono" style="color:var(--red);">{{ p.amount|brl }}</td>
+      <td>
+        <form method="POST"
+              action="{{ url_for('cashflow.delete_planejado', planned_id=p.id) }}"
+              onsubmit="return confirm('Remover {{ p.description }} {{ p.installment_no }}/{{ p.installments }} da projeção?');">
+          <button class="btn btn-ghost btn-sm" style="color:var(--red);">× Excluir</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+
+{% endblock %}
