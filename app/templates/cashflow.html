@@ -1,19 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Fluxo de Caixa {{ year }}
-<!-- Modal memória de cálculo -->
-<div id="mem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;">
-  <div style="background:var(--surface);border-radius:12px;padding:24px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <strong id="mem-title">Memória de cálculo</strong>
-      <button onclick="document.getElementById('mem-modal').style.display='none'"
-              style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">×</button>
-    </div>
-    <div id="mem-body"></div>
-    <button onclick="document.getElementById('mem-modal').style.display='none'"
-            class="btn btn-primary btn-sm" style="width:100%;margin-top:16px;">Fechar</button>
-  </div>
-</div>
-
 {% endblock %}
 {% block content %}
 
@@ -217,6 +203,20 @@
   </div>
 </div>
 
+<!-- Modal memória de cálculo -->
+<div id="mem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <strong id="mem-title">Memória de cálculo</strong>
+      <button onclick="document.getElementById('mem-modal').style.display='none'"
+              style="background:none;border:none;font-size:1.4rem;cursor:pointer;">×</button>
+    </div>
+    <div id="mem-body"></div>
+    <button onclick="document.getElementById('mem-modal').style.display='none'"
+            class="btn btn-primary btn-sm" style="width:100%;margin-top:16px;">Fechar</button>
+  </div>
+</div>
+
 <script>
 var CASHFLOW_YEAR = {{ year }};
 
@@ -320,7 +320,8 @@ document.querySelectorAll('.editable-cell').forEach(function(td) {
   });
 });
 // Fechar modal de memória clicando fora
-document.getElementById('mem-modal').addEventListener('click', function(e) {
+var _mm = document.getElementById('mem-modal');
+if (_mm) _mm.addEventListener('click', function(e) {
   if (e.target === this) this.style.display = 'none';
 });
 
