@@ -426,16 +426,17 @@ def delete_planejado(planned_id):
     p = PlannedInstallment.query.get_or_404(planned_id)
     if p.user_id != current_user.id:
         abort(403)
-    # Registrar exclusão permanente (ignora se já existe)
+    # Registrar exclusão por billing_month — impede recriar qualquer parcela
+    # desta série neste mesmo mês
     try:
         exists_del = PlannedInstallmentDeletion.query.filter_by(
             user_id=p.user_id, card_id=p.card_id,
-            description=p.description, installment_no=p.installment_no,
+            description=p.description, billing_month=p.billing_month,
         ).first()
         if not exists_del:
             db.session.add(PlannedInstallmentDeletion(
                 user_id=p.user_id, card_id=p.card_id,
-                description=p.description, installment_no=p.installment_no,
+                description=p.description, billing_month=p.billing_month,
             ))
     except Exception:
         pass
@@ -464,12 +465,12 @@ def delete_planejados_bulk():
                     from app.models import PlannedInstallmentDeletion
                     _ed = PlannedInstallmentDeletion.query.filter_by(
                         user_id=p.user_id, card_id=p.card_id,
-                        description=p.description, installment_no=p.installment_no,
+                        description=p.description, billing_month=p.billing_month,
                     ).first()
                     if not _ed:
                         db.session.add(PlannedInstallmentDeletion(
                             user_id=p.user_id, card_id=p.card_id,
-                            description=p.description, installment_no=p.installment_no,
+                            description=p.description, billing_month=p.billing_month,
                         ))
                 except Exception:
                     pass
