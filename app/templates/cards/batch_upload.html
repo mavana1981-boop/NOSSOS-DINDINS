@@ -15,11 +15,11 @@
     <div class="form-group">
       <label class="form-label">Mês da Fatura</label>
       <input type="month" name="billing_month" class="form-control"
-             value="{{ billing_month_default or today.strftime('%Y-%m') }}"
+             value="{{ billing_month_default }}"
              required style="max-width:200px;">
       <div class="text-faint text-small mt-1">
         Define em qual mês da fatura os lançamentos serão registrados.
-        {% if billing_month_default and billing_month_default != today.strftime('%Y-%m') %}
+        {% if billing_month_default %}
         <span style="color:var(--gold);">⚠️ Mês atual fechado — usando {{ billing_month_default }}</span>
         {% endif %}
       </div>
