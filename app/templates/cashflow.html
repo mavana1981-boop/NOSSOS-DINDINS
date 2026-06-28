@@ -225,20 +225,37 @@ var CASHFLOW_YEAR = {{ year }};
 function mostrarMemoria(td) {
   try {
     var bd = JSON.parse(td.getAttribute('data-breakdown') || '{}');
-    var net = parseFloat(td.getAttribute('data-value') || '0');
-    var html =
-      '<div style="font-size:0.9rem;line-height:2;">' +
-      '<div style="display:flex;justify-content:space-between;"><span>+ Renda fixa</span><span class="mono" style="color:var(--green);">' + fmtBRL(bd.renda_fixa) + '</span></div>' +
-      '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(bd.renda_eventual) + '</span></div>' +
-      '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(bd.gastos_fixos) + '</span></div>' +
-      '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(bd.gastos_eventuais) + '</span></div>' +
-      '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
-      '<span>= Saldo</span><span class="mono" style="color:' + (net >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(net) + '</span></div>' +
-      '</div>';
+    var netExibido = parseFloat(td.getAttribute('data-value') || '0');
+    var rf = parseFloat(bd.renda_fixa || 0);
+    var re = parseFloat(bd.renda_eventual || 0);
+    var gf = parseFloat(bd.gastos_fixos || 0);
+    var ge = parseFloat(bd.gastos_eventuais || 0);
+    var netCalc = Math.round((rf + re - gf - ge) * 100) / 100;
+    var isOverride = Math.abs(netCalc - netExibido) > 0.05;
+
+    var html = '<div style="font-size:0.9rem;line-height:2;">';
+    html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda fixa</span><span class="mono" style="color:var(--green);">' + fmtBRL(rf) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(re) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(gf) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(ge) + '</span></div>';
+
+    if (isOverride) {
+      // Há override manual — mostrar o calculado E o ajustado
+      html += '<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;color:var(--text-dim);">';
+      html += '<span>= Calculado</span><span class="mono">' + fmtBRL(netCalc) + '</span></div>';
+      var ajuste = netExibido - netCalc;
+      html += '<div style="display:flex;justify-content:space-between;color:var(--gold);font-size:0.8rem;">';
+      html += '<span>± Ajuste manual</span><span class="mono">' + fmtBRL(ajuste) + '</span></div>';
+    }
+
+    html += '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">';
+    html += '<span>= Saldo</span><span class="mono" style="color:' + (netExibido >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(netExibido) + '</span></div>';
+    html += '</div>';
+
     document.getElementById('mem-body').innerHTML = html;
     document.getElementById('mem-title').textContent = 'Memória: Saldo';
     document.getElementById('mem-modal').style.display = 'flex';
-  } catch(e) { abrirEdicao(td); }
+  } catch(e) { console.error('mostrarMemoria:', e); }
 }
 
 // Modal de memória — Acumulado
