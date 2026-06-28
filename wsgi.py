@@ -281,6 +281,90 @@ def bootstrap():
 
 
 def _fix_parcelados_duplicados():
+    pass
+
+
+def _backfill_planned_installments():
+    """Popula planned_installments a partir dos CardEntries parcelados já existentes."""
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE, PlannedInstallment as _PI
+
+            # Verificar se já tem dados (evitar reprocessar)
+            if _PI.query.count() > 0:
+                print(f"[backfill_planned] {_PI.query.count()} item(s) já existem — pulando.")
+                return
+
+            # Buscar todos os parcelados ativos com billing_month definido
+            parcs = _CE.query.filter(
+                _CE.installments > 1,
+                _CE.installment_no != None,
+                _CE.billing_month != None,
+                _CE.status != "excluido",
+            ).all()
+
+            # Para cada série (card + desc_norm), pegar a parcela mais recente
+            import re as _re_bf
+            def _norm_bf(s):
+                s = (s or "").upper().strip()
+                s = _re_bf.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+                s = _re_bf.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_bf.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+                return s[:30].strip()
+
+            latest = {}
+            for e in parcs:
+                k = (e.card_id, _norm_bf(e.description))
+                prev = latest.get(k)
+                if prev is None or e.installment_no > prev.installment_no:
+                    latest[k] = e
+
+            count = 0
+            for (cid, dnorm), entry in latest.items():
+                try:
+                    byr = int(entry.billing_month[:4])
+                    bmo = int(entry.billing_month[5:7])
+                except Exception:
+                    continue
+
+                for i in range(entry.installment_no + 1, entry.installments + 1):
+                    steps = i - entry.installment_no
+                    pmo = bmo + steps - 1
+                    pyr = byr + pmo // 12
+                    pmo = (pmo % 12) + 1
+                    proj_bm = f"{pyr}-{pmo:02d}"
+
+                    # Não duplicar
+                    exists = _PI.query.filter_by(
+                        user_id=entry.user_id,
+                        card_id=entry.card_id,
+                        description=entry.description,
+                        installment_no=i,
+                    ).first()
+                    if exists:
+                        continue
+
+                    pi = _PI(
+                        user_id=entry.user_id,
+                        card_id=entry.card_id,
+                        description=entry.description,
+                        amount=entry.amount,
+                        installment_no=i,
+                        installments=entry.installments,
+                        billing_month=proj_bm,
+                        expense_id=entry.expense_id,
+                        origin_entry_id=entry.id,
+                    )
+                    db.session.add(pi)
+                    count += 1
+
+            db.session.commit()
+            print(f"[backfill_planned] {count} parcela(s) planejada(s) criada(s).")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[backfill_planned] Erro: {_ex}")
+
+
     """Remove entradas duplicadas cross-month: mesmo cartão, mesma desc, mesmo valor.
     Mantém a do billing_month mais recente."""
     import re as _re_fix
@@ -357,6 +441,9 @@ def _fix_parcelados_duplicados():
 
 bootstrap()
 _fix_parcelados_duplicados()
+
+
+_backfill_planned_installments()
 
 
 if __name__ == "__main__":
