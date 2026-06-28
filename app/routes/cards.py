@@ -820,6 +820,18 @@ def _save_entry(entry, card):
         byr, bmo = _gbm_save(d, card.closing_day)
         entry.billing_month = f"{byr}-{bmo:02d}"
 
+    # Garantir billing_month em mês aberto — avança automaticamente se fechado
+    if entry.billing_month:
+        from app.utils import get_open_billing_month as _gobm
+        bm_orig = entry.billing_month
+        entry.billing_month = _gobm(current_user.id, bm_orig)
+        if entry.billing_month != bm_orig:
+            flash(
+                f"Mês {bm_orig} está fechado. "
+                f"Lançamento adicionado em {entry.billing_month}.",
+                "warning"
+            )
+
     try:
         db.session.commit()
     except Exception as e:
@@ -909,6 +921,13 @@ def _process_batch(card):
     # Mês da fatura: definido pelo usuário no formulário (padrão = mês atual)
     _today_bm = _dt_now.today()
     billing_month = request.form.get("billing_month", _today_bm.strftime("%Y-%m"))
+
+    # Avançar automaticamente para mês aberto
+    from app.utils import get_open_billing_month as _gobm_batch
+    _bm_orig = billing_month
+    billing_month = _gobm_batch(current_user.id, billing_month)
+    if billing_month != _bm_orig:
+        flash(f"Mês {_bm_orig} está fechado. Importando para {billing_month}.", "warning")
 
     PROMPT = (
         "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações de compra. "
