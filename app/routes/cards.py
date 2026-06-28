@@ -1338,6 +1338,10 @@ def _process_batch(card):
         except Exception:
             continue
 
+    # Aplicar regras de categorização automática
+    from app.models import MerchantRule
+    rules = MerchantRule.query.filter_by(user_id=current_user.id).all()
+    if rules:
         pending = CardEntry.query.filter_by(batch_id=batch_id, status="em_avaliacao").all()
         for e in pending:
             desc_lower = e.description.lower()
@@ -1347,8 +1351,6 @@ def _process_batch(card):
                     if rule.expense_id:
                         e.expense_id = rule.expense_id
                     break
-        db.session.commit()
-
     db.session.commit()
     flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
     return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
