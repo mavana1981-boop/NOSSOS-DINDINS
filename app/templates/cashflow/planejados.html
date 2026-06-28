@@ -42,7 +42,8 @@
   {% for bm, items in por_mes.items() %}
   {% set total_mes = items | sum(attribute='amount') | float %}
   {% set mes_id = bm | replace('-','') %}
-  {% set ultima_count = items | selectattr('installment_no', 'equalto', items[0].installments) | list | length %}
+  {% set ultima_count = namespace(v=0) %}
+  {% for p in items %}{% if p.installment_no == p.installments %}{% set ultima_count.v = ultima_count.v + 1 %}{% endif %}{% endfor %}
   <div class="card mb-2">
     <!-- Header colapsável -->
     <div class="flex-between" style="cursor:pointer;padding:4px 0;"
@@ -51,7 +52,7 @@
         <span id="icon-{{ mes_id }}">▶</span>
         <strong>{{ bm }}</strong>
         <span class="text-dim text-small">({{ items|length }} parcela(s)
-          {%- if ultima_count %} · <span style="color:var(--red);">{{ ultima_count }} última(s)</span>{% endif %})</span>
+          {%- if ultima_count.v %} · <span style="color:var(--red);">{{ ultima_count.v }} última(s)</span>{% endif %})</span>
       </div>
       <span class="mono" style="color:var(--red);font-weight:700;">{{ total_mes|brl }}</span>
     </div>
