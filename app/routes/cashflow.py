@@ -434,5 +434,29 @@ def delete_planejado(planned_id):
     year = p.billing_month[:4]
     db.session.delete(p)
     db.session.commit()
-    flash(f"Lançamento removido da projeção.", "success")
+    flash("Lançamento removido da projeção.", "success")
+    return redirect(url_for("cashflow.planejados", year=year))
+
+
+@cashflow_bp.route("/planejados/delete-bulk", methods=["POST"])
+@login_required
+def delete_planejados_bulk():
+    from app.models import PlannedInstallment
+    from app import db
+    ids = request.form.getlist("ids")
+    year = request.form.get("year", str(date.today().year))
+    if not ids:
+        flash("Nenhum item selecionado.", "warning")
+        return redirect(url_for("cashflow.planejados", year=year))
+    count = 0
+    for id_str in ids:
+        try:
+            p = PlannedInstallment.query.get(int(id_str))
+            if p and p.user_id == current_user.id:
+                db.session.delete(p)
+                count += 1
+        except Exception:
+            continue
+    db.session.commit()
+    flash(f"{count} item(s) removido(s) da projeção.", "success")
     return redirect(url_for("cashflow.planejados", year=year))
