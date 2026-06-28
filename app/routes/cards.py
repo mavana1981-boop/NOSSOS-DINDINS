@@ -906,7 +906,13 @@ def batch_upload(card_id):
         abort(403)
     if request.method == "POST":
         return _process_batch(card)
-    return render_template("cards/batch_upload.html", card=card)
+    # Default: primeiro mês aberto a partir do mês atual
+    from datetime import date as _dt_bu
+    from app.utils import get_open_billing_month as _gobm_bu
+    _mes_default = request.args.get("mes", _dt_bu.today().strftime("%Y-%m"))
+    _mes_default = _gobm_bu(current_user.id, _mes_default)
+    return render_template("cards/batch_upload.html", card=card,
+                           billing_month_default=_mes_default)
 
 
 def _process_batch(card):
@@ -1296,29 +1302,6 @@ def _process_batch(card):
 
     batch_id = str(uuid.uuid4())[:8]
     count = 0
-    skipped = 0
-
-    # Pré-carregar entries existentes no billing_month para deduplicação
-    _existing_entries = CardEntry.query.filter(
-        CardEntry.card_id == card.id,
-        CardEntry.billing_month == billing_month,
-        CardEntry.status != "excluido",
-    ).all()
-    # Chave de deduplicação: (desc_norm[:30], amount, installment_no)
-    import re as _re2
-    def _norm(s):
-        """Normaliza descrição removendo sufixo de parcela (ex: 04 10, 04/10, 04 DE 10)."""
-        import re as _r
-        s = (s or "").upper().strip()
-        # Remove " 04 DE 10" ou " 04/10" ou " 04 10"
-        s = _r.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
-        s = _r.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
-        s = _r.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
-        return s[:30].strip()
-
-    _dup_set = set()
-    for _ex in _existing_entries:
-        _dup_set.add((_norm(_ex.description), str(_ex.amount), _ex.installment_no or 0))
 
     for t in transactions:
         try:
@@ -1336,13 +1319,6 @@ def _process_batch(card):
             if inst > 1:
                 kind = "parcelado"
             desc = str(t.get("description", "Sem descrição"))[:160]
-
-            # Verificar duplicata: mesmo entry já existe no billing_month
-            _dk = (_norm(desc), str(round(float(amount), 2)), inst_no)
-            if _dk in _dup_set:
-                skipped += 1
-                continue
-
             entry = CardEntry(
                 card_id=card.id,
                 user_id=current_user.id,
@@ -1358,18 +1334,10 @@ def _process_batch(card):
                 billing_month=billing_month,
             )
             db.session.add(entry)
-            _dup_set.add(_dk)  # evitar duplicatas dentro do mesmo lote
             count += 1
         except Exception:
             continue
 
-    if skipped:
-        flash(f"{skipped} lançamento(s) ignorados por já existirem em {billing_month}.", "info")
-
-    # Aplicar regras de categorização automática
-    from app.models import MerchantRule
-    rules = MerchantRule.query.filter_by(user_id=current_user.id).all()
-    if rules:
         pending = CardEntry.query.filter_by(batch_id=batch_id, status="em_avaliacao").all()
         for e in pending:
             desc_lower = e.description.lower()
