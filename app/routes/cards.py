@@ -1381,7 +1381,7 @@ def _process_batch(card):
     if skipped:
         flash(f"⚠️ {skipped} parcela(s) ignorada(s) por já existirem no cartão.", "warning")
 
-    # Gerar parcelas futuras na tabela planned_installments
+    # Gerar planned_installments: parcela atual + futuras
     from app.models import MerchantRule, PlannedInstallment
     _batch_entries = CardEntry.query.filter_by(batch_id=batch_id).all()
     for _e in _batch_entries:
@@ -1394,6 +1394,25 @@ def _process_batch(card):
             _bmo = int(_e.billing_month[5:7])
         except Exception:
             continue
+        # Adicionar a parcela atual ao planned_installments
+        # Pular se foi excluído intencionalmente pelo usuário
+        from app.models import PlannedInstallmentDeletion as _PID2
+        _was_deleted = _PID2.query.filter_by(
+            user_id=current_user.id, card_id=card.id,
+            description=_e.description, installment_no=_e.installment_no,
+        ).first()
+        _exists_cur = PlannedInstallment.query.filter_by(
+            user_id=current_user.id, card_id=card.id,
+            description=_e.description, installment_no=_e.installment_no,
+        ).first()
+        if not _exists_cur and not _was_deleted:
+            db.session.add(PlannedInstallment(
+                user_id=current_user.id, card_id=card.id,
+                description=_e.description, amount=_e.amount,
+                installment_no=_e.installment_no, installments=_e.installments,
+                billing_month=_e.billing_month,
+                expense_id=_e.expense_id, origin_entry_id=_e.id,
+            ))
         for _i in range(_e.installment_no + 1, _e.installments + 1):
             # Mês projetado: billing_month da parcela importada + N meses
             _steps = _i - _e.installment_no
@@ -1401,7 +1420,13 @@ def _process_batch(card):
             _pyr = _byr + _pmo // 12
             _pmo = (_pmo % 12) + 1
             _proj_bm = f"{_pyr}-{_pmo:02d}"
-            # Verificar se já existe (evitar duplicata)
+            # Pular se foi excluído intencionalmente ou já existe
+            _was_del_fut = _PID2.query.filter_by(
+                user_id=current_user.id, card_id=card.id,
+                description=_e.description, installment_no=_i,
+            ).first()
+            if _was_del_fut:
+                continue
             _exists_plan = PlannedInstallment.query.filter_by(
                 user_id=current_user.id,
                 card_id=card.id,
