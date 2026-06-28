@@ -259,7 +259,60 @@ def bootstrap():
             print(f"[bootstrap] erro ao criar admin: {e}")
 
 
+def _fix_parcelados_duplicados():
+    """Remove parcelados duplicados cross-month: mantém o de billing_month mais recente."""
+    import re as _re_fix
+    def _norm_fix(s):
+        s = (s or "").upper().strip()
+        s = _re_fix.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+        s = _re_fix.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+        s = _re_fix.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+        return s[:30].strip()
+
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE
+            # Buscar todos os parcelados ativos
+            parcs = _CE.query.filter(
+                _CE.installments > 1,
+                _CE.status != "excluido",
+            ).all()
+
+            # Agrupar por (card_id, desc_norm, installment_no)
+            grupos = {}
+            for e in parcs:
+                k = (e.card_id, _norm_fix(e.description), e.installment_no or 0)
+                if k not in grupos:
+                    grupos[k] = []
+                grupos[k].append(e)
+
+            removidos = 0
+            for k, entries in grupos.items():
+                if len(entries) <= 1:
+                    continue
+                # Manter o de billing_month mais recente; deletar os demais
+                entries_sorted = sorted(
+                    entries,
+                    key=lambda e: (e.billing_month or "0000-00"),
+                    reverse=True
+                )
+                manter = entries_sorted[0]
+                for e in entries_sorted[1:]:
+                    db.session.delete(e)
+                    removidos += 1
+
+            if removidos:
+                db.session.commit()
+                print(f"[fix_parcelados] {removidos} duplicata(s) removida(s) — mantido billing_month mais recente.")
+            else:
+                print("[fix_parcelados] Nenhuma duplicata encontrada.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[fix_parcelados] Erro: {_ex}")
+
+
 bootstrap()
+_fix_parcelados_duplicados()
 
 
 if __name__ == "__main__":
