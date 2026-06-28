@@ -417,3 +417,24 @@ class ClosedMonth(db.Model):
     closed_at     = db.Column(db.DateTime, default=db.func.now())
     __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
     user = db.relationship("User", backref="closed_months")
+cat << 'EOF'
+
+
+class PlannedInstallment(db.Model):
+    """Parcela futura planejada — gerada automaticamente no import, editável pelo usuário."""
+    __tablename__ = "planned_installments"
+    id             = db.Column(db.Integer, primary_key=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id        = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
+    description    = db.Column(db.String(200), nullable=False)
+    amount         = db.Column(db.Numeric(12, 2), nullable=False)
+    installment_no = db.Column(db.Integer, nullable=False)
+    installments   = db.Column(db.Integer, nullable=False)
+    billing_month  = db.Column(db.String(7), nullable=False)
+    expense_id     = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    origin_entry_id = db.Column(db.Integer, db.ForeignKey("card_entries.id"), nullable=True)
+    created_at     = db.Column(db.DateTime, default=db.func.now())
+    user    = db.relationship("User", backref="planned_installments")
+    card    = db.relationship("Card", backref="planned_installments")
+    expense = db.relationship("Expense", backref="planned_installments")
+EOF
