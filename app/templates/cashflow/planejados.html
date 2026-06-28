@@ -5,7 +5,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>📋 Projeção de Planejados</h1>
-    <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
+    <p>Parcelas futuras geradas automaticamente pelo import.</p>
   </div>
   <div class="flex flex-gap" style="align-items:center;gap:8px;">
     <a href="{{ url_for('cashflow.planejados', year=prev_year) }}" class="btn btn-ghost btn-sm">←</a>
@@ -19,43 +19,109 @@
   Nenhuma parcela planejada para {{ year }}.
 </div>
 {% else %}
-{% for bm, items in por_mes.items() %}
-{% set total_mes = items | sum(attribute='amount') | float %}
-<div class="card mb-3">
-  <div class="flex-between mb-2">
-    <strong style="font-size:1rem;">{{ bm }}</strong>
-    <span class="mono" style="color:var(--red);">{{ total_mes|brl }}</span>
+<form method="POST" action="{{ url_for('cashflow.delete_planejados_bulk') }}" id="bulk-form">
+  <input type="hidden" name="year" value="{{ year }}">
+
+  <!-- Barra de ações em massa -->
+  <div class="card mb-3" style="background:var(--surface2);padding:12px 16px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+        <input type="checkbox" id="select-all" onchange="toggleAll(this)"
+               style="width:18px;height:18px;">
+        Selecionar todos
+      </label>
+      <div class="flex flex-gap" style="gap:8px;align-items:center;">
+        <span id="count-label" class="text-dim text-small">0 selecionado(s)</span>
+        <button type="submit" class="btn btn-sm"
+                style="background:var(--red);color:white;border:none;"
+                onclick="return confirmarExclusao()"
+                id="btn-delete-bulk" disabled>
+          🗑 Excluir selecionados
+        </button>
+      </div>
+    </div>
   </div>
-  <table class="tbl">
-    <thead>
+
+  {% for bm, items in por_mes.items() %}
+  {% set total_mes = items | sum(attribute='amount') | float %}
+  <div class="card mb-3">
+    <div class="flex-between mb-2">
+      <strong style="font-size:1rem;">{{ bm }}</strong>
+      <span class="mono" style="color:var(--red);">{{ total_mes|brl }}</span>
+    </div>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="width:36px;"></th>
+          <th>Descrição</th>
+          <th style="text-align:center;">Parcela</th>
+          <th class="text-right">Valor</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in items %}
       <tr>
-        <th>Descrição</th>
-        <th style="text-align:center;">Parcela</th>
-        <th class="text-right">Valor</th>
-        <th></th>
+        <td>
+          <input type="checkbox" name="ids" value="{{ p.id }}"
+                 class="item-check" onchange="atualizarContador()"
+                 style="width:16px;height:16px;cursor:pointer;">
+        </td>
+        <td>{{ p.description }}</td>
+        <td style="text-align:center;color:var(--text-dim);">
+          {{ p.installment_no }}/{{ p.installments }}
+        </td>
+        <td class="text-right mono" style="color:var(--red);">{{ p.amount|brl }}</td>
+        <td>
+          <button type="button" class="btn btn-ghost btn-sm" style="color:var(--red);"
+                  onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}')">
+            ×
+          </button>
+        </td>
       </tr>
-    </thead>
-    <tbody>
-    {% for p in items %}
-    <tr>
-      <td>{{ p.description }}</td>
-      <td style="text-align:center;color:var(--text-dim);">
-        {{ p.installment_no }}/{{ p.installments }}
-      </td>
-      <td class="text-right mono" style="color:var(--red);">{{ p.amount|brl }}</td>
-      <td>
-        <form method="POST"
-              action="{{ url_for('cashflow.delete_planejado', planned_id=p.id) }}"
-              onsubmit="return confirm('Remover {{ p.description }} {{ p.installment_no }}/{{ p.installments }} da projeção?');">
-          <button class="btn btn-ghost btn-sm" style="color:var(--red);">× Excluir</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</form>
+
+<!-- Form oculto para exclusão individual -->
+<form id="form-one" method="POST" style="display:none;">
+  <input type="hidden" name="ids" id="one-id">
+  <input type="hidden" name="year" value="{{ year }}">
+</form>
+
+<script>
+function toggleAll(cb) {
+  document.querySelectorAll('.item-check').forEach(c => c.checked = cb.checked);
+  atualizarContador();
+}
+
+function atualizarContador() {
+  const checked = document.querySelectorAll('.item-check:checked').length;
+  document.getElementById('count-label').textContent = checked + ' selecionado(s)';
+  document.getElementById('btn-delete-bulk').disabled = checked === 0;
+  // Atualizar select-all indeterminate
+  const total = document.querySelectorAll('.item-check').length;
+  const sa = document.getElementById('select-all');
+  sa.indeterminate = checked > 0 && checked < total;
+  sa.checked = checked === total;
+}
+
+function confirmarExclusao() {
+  const n = document.querySelectorAll('.item-check:checked').length;
+  return confirm('Excluir ' + n + ' item(s) da projeção?');
+}
+
+function excluirUm(id, desc) {
+  if (!confirm('Excluir "' + desc + '" da projeção?')) return;
+  const f = document.getElementById('form-one');
+  f.action = '/fluxo/planejados/' + id + '/delete';
+  document.getElementById('one-id').value = id;
+  f.submit();
+}
+</script>
 {% endif %}
 
 {% endblock %}
