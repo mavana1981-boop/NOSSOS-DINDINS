@@ -72,6 +72,22 @@ def bootstrap():
         except Exception as _e_fix:
             print(f"[migrate] payment_plans constraint: {_e_fix}")
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
+        # Corrigir FK de origin_entry_id para ON DELETE SET NULL
+        try:
+            with db.engine.connect() as _cc_fk:
+                _cc_fk.execute(text(
+                    "ALTER TABLE planned_installments "
+                    "DROP CONSTRAINT IF EXISTS planned_installments_origin_entry_id_fkey"
+                ))
+                _cc_fk.execute(text(
+                    "ALTER TABLE planned_installments "
+                    "ADD CONSTRAINT planned_installments_origin_entry_id_fkey "
+                    "FOREIGN KEY (origin_entry_id) REFERENCES card_entries(id) ON DELETE SET NULL"
+                ))
+                _cc_fk.commit()
+                print("[migrate] planned_installments FK corrigida para ON DELETE SET NULL")
+        except Exception as _efk:
+            print(f"[migrate] FK planned_installments: {_efk}")
         # Tabela de parcelas planejadas (projeção persistente)
         try:
             with db.engine.connect() as _ccpi:
@@ -285,6 +301,55 @@ def _fix_parcelados_duplicados():
 
 
 def _backfill_planned_installments():
+    pass
+
+
+def _add_current_installments():
+    """Adiciona ao planned_installments os lançamentos ATUAIS (a parcela importada em si),
+    não só as futuras. Isso garante visibilidade completa no menu Parcelados."""
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE, PlannedInstallment as _PI
+
+            # Buscar todos os parcelados ativos com billing_month definido
+            parcs = _CE.query.filter(
+                _CE.installments > 1,
+                _CE.installment_no != None,
+                _CE.billing_month != None,
+                _CE.status != "excluido",
+            ).all()
+
+            count = 0
+            for e in parcs:
+                exists = _PI.query.filter_by(
+                    user_id=e.user_id,
+                    card_id=e.card_id,
+                    description=e.description,
+                    installment_no=e.installment_no,
+                ).first()
+                if exists:
+                    continue
+                pi = _PI(
+                    user_id=e.user_id,
+                    card_id=e.card_id,
+                    description=e.description,
+                    amount=e.amount,
+                    installment_no=e.installment_no,
+                    installments=e.installments,
+                    billing_month=e.billing_month,
+                    expense_id=e.expense_id,
+                    origin_entry_id=e.id,
+                )
+                db.session.add(pi)
+                count += 1
+
+            db.session.commit()
+            print(f"[add_current] {count} parcela(s) atual(is) adicionada(s).")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[add_current] Erro: {_ex}")
+
+
     """Popula planned_installments a partir dos CardEntries parcelados já existentes."""
     with app.app_context():
         try:
@@ -444,6 +509,9 @@ _fix_parcelados_duplicados()
 
 
 _backfill_planned_installments()
+
+
+_add_current_installments()
 
 
 if __name__ == "__main__":
