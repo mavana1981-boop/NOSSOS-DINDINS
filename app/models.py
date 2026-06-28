@@ -11,7 +11,7 @@ class User(UserMixin, db.Model):
     full_name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    photo = db.Column(db.Text, nullable=True)  # base64 data URI — persiste no Postgres
+    photo = db.Column(db.Text, nullable=True)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -22,7 +22,7 @@ class User(UserMixin, db.Model):
     @property
     def photo_url(self):
         if self.photo:
-            return self.photo  # já é data URI: "data:image/jpeg;base64,..."
+            return self.photo
         return "/static/img/default-avatar.svg"
 
 
@@ -118,8 +118,7 @@ class Project(db.Model):
 
     @property
     def total_raised(self):
-        result = db.session.query(func.coalesce(func.sum(Contribution.amount), 0))\
-            .filter_by(project_id=self.id).scalar()
+        result = db.session.query(func.coalesce(func.sum(Contribution.amount), 0))            .filter_by(project_id=self.id).scalar()
         return float(result or 0)
 
     @property
@@ -238,16 +237,15 @@ class Investment(db.Model):
 
 
 class Card(db.Model):
-    """Cartão de crédito/débito do usuário."""
     __tablename__ = "cards"
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    name = db.Column(db.String(120), nullable=False)        # ex: Nubank Visa
-    last_digits = db.Column(db.String(4))                   # 4 últimos dígitos
-    limit_amount = db.Column(db.Numeric(12, 2), default=0)  # limite do cartão
-    closing_day = db.Column(db.Integer)                     # dia fechamento
-    due_day = db.Column(db.Integer)                         # dia vencimento
-    color = db.Column(db.String(20), default="#6b8db5")     # cor do card
+    name = db.Column(db.String(120), nullable=False)
+    last_digits = db.Column(db.String(4))
+    limit_amount = db.Column(db.Numeric(12, 2), default=0)
+    closing_day = db.Column(db.Integer)
+    due_day = db.Column(db.Integer)
+    color = db.Column(db.String(20), default="#6b8db5")
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -279,7 +277,6 @@ class Card(db.Model):
 
 
 class CardEntry(db.Model):
-    """Lançamento em um cartão, podendo ser vinculado a um gasto fixo existente."""
     __tablename__ = "card_entries"
     id = db.Column(db.Integer, primary_key=True)
     card_id = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
@@ -287,15 +284,14 @@ class CardEntry(db.Model):
     description = db.Column(db.String(160), nullable=False)
     amount = db.Column(db.Numeric(12, 2), nullable=False)
     entry_date = db.Column(db.Date, nullable=False, default=date.today)
-    # Vínculo com gasto fixo existente (opcional)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
     category = db.Column(db.String(60), default="Outros")
-    kind = db.Column(db.String(20), default="pontual")  # pontual / recorrente / parcelado
-    installments = db.Column(db.Integer, default=1)   # número de parcelas (quando parcelado)
-    installment_no = db.Column(db.Integer, default=1) # parcela atual
-    status = db.Column(db.String(20), default="ativo")  # ativo / em_avaliacao
-    batch_id = db.Column(db.String(64), nullable=True)  # ID do lote de importação
-    billing_month = db.Column(db.String(7), nullable=True)  # YYYY-MM do mês de faturamento
+    kind = db.Column(db.String(20), default="pontual")
+    installments = db.Column(db.Integer, default=1)
+    installment_no = db.Column(db.Integer, default=1)
+    status = db.Column(db.String(20), default="ativo")
+    batch_id = db.Column(db.String(64), nullable=True)
+    billing_month = db.Column(db.String(7), nullable=True)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -304,7 +300,6 @@ class CardEntry(db.Model):
 
 
 class HouseholdExpense(db.Model):
-    """Marca um gasto como 'da casa' e define com quem é compartilhado."""
     __tablename__ = "household_expenses"
     id = db.Column(db.Integer, primary_key=True)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False, unique=True)
@@ -318,7 +313,6 @@ class HouseholdExpense(db.Model):
 
 
 class CashflowOverride(db.Model):
-    """Ajuste manual de valores no fluxo de caixa por mês."""
     __tablename__ = "cashflow_overrides"
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -332,12 +326,10 @@ class CashflowOverride(db.Model):
     eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
 
     user = db.relationship("User", backref="cashflow_overrides")
-
     __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)
 
 
 class CardMonthHistory(db.Model):
-    """Histórico mensal de gastos por cartão."""
     __tablename__ = "card_month_history"
     id            = db.Column(db.Integer, primary_key=True)
     user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -354,11 +346,10 @@ class CardMonthHistory(db.Model):
 
 
 class MerchantRule(db.Model):
-    """Regras de categorização automática por nome de estabelecimento."""
     __tablename__ = "merchant_rules"
     id         = db.Column(db.Integer, primary_key=True)
     user_id    = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    keyword    = db.Column(db.String(120), nullable=False)   # palavra-chave do nome
+    keyword    = db.Column(db.String(120), nullable=False)
     category   = db.Column(db.String(80),  nullable=False)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=db.func.now())
@@ -369,11 +360,10 @@ class MerchantRule(db.Model):
 
 
 class PaymentPlan(db.Model):
-    """Plano de gerenciamento de pagamentos por mês."""
     __tablename__ = "payment_plans"
     id            = db.Column(db.Integer, primary_key=True)
     user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    mes_ref       = db.Column(db.String(7), nullable=False, default="")  # ex: "2026-06"
+    mes_ref       = db.Column(db.String(7), nullable=False, default="")
     saldo_inicial = db.Column(db.Numeric(12, 2), default=0)
     updated_at    = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
     user  = db.relationship("User", backref="payment_plans")
@@ -382,7 +372,6 @@ class PaymentPlan(db.Model):
 
 
 class PaymentItem(db.Model):
-    """Item de gasto no plano de pagamento."""
     __tablename__ = "payment_items"
     id          = db.Column(db.Integer, primary_key=True)
     plan_id     = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
@@ -396,45 +385,41 @@ class PaymentItem(db.Model):
 
 
 class PaymentCardStatus(db.Model):
-    """Status de pagamento de fatura de cartão por mês."""
     __tablename__ = "payment_card_status"
     id              = db.Column(db.Integer, primary_key=True)
     plan_id         = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
     card_id         = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
     is_paid         = db.Column(db.Boolean, default=False)
     due_date        = db.Column(db.Date, nullable=True)
-    amount_override = db.Column(db.Numeric(12, 2), nullable=True)  # valor manual
+    amount_override = db.Column(db.Numeric(12, 2), nullable=True)
     __table_args__ = (db.UniqueConstraint("plan_id", "card_id"),)
     card = db.relationship("Card", backref="payment_status")
 
 
 class ClosedMonth(db.Model):
-    """Meses fechados no menu Meus Cartões (por usuário)."""
     __tablename__ = "closed_months"
     id            = db.Column(db.Integer, primary_key=True)
     user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    billing_month = db.Column(db.String(7), nullable=False)   # YYYY-MM
+    billing_month = db.Column(db.String(7), nullable=False)
     closed_at     = db.Column(db.DateTime, default=db.func.now())
     __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
     user = db.relationship("User", backref="closed_months")
-cat << 'EOF'
 
 
 class PlannedInstallment(db.Model):
     """Parcela futura planejada — gerada automaticamente no import, editável pelo usuário."""
     __tablename__ = "planned_installments"
-    id             = db.Column(db.Integer, primary_key=True)
-    user_id        = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    card_id        = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
-    description    = db.Column(db.String(200), nullable=False)
-    amount         = db.Column(db.Numeric(12, 2), nullable=False)
-    installment_no = db.Column(db.Integer, nullable=False)
-    installments   = db.Column(db.Integer, nullable=False)
-    billing_month  = db.Column(db.String(7), nullable=False)
-    expense_id     = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    id              = db.Column(db.Integer, primary_key=True)
+    user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id         = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
+    description     = db.Column(db.String(200), nullable=False)
+    amount          = db.Column(db.Numeric(12, 2), nullable=False)
+    installment_no  = db.Column(db.Integer, nullable=False)
+    installments    = db.Column(db.Integer, nullable=False)
+    billing_month   = db.Column(db.String(7), nullable=False)
+    expense_id      = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
     origin_entry_id = db.Column(db.Integer, db.ForeignKey("card_entries.id"), nullable=True)
-    created_at     = db.Column(db.DateTime, default=db.func.now())
-    user    = db.relationship("User", backref="planned_installments")
-    card    = db.relationship("Card", backref="planned_installments")
-    expense = db.relationship("Expense", backref="planned_installments")
-EOF
+    created_at      = db.Column(db.DateTime, default=db.func.now())
+    user    = db.relationship("User", backref="user_planned_installments")
+    card    = db.relationship("Card", backref="card_planned_installments")
+    expense = db.relationship("Expense", backref="expense_planned_installments")
