@@ -34,7 +34,10 @@
     <a href="{{ url_for('payments.index') }}" class="nav-link {% if 'payments' in request.endpoint %}active{% endif %}">
       💳 Pagamentos
     </a>
-    <a href="{{ url_for('cashflow.index') }}" class="nav-link {% if 'cashflow' in request.endpoint %}active{% endif %}">
+    <a href="{{ url_for('cashflow.planejados') }}" class="nav-link {% if request.endpoint == 'cashflow.planejados' %}active{% endif %}">
+      📋 Planejados
+    </a>
+    <a href="{{ url_for('cashflow.index') }}" class="nav-link {% if 'cashflow' in request.endpoint and request.endpoint != 'cashflow.planejados' %}active{% endif %}">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
       Fluxo de Caixa
     </a>
