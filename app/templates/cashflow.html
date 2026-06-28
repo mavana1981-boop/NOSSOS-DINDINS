@@ -216,7 +216,7 @@ function abrirEdicao(td) {
   input.select();
 
   function salvar() {
-    var v = input.value.replace(/\./g,'').replace(',','.');
+    var v = input.value.trim();  // envia valor bruto — Python faz a conversão
     var fd = new FormData();
     fd.append('year', td.getAttribute('data-year'));
     fd.append('month', td.getAttribute('data-month'));
@@ -299,7 +299,25 @@ document.querySelectorAll('.cf-cell').forEach(function(td) {
           var td2 = document.createElement('td'); td2.className = 'text-right mono';
           td2.style.padding = '6px 4px'; td2.style.color = meta.color;
           td2.textContent = item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2});
-          tr.appendChild(td1); tr.appendChild(td2); list.appendChild(tr);
+          var td3 = document.createElement('td'); td3.style.padding = '2px';
+          if (item._block_key) {
+            var btn = document.createElement('button');
+            btn.textContent = '×';
+            btn.title = 'Excluir da projeção';
+            btn.style.cssText = 'background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 4px;';
+            btn.onclick = function() {
+              fetch('/fluxo/bloquear-projecao', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(item._block_key),
+                credentials: 'same-origin'
+              }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d.ok) { tr.style.opacity='0.3'; btn.textContent='✓'; btn.disabled=true; }
+              });
+            };
+            td3.appendChild(btn);
+          }
+          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); list.appendChild(tr);
         });
         total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2});
         var modal = document.getElementById('ev-modal');
