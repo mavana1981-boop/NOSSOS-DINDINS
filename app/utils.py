@@ -489,8 +489,11 @@ def get_yearly_cashflow(user_id, year):
                 })
 
         # Excedentes de compras pontuais do cartão
+        # Exclui "Cartão Parcelado" — já tratado como excedente de parcelados acima
         consolidated_cards = get_consolidated_cards(user_id, year, m)
         for key_cc, grp_cc in consolidated_cards.items():
+            if "cartao parcelado" in key_cc.lower() or "cartão parcelado" in key_cc.lower():
+                continue  # já contabilizado em parcelados_por_mes
             if grp_cc["planned"] > 0 and grp_cc["total"] > grp_cc["planned"]:
                 exc_cc = round(grp_cc["total"] - grp_cc["planned"], 2)
                 eventual_total += exc_cc
@@ -526,6 +529,13 @@ def get_yearly_cashflow(user_id, year):
 
         result.append({
             "month": m,
+            "saldo_breakdown": {
+                "income_recurring": income_recurring_f,
+                "income_eventual":  income_eventual_f,
+                "fixed_total":      fixed_total_f,
+                "eventual_total":   eventual_total_f,
+                "net":              net_final,
+            },
             "month_name": months_pt[m - 1],
             "income_recurring": income_recurring_f,
             "income_eventual": income_eventual_f,
