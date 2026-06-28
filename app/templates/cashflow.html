@@ -1,5 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Fluxo de Caixa {{ year }}{% endblock %}
+{% block title %}Fluxo de Caixa {{ year }}
+<!-- Modal memória de cálculo -->
+<div id="mem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <strong id="mem-title">Memória de cálculo</strong>
+      <button onclick="document.getElementById('mem-modal').style.display='none'"
+              style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">×</button>
+    </div>
+    <div id="mem-body"></div>
+    <button onclick="document.getElementById('mem-modal').style.display='none'"
+            class="btn btn-primary btn-sm" style="width:100%;margin-top:16px;">Fechar</button>
+  </div>
+</div>
+
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -148,11 +163,15 @@
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
-              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" title="Clique para editar">
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" title="Duplo clique para editar / Clique para ver cálculo"
+               data-breakdown='{"renda_fixa":{{ m.income_recurring|round(2) }},"renda_eventual":{{ m.income_eventual|round(2) }},"gastos_fixos":{{ m.fixed_total|round(2) }},"gastos_eventuais":{{ m.eventual_total|round(2) }}}'
+               onclick="mostrarMemoria(this)">
             {{ m.net|brl }}
           </td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
-              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}" title="Clique para editar">
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
+               data-cum-month="{{ m.month_name }}"
+               onclick="mostrarMemoriaCum(this)">
             {{ m.cumulative|brl }}
           </td>
         </tr>
@@ -202,6 +221,45 @@
 var CASHFLOW_YEAR = {{ year }};
 
 // Edição inline — duplo clique em qualquer célula editável
+// Modal de memória de cálculo — Saldo
+function mostrarMemoria(td) {
+  try {
+    var bd = JSON.parse(td.getAttribute('data-breakdown') || '{}');
+    var net = parseFloat(td.getAttribute('data-value') || '0');
+    var html =
+      '<div style="font-size:0.9rem;line-height:2;">' +
+      '<div style="display:flex;justify-content:space-between;"><span>+ Renda fixa</span><span class="mono" style="color:var(--green);">' + fmtBRL(bd.renda_fixa) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(bd.renda_eventual) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(bd.gastos_fixos) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(bd.gastos_eventuais) + '</span></div>' +
+      '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
+      '<span>= Saldo</span><span class="mono" style="color:' + (net >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(net) + '</span></div>' +
+      '</div>';
+    document.getElementById('mem-body').innerHTML = html;
+    document.getElementById('mem-title').textContent = 'Memória: Saldo';
+    document.getElementById('mem-modal').style.display = 'flex';
+  } catch(e) { abrirEdicao(td); }
+}
+
+// Modal de memória — Acumulado
+function mostrarMemoriaCum(td) {
+  var cum = parseFloat(td.getAttribute('data-value') || '0');
+  var mes = td.getAttribute('data-cum-month') || '';
+  var html =
+    '<div style="font-size:0.9rem;line-height:2;">' +
+    '<div>Soma dos saldos de janeiro até <strong>' + mes + '</strong>.</div>' +
+    '<div style="border-top:2px solid var(--border);margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
+    '<span>= Acumulado</span><span class="mono" style="color:' + (cum >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(cum) + '</span></div>' +
+    '</div>';
+  document.getElementById('mem-body').innerHTML = html;
+  document.getElementById('mem-title').textContent = 'Memória: Acumulado';
+  document.getElementById('mem-modal').style.display = 'flex';
+}
+
+function fmtBRL(v) {
+  return 'R$ ' + (parseFloat(v) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
 function abrirEdicao(td) {
   if (td.querySelector('input')) return;
   var val = td.getAttribute('data-value') || '0';
@@ -257,8 +315,13 @@ function abrirEdicao(td) {
 document.querySelectorAll('.editable-cell').forEach(function(td) {
   td.addEventListener('dblclick', function(e) {
     e.stopPropagation();
+    // Duplo clique sempre abre edição, independente do onclick
     abrirEdicao(td);
   });
+});
+// Fechar modal de memória clicando fora
+document.getElementById('mem-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
 });
 
 document.getElementById('ev-close').addEventListener('click', function() {
