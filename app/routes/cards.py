@@ -1381,8 +1381,50 @@ def _process_batch(card):
     if skipped:
         flash(f"⚠️ {skipped} parcela(s) ignorada(s) por já existirem no cartão.", "warning")
 
+    # Gerar parcelas futuras na tabela planned_installments
+    from app.models import MerchantRule, PlannedInstallment
+    _batch_entries = CardEntry.query.filter_by(batch_id=batch_id).all()
+    for _e in _batch_entries:
+        if not _e.installments or _e.installments <= 1 or not _e.installment_no:
+            continue
+        if not _e.billing_month:
+            continue
+        try:
+            _byr = int(_e.billing_month[:4])
+            _bmo = int(_e.billing_month[5:7])
+        except Exception:
+            continue
+        for _i in range(_e.installment_no + 1, _e.installments + 1):
+            # Mês projetado: billing_month da parcela importada + N meses
+            _steps = _i - _e.installment_no
+            _pmo = _bmo + _steps - 1
+            _pyr = _byr + _pmo // 12
+            _pmo = (_pmo % 12) + 1
+            _proj_bm = f"{_pyr}-{_pmo:02d}"
+            # Verificar se já existe (evitar duplicata)
+            _exists_plan = PlannedInstallment.query.filter_by(
+                user_id=current_user.id,
+                card_id=card.id,
+                description=_e.description,
+                installment_no=_i,
+            ).first()
+            if _exists_plan:
+                continue
+            _pi = PlannedInstallment(
+                user_id=current_user.id,
+                card_id=card.id,
+                description=_e.description,
+                amount=_e.amount,
+                installment_no=_i,
+                installments=_e.installments,
+                billing_month=_proj_bm,
+                expense_id=_e.expense_id,
+                origin_entry_id=_e.id,
+            )
+            db.session.add(_pi)
+    db.session.commit()
+
     # Aplicar regras de categorização automática
-    from app.models import MerchantRule
     rules = MerchantRule.query.filter_by(user_id=current_user.id).all()
     if rules:
         pending = CardEntry.query.filter_by(batch_id=batch_id, status="em_avaliacao").all()
