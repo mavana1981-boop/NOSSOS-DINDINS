@@ -260,7 +260,8 @@ def bootstrap():
 
 
 def _fix_parcelados_duplicados():
-    """Remove parcelados duplicados cross-month: mantém o de billing_month mais recente."""
+    """Remove entradas duplicadas cross-month: mesmo cartão, mesma desc, mesmo valor.
+    Mantém a do billing_month mais recente."""
     import re as _re_fix
     def _norm_fix(s):
         s = (s or "").upper().strip()
@@ -272,40 +273,62 @@ def _fix_parcelados_duplicados():
     with app.app_context():
         try:
             from app.models import CardEntry as _CE
-            # Buscar todos os parcelados ativos
-            parcs = _CE.query.filter(
-                _CE.installments > 1,
+            # Buscar TODOS os entries ativos (independente de installments)
+            todos = _CE.query.filter(
                 _CE.status != "excluido",
+                _CE.billing_month != None,
             ).all()
 
-            # Agrupar por (card_id, desc_norm, installment_no)
+            # Agrupar por (card_id, desc_norm, amount, installment_no)
+            # installment_no=None → tratado como 0
             grupos = {}
-            for e in parcs:
-                k = (e.card_id, _norm_fix(e.description), e.installment_no or 0)
+            for e in todos:
+                k = (
+                    e.card_id,
+                    _norm_fix(e.description),
+                    str(round(float(e.amount or 0), 2)),
+                    e.installment_no or 0,
+                )
                 if k not in grupos:
                     grupos[k] = []
                 grupos[k].append(e)
 
             removidos = 0
+            detalhes = []
             for k, entries in grupos.items():
                 if len(entries) <= 1:
                     continue
-                # Manter o de billing_month mais recente; deletar os demais
+                # Mais de 1 entry com mesma (cartão, desc, valor, parcela) → duplicata
                 entries_sorted = sorted(
                     entries,
                     key=lambda e: (e.billing_month or "0000-00"),
-                    reverse=True
+                    reverse=True  # mais recente primeiro
                 )
                 manter = entries_sorted[0]
                 for e in entries_sorted[1:]:
+                    detalhes.append(
+                        f"  del id={e.id} '{e.description}' "
+                        f"R${e.amount} bm={e.billing_month} "
+                        f"(mantém id={manter.id} bm={manter.billing_month})"
+                    )
                     db.session.delete(e)
                     removidos += 1
 
             if removidos:
                 db.session.commit()
-                print(f"[fix_parcelados] {removidos} duplicata(s) removida(s) — mantido billing_month mais recente.")
+                print(f"[fix_parcelados] {removidos} duplicata(s) removida(s):")
+                for d in detalhes:
+                    print(d)
             else:
-                print("[fix_parcelados] Nenhuma duplicata encontrada.")
+                # Log das chaves com 2+ entries para diagnóstico
+                multi = [(k, v) for k, v in grupos.items() if len(v) >= 2]
+                if not multi:
+                    print("[fix_parcelados] Nenhuma duplicata cross-month encontrada.")
+                else:
+                    print(f"[fix_parcelados] {len(multi)} grupos com 2+ entries (não removidos por segurança):")
+                    for k, v in multi[:5]:
+                        bms = [e.billing_month for e in v]
+                        print(f"  {k} → billing_months={bms}")
         except Exception as _ex:
             db.session.rollback()
             print(f"[fix_parcelados] Erro: {_ex}")
