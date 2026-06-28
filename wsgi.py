@@ -72,6 +72,27 @@ def bootstrap():
         except Exception as _e_fix:
             print(f"[migrate] payment_plans constraint: {_e_fix}")
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
+        # Tabela de parcelas planejadas (projeção persistente)
+        try:
+            with db.engine.connect() as _ccpi:
+                _ccpi.execute(text("""
+                    CREATE TABLE IF NOT EXISTS planned_installments (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        card_id INTEGER REFERENCES cards(id),
+                        description VARCHAR(200) NOT NULL,
+                        amount NUMERIC(12,2) NOT NULL,
+                        installment_no INTEGER NOT NULL,
+                        installments INTEGER NOT NULL,
+                        billing_month VARCHAR(7) NOT NULL,
+                        expense_id INTEGER REFERENCES expenses(id),
+                        origin_entry_id INTEGER REFERENCES card_entries(id),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                _ccpi.commit()
+        except Exception as _epi:
+            print(f"[migrate] planned_installments: {_epi}")
         _ensure_column("payment_items", "due_date", "DATE")
         _ensure_column("payment_card_status", "amount_override", "NUMERIC(12,2)")
         # Tabela de regras de categorização por estabelecimento
