@@ -356,81 +356,32 @@ def get_yearly_cashflow(user_id, year):
     card_closing_map2 = {c.id: c.closing_day for c in cards_user}
     _card_ids2 = [c.id for c in cards_user]
 
-    # Busca parcelados para usar como base de projeção
-    parcelados = CardEntry.query.filter(
-        CardEntry.card_id.in_(_card_ids2),
-        CardEntry.status == "ativo",
-        CardEntry.installments > 1,
+    # Projeção de parcelados: lê da tabela planned_installments (persistente e editável)
+    from app.models import PlannedInstallment as _PI
+    _planned = _PI.query.filter(
+        _PI.user_id == user_id,
+        _PI.card_id.in_(_card_ids2),
     ).all() if _card_ids2 else []
-
-    import re as _re
-
-    def _norm_desc(desc):
-        """Remove notação de parcela (XX DE YY, XX/YY, ou XX YY) da descrição."""
-        d = (desc or "").upper().strip()
-        d = _re.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', d)
-        d = _re.sub(r'\s+\d{1,2}/\d{1,2}', '', d)
-        d = _re.sub(r'\s+\d{1,2}\s+\d{1,2}(?=\s|$)', '', d)
-        return d[:25].strip()
-
-    # _existing: TODOS os entries ativos do cartão (não só installments>1)
-    # Garante que qualquer entry já importado — mesmo com flags erradas —
-    # seja detectado e não seja projetado novamente
-    _all_active = CardEntry.query.filter(
-        CardEntry.card_id.in_(_card_ids2),
-        CardEntry.status == "ativo",
-        CardEntry.installment_no != None,
-        CardEntry.installment_no > 0,
-    ).all() if _card_ids2 else []
-
-    _existing = set()
-    for entry in _all_active:
-        _existing.add((_norm_desc(entry.description), entry.card_id, entry.installment_no))
-
-    # Para cada série, pegar o entry com maior installment_no (mais recente)
-    _latest = {}
-    for entry in parcelados:
-        if not entry.installments or entry.installment_no is None:
-            continue
-        _key = (_norm_desc(entry.description), entry.card_id)
-        prev = _latest.get(_key)
-        if prev is None or entry.installment_no > prev.installment_no:
-            _latest[_key] = entry
 
     parcelados_por_mes = {}
-    for (_nk, _cid), entry in _latest.items():
-        planned_v = float(entry.expense.amount) if (entry.expense_id and entry.expense) else 0.0
-        # Usar billing_month como âncora para projeção (não entry_date)
-        # billing_month da parcela atual + N meses = billing_month da parcela N
-        if entry.billing_month:
-            try:
-                _byr = int(entry.billing_month[:4])
-                _bmo = int(entry.billing_month[5:7])
-            except Exception:
-                _byr, _bmo = entry.entry_date.year, entry.entry_date.month
-        else:
-            _byr, _bmo = entry.entry_date.year, entry.entry_date.month
+    for _p in _planned:
+        try:
+            _pyr = int(_p.billing_month[:4])
+            _pmo = int(_p.billing_month[5:7])
+        except Exception:
+            continue
+        key = (_pyr, _pmo)
+        if key not in parcelados_por_mes:
+            parcelados_por_mes[key] = []
+        _pval = float(_p.expense.amount) if (_p.expense_id and _p.expense) else 0.0
+        parcelados_por_mes[key].append({
+            "desc": f"{_p.description} ({_p.installment_no}/{_p.installments})",
+            "amount": round(float(_p.amount), 2),
+            "expense_id": _p.expense_id,
+            "planned": _pval,
+            "planned_id": _p.id,
+        })
 
-        delta = entry.installment_no  # parcela atual → offset 0
-
-        for i in range(entry.installment_no + 1, entry.installments + 1):
-            # Pular se este installment já existe no banco
-            if (_nk, _cid, i) in _existing:
-                continue
-            # Mês projetado = billing_month da parcela atual + (i - installment_no) meses
-            _steps = i - entry.installment_no
-            _pmo = _bmo + _steps - 1
-            _pyr = _byr + _pmo // 12
-            _pmo = (_pmo % 12) + 1
-            key = (_pyr, _pmo)
-            if key not in parcelados_por_mes:
-                parcelados_por_mes[key] = []
-            parcelados_por_mes[key].append({
-                "desc": f"{entry.description} ({i}/{entry.installments})",
-                "amount": round(float(entry.amount), 2),
-                "expense_id": entry.expense_id,
-                "planned": planned_v,
-            })
 
 
     # Rendas recorrentes do usuário
