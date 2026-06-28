@@ -426,13 +426,13 @@ class PlannedInstallment(db.Model):
 
 
 class PlannedInstallmentDeletion(db.Model):
-    """Registro de exclusão intencional de planned_installment pelo usuário."""
+    """Registro de exclusão intencional — impede recriar parcela no mesmo mês."""
     __tablename__ = "planned_installment_deletions"
-    id             = db.Column(db.Integer, primary_key=True)
-    user_id        = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    card_id        = db.Column(db.Integer, nullable=True)
-    description    = db.Column(db.String(200), nullable=False)
-    installment_no = db.Column(db.Integer, nullable=False)
-    deleted_at     = db.Column(db.DateTime, default=db.func.now())
-    __table_args__ = (db.UniqueConstraint("user_id", "card_id", "description", "installment_no"),)
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id       = db.Column(db.Integer, nullable=True)
+    description   = db.Column(db.String(200), nullable=False)
+    billing_month = db.Column(db.String(7), nullable=False)   # YYYY-MM
+    deleted_at    = db.Column(db.DateTime, default=db.func.now())
+    __table_args__ = (db.UniqueConstraint("user_id", "card_id", "description", "billing_month"),)
     user = db.relationship("User", backref="planned_deletions")
