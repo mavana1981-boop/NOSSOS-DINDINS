@@ -164,7 +164,7 @@
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" title="Duplo clique para editar / Clique para ver cálculo"
-               data-breakdown='{"renda_fixa":{{ m.income_recurring|round(2) }},"renda_eventual":{{ m.income_eventual|round(2) }},"gastos_fixos":{{ m.fixed_total|round(2) }},"gastos_eventuais":{{ m.eventual_total|round(2) }}}'
+               data-breakdown='{"renda_fixa":{{ (m.income_recurring or 0)|float|round(2) }},"renda_eventual":{{ (m.income_eventual or 0)|float|round(2) }},"gastos_fixos":{{ (m.fixed_total or 0)|float|round(2) }},"gastos_eventuais":{{ (m.eventual_total or 0)|float|round(2) }}}'
                onclick="mostrarMemoria(this)">
             {{ m.net|brl }}
           </td>
