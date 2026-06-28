@@ -1,457 +1,394 @@
-from datetime import date
-from flask import Blueprint, render_template, request, flash, redirect, url_for
-from flask_login import login_required, current_user
-from app.utils import get_yearly_cashflow
-from app import db
+{% extends "base.html" %}
+{% block title %}Fluxo de Caixa {{ year }}
+<!-- Modal memória de cálculo -->
+<div id="mem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <strong id="mem-title">Memória de cálculo</strong>
+      <button onclick="document.getElementById('mem-modal').style.display='none'"
+              style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">×</button>
+    </div>
+    <div id="mem-body"></div>
+    <button onclick="document.getElementById('mem-modal').style.display='none'"
+            class="btn btn-primary btn-sm" style="width:100%;margin-top:16px;">Fechar</button>
+  </div>
+</div>
 
-cashflow_bp = Blueprint("cashflow", __name__)
+{% endblock %}
+{% block content %}
 
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Fluxo de Caixa</h1>
+    <p>Visão mês a mês de <strong>{{ year }}</strong></p>
+  </div>
+</div>
 
-def _limpar_excedentes_invalidos():
-    from app.models import Expense, ExpenseShare
-    try:
-        todos = Expense.query.filter(
-            Expense.description.like("% - excedente %"),
-            Expense.kind == "pontual"
-        ).order_by(Expense.id).all()
-        seen = {}
-        for exp in todos:
-            key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
-            if key in seen:
-                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                db.session.delete(exp)
-            else:
-                seen[key] = exp.id
-        todos2 = Expense.query.filter(
-            Expense.description.like("% - excedente %"),
-            Expense.kind == "pontual"
-        ).all()
-        for exp in todos2:
-            parts = exp.description.split(" - excedente ")
-            if len(parts) < 2:
-                continue
-            nome_base = parts[0].strip()
-            original = Expense.query.filter(
-                Expense.payer_id == exp.payer_id,
-                Expense.description == nome_base,
-                Expense.id != exp.id
-            ).first()
-            if not original:
-                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                db.session.delete(exp)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        print(f"[cashflow] erro limpeza excedentes: {e}")
+<!-- Navegação de ano + Atualizar -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
+    <span style="font-size:1.1rem;font-weight:700;color:var(--accent);padding:0 4px;">{{ year }}</span>
+    <a href="{{ url_for('cashflow.index', year=year+1) }}" class="btn btn-ghost">{{ year+1 }} →</a>
+  </div>
+  <a href="{{ url_for('cashflow.index', year=year) }}" class="btn btn-primary" style="font-size:0.85rem;">
+    ↺ Atualizar fluxo
+  </a>
+  <form method="POST" action="{{ url_for('cashflow.limpar_excedentes') }}"
+        onsubmit="return confirm('Limpar todos os excedentes de cartão? Eles serão recalculados automaticamente.');">
+    <button class="btn btn-ghost" style="font-size:0.85rem;border:1px solid var(--red);color:var(--red);">
+      🗑 Limpar excedentes
+    </button>
+  </form>
+</div>
 
+<!-- 4 cards principais -->
+<div class="grid grid-4 mb-3">
+  <div class="card">
+    <div class="stat-label">Renda fixa — {{ current_month.month_name }}</div>
+    <div class="stat-value positive">{{ current_month.income_recurring|brl }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Renda eventual — {{ current_month.month_name }}</div>
+    <div class="stat-value" style="color:var(--blue);">{{ current_month.income_eventual|brl }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Saldo — {{ current_month.month_name }}</div>
+    {% if current_month.net >= 0 %}
+    <div class="stat-value positive">{{ current_month.net|brl }}</div>
+    {% else %}
+    <div class="stat-value negative">{{ current_month.net|brl }}</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <div class="stat-label">Saldo do ano</div>
+    {% if saldo_ano >= 0 %}
+    <div class="stat-value positive">{{ saldo_ano|brl }}</div>
+    {% else %}
+    <div class="stat-value negative">{{ saldo_ano|brl }}</div>
+    {% endif %}
+    <div class="text-faint text-small">acumulado dez/{{ year }}</div>
+  </div>
+</div>
 
-@cashflow_bp.route("/")
-@login_required
-def index():
-    db.session.remove()
-    db.session.expire_all() if hasattr(db.session, "expire_all") else None
-    year = request.args.get("year", type=int) or date.today().year
-    _limpar_excedentes_invalidos()
-    months = get_yearly_cashflow(current_user.id, year)
+<!-- Gráfico de barras -->
+<div class="card mt-2">
+  <div style="display:flex;gap:2px;align-items:flex-end;height:160px;padding:8px 0 0;">
+    {% for m in months %}
+    {% set inc_h = ((m.income / max_value * 100)|round)|int if max_value else 0 %}
+    {% set exp_h = ((m.total_expense / max_value * 100)|round)|int if max_value else 0 %}
+    {% set inc_rec_pct = ((m.income_recurring / m.income * 100)|round)|int if m.income > 0 else 100 %}
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="flex:1;width:100%;display:flex;flex-direction:row;align-items:flex-end;gap:1px;">
+        <!-- Barra de renda -->
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:130px;">
+          <div style="width:100%;height:{{ inc_h }}%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden;min-height:{{ 2 if inc_h > 0 else 0 }}px;"
+               title="Renda: {{ m.income|brl }}">
+            <div style="background:var(--blue);flex:{{ 100 - inc_rec_pct }};"></div>
+            <div style="background:var(--green);flex:{{ inc_rec_pct }};"></div>
+          </div>
+        </div>
+        <!-- Barra de gastos -->
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:130px;">
+          <div style="width:100%;height:{{ exp_h }}%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden;min-height:{{ 2 if exp_h > 0 else 0 }}px;"
+               title="Gastos: {{ m.total_expense|brl }}">
+            {% set fix_pct = ((m.fixed_expense / m.total_expense * 100)|round)|int if m.total_expense > 0 else 100 %}
+            <div style="background:var(--red);flex:{{ 100 - fix_pct }};"></div>
+            <div style="background:var(--gold);flex:{{ fix_pct }};"></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:0.6rem;color:var(--text-faint);text-align:center;padding-top:2px;white-space:nowrap;">{{ m.month_name }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="display:flex;gap:16px;margin-top:6px;font-size:0.72rem;color:var(--text-faint);">
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);display:inline-block;border-radius:2px;"></span>Renda fixa</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--blue);display:inline-block;border-radius:2px;"></span>Renda eventual</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--gold);display:inline-block;border-radius:2px;"></span>Fixos</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--red);display:inline-block;border-radius:2px;"></span>Eventuais</span>
+  </div>
+</div>
 
-    jan_next = get_yearly_cashflow(current_user.id, year + 1)
-    if jan_next:
-        jan = dict(jan_next[0])
-        jan["is_next_year"] = True
-        if "eventual_items" not in jan:
-            jan["eventual_items"] = []
-        dec_cumulative = months[-1]["cumulative"] if months else 0.0
-        jan["cumulative"] = dec_cumulative + jan["net"]
-        months = months + [jan]
+<!-- Tabela detalhada -->
+<div class="card mt-3">
+  <div class="card-title">
+    <h3>Detalhamento mês a mês</h3>
+    <span class="text-faint text-small">clique = detalhar · duplo clique = editar</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th class="text-right">Renda fixa</th>
+          <th class="text-right">Renda eventual</th>
+          <th class="text-right">Total renda</th>
+          <th class="text-right">Fixos</th>
+          <th class="text-right">Eventuais</th>
+          <th class="text-right">Total gasto</th>
+          <th class="text-right">Saldo</th>
+          <th class="text-right">Acumulado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in months %}
+        {% if m.is_next_year is defined and m.is_next_year %}
+        <tr style="border-top:2px dashed var(--border-strong);opacity:0.8;">
+          <td><strong>{{ m.month_name }}/{{ year + 1 }}</strong> <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
+        {% else %}
+        <tr>
+          <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
+        {% endif %}
+          <td class="text-right amount cf-cell editable-cell" data-col="income_recurring" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="income_recurring" data-value="{{ m.income_recurring }}"
+              style="color:var(--green);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.income_recurring|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell editable-cell" data-col="income_eventual" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="income_eventual" data-value="{{ m.income_eventual }}"
+              style="color:var(--blue);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.income_eventual|brl }}</span>
+          </td>
+          <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
+          <td class="text-right amount cf-cell editable-cell" data-col="fixed" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="fixed" data-value="{{ m.fixed_expense }}"
+              style="color:var(--gold);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.fixed_expense|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell editable-cell" data-col="eventual" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="eventual" data-value="{{ m.eventual_expense }}"
+              style="color:var(--red);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
+          </td>
+          <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" title="Duplo clique para editar / Clique para ver cálculo"
+               data-breakdown='{"renda_fixa":{{ m.income_recurring|round(2) }},"renda_eventual":{{ m.income_eventual|round(2) }},"gastos_fixos":{{ m.fixed_total|round(2) }},"gastos_eventuais":{{ m.eventual_total|round(2) }}}'
+               onclick="mostrarMemoria(this)">
+            {{ m.net|brl }}
+          </td>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
+               data-cum-month="{{ m.month_name }}"
+               onclick="mostrarMemoriaCum(this)">
+            {{ m.cumulative|brl }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Ano</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income_recurring|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--blue);"><strong>{{ totals.income_eventual|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--gold);"><strong>{{ totals.fixed|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.eventual|brl }}</strong></td>
+          <td class="text-right amount text-dim"><strong>{{ totals.total_expense|brl }}</strong></td>
+          {% if totals.net >= 0 %}
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.net|brl }}</strong></td>
+          {% else %}
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.net|brl }}</strong></td>
+          {% endif %}
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
 
-    months12 = months[:12]
-    totals = {
-        "income":           sum(m["income"] for m in months12),
-        "income_recurring": sum(m["income_recurring"] for m in months12),
-        "income_eventual":  sum(m["income_eventual"] for m in months12),
-        "fixed":            sum(m["fixed_expense"] for m in months12),
-        "eventual":         sum(m["eventual_expense"] for m in months12),
-        "net":              sum(m["net"] for m in months12),
-    }
-    totals["total_expense"] = totals["fixed"] + totals["eventual"]
-    max_value = max(
-        max((m["income"] for m in months), default=0),
-        max((m["total_expense"] for m in months), default=0),
-        1,
-    )
-    # Dados do mês atual para os cards
-    today = date.today()
-    current_month = next(
-        (m for m in months if m["month"] == today.month and not m.get("is_next_year")),
-        months[0] if months else {}
-    )
-    # Saldo do ano = acumulado de dezembro
-    dec = next((m for m in months12 if m["month"] == 12), months12[-1] if months12 else {})
+<!-- Modal de eventuais -->
+<div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;">Gastos eventuais</h3>
+      <button id="ev-close" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">x</button>
+    </div>
+    <table style="width:100%;">
+      <tbody id="ev-list"></tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Total</strong></td>
+          <td class="text-right mono" id="ev-total" style="color:var(--red);font-weight:700;"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
 
-    return render_template("cashflow.html",
-                           year=year, months=months, totals=totals,
-                           max_value=max_value,
-                           current_year=today.year,
-                           current_month=current_month,
-                           saldo_ano=dec.get("cumulative", 0))
+<script>
+var CASHFLOW_YEAR = {{ year }};
 
+// Edição inline — duplo clique em qualquer célula editável
+// Modal de memória de cálculo — Saldo
+function mostrarMemoria(td) {
+  try {
+    var bd = JSON.parse(td.getAttribute('data-breakdown') || '{}');
+    var net = parseFloat(td.getAttribute('data-value') || '0');
+    var html =
+      '<div style="font-size:0.9rem;line-height:2;">' +
+      '<div style="display:flex;justify-content:space-between;"><span>+ Renda fixa</span><span class="mono" style="color:var(--green);">' + fmtBRL(bd.renda_fixa) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(bd.renda_eventual) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(bd.gastos_fixos) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(bd.gastos_eventuais) + '</span></div>' +
+      '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
+      '<span>= Saldo</span><span class="mono" style="color:' + (net >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(net) + '</span></div>' +
+      '</div>';
+    document.getElementById('mem-body').innerHTML = html;
+    document.getElementById('mem-title').textContent = 'Memória: Saldo';
+    document.getElementById('mem-modal').style.display = 'flex';
+  } catch(e) { abrirEdicao(td); }
+}
 
-@cashflow_bp.route("/ajustar", methods=["POST"])
-def ajustar():
-    """Salva ajuste manual de qualquer coluna do fluxo."""
-    from flask import request as req, jsonify
-    from app.models import CashflowOverride
-    from decimal import Decimal, InvalidOperation
-    if not current_user.is_authenticated:
-        return jsonify({"ok": False, "error": "sessao_expirada"}), 401
-    year  = req.form.get("year", type=int)
-    month = req.form.get("month", type=int)
-    field = req.form.get("field")
-    value = req.form.get("value", "").strip()
+// Modal de memória — Acumulado
+function mostrarMemoriaCum(td) {
+  var cum = parseFloat(td.getAttribute('data-value') || '0');
+  var mes = td.getAttribute('data-cum-month') || '';
+  var html =
+    '<div style="font-size:0.9rem;line-height:2;">' +
+    '<div>Soma dos saldos de janeiro até <strong>' + mes + '</strong>.</div>' +
+    '<div style="border-top:2px solid var(--border);margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
+    '<span>= Acumulado</span><span class="mono" style="color:' + (cum >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(cum) + '</span></div>' +
+    '</div>';
+  document.getElementById('mem-body').innerHTML = html;
+  document.getElementById('mem-title').textContent = 'Memória: Acumulado';
+  document.getElementById('mem-modal').style.display = 'flex';
+}
 
-    def parse(s):
-        try:
-            return Decimal(str(s).replace(".", "").replace(",", "."))
-        except (InvalidOperation, ValueError):
-            return None
+function fmtBRL(v) {
+  return 'R$ ' + (parseFloat(v) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
 
-    v = parse(value)
-    override = CashflowOverride.query.filter_by(
-        user_id=current_user.id, year=year, month=month
-    ).first()
-    if override is None:
-        override = CashflowOverride(user_id=current_user.id, year=year, month=month)
-        db.session.add(override)
+function abrirEdicao(td) {
+  if (td.querySelector('input')) return;
+  var val = td.getAttribute('data-value') || '0';
+  var numVal = parseFloat(val).toFixed(2).replace('.', ',');
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.value = numVal;
+  input.style.cssText = 'width:100%;text-align:right;background:var(--bg);border:2px solid var(--accent);border-radius:4px;padding:2px 4px;color:inherit;font-family:inherit;font-size:inherit;';
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
 
-    field_map = {
-        "net":              "net_override",
-        "cumulative":       "cumulative_override",
-        "income_recurring": "income_recurring_override",
-        "income_eventual":  "income_eventual_override",
-        "fixed":            "fixed_override",
-        "eventual":         "eventual_override",
-    }
-    col = field_map.get(field)
-    if col:
-        setattr(override, col, v)
+  function salvar() {
+    var v = input.value.trim();  // envia valor bruto — Python faz a conversão
+    var fd = new FormData();
+    fd.append('year', td.getAttribute('data-year'));
+    fd.append('month', td.getAttribute('data-month'));
+    fd.append('field', td.getAttribute('data-field'));
+    fd.append('value', v);
+    fetch('/fluxo/ajustar', {method:'POST', body:fd, credentials:'same-origin'})
+      .then(function(r) {
+        var ct = r.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          if (r.status === 401 || r.url.includes('login')) {
+            alert('Sessão expirada. Faça login novamente.');
+            window.location.href = '/login';
+          } else {
+            r.text().then(function(t) { alert('Erro do servidor: ' + t.substring(0,200)); });
+          }
+          return null;
+        }
+        return r.json();
+      })
+      .then(function(j) {
+        if (!j) return;
+        if(j.ok) { window.location.reload(); }
+        else if(j.error === 'sessao_expirada') {
+          alert('Sessão expirada. Faça login novamente.');
+          window.location.href = '/auth/login';
+        }
+        else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); window.location.reload(); }
+      })
+      .catch(function(err) { alert('Falha de rede: ' + err); window.location.reload(); });
+  }
+  input.addEventListener('blur', salvar);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { window.location.reload(); }
+  });
+}
 
-    try:
-        db.session.commit()
-        return jsonify({"ok": True})
-    except Exception as e:
-        db.session.rollback()
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+document.querySelectorAll('.editable-cell').forEach(function(td) {
+  td.addEventListener('dblclick', function(e) {
+    e.stopPropagation();
+    // Duplo clique sempre abre edição, independente do onclick
+    abrirEdicao(td);
+  });
+});
+// Fechar modal de memória clicando fora
+document.getElementById('mem-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
 
+document.getElementById('ev-close').addEventListener('click', function() {
+  document.getElementById('ev-modal').style.display = 'none';
+});
 
-@cashflow_bp.route("/debug-tudo")
-@login_required
-def debug_tudo():
-    from flask import jsonify
-    from app.models import Income, Expense, CardEntry, Card
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        users   = conn.execute(text("SELECT id, username FROM users")).fetchall()
-        incomes = conn.execute(text("SELECT COUNT(*) FROM incomes")).fetchone()[0]
-        expenses= conn.execute(text("SELECT COUNT(*) FROM expenses")).fetchone()[0]
-        cards   = conn.execute(text("SELECT COUNT(*) FROM cards")).fetchone()[0]
-        entries = conn.execute(text("SELECT COUNT(*) FROM card_entries")).fetchone()[0]
-    my_incomes  = Income.query.filter_by(user_id=current_user.id).count()
-    my_expenses = Expense.query.filter_by(payer_id=current_user.id).count()
-    return jsonify({
-        "current_user": {"id": current_user.id, "username": current_user.username},
-        "todos_users": [{"id": u[0], "username": u[1]} for u in users],
-        "banco_total": {"incomes": incomes, "expenses": expenses, "cards": cards, "entries": entries},
-        "meu_user":    {"incomes": my_incomes, "expenses": my_expenses},
-    })
+document.getElementById('ev-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
 
-@cashflow_bp.route("/debug-entries")
-@login_required
-def debug_entries():
-    from flask import jsonify
-    from app.models import Card, CardEntry
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_ids = [c.id for c in cards]
-    entries = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None)
-    ).order_by(CardEntry.entry_date.desc()).all()
-    result = [{"id": e.id, "desc": e.description[:30], "amount": float(e.amount),
-               "entry_date": str(e.entry_date), "card_id": e.card_id} for e in entries]
-    by_month = {}
-    for r in result:
-        key = r["entry_date"][:7]
-        by_month[key] = by_month.get(key, 0) + 1
-    return jsonify({"total": len(result), "por_mes": by_month, "primeiros_10": result[:10]})
+var COL_LABELS = {
+  "income_recurring": {title: "Renda fixa", color: "var(--green)"},
+  "income_eventual":  {title: "Renda eventual", color: "var(--blue)"},
+  "fixed":            {title: "Gastos fixos", color: "var(--gold)"},
+  "eventual":         {title: "Gastos eventuais", color: "var(--red)"},
+};
 
-@cashflow_bp.route("/limpar-excedentes", methods=["POST"])
-@login_required
-def limpar_excedentes():
-    """Remove excedentes antigos e define billing_month nos entries sem ele."""
-    from app.models import Expense, ExpenseShare, Card, CardEntry
-    from app.utils import get_billing_month
+document.querySelectorAll('.cf-cell').forEach(function(td) {
+  td.addEventListener('click', function() {
+    if (td.querySelector('input')) return; // em edição, ignora
+    var col = td.getAttribute('data-col');
+    var idx = parseInt(td.getAttribute('data-idx') || '0');
+    var meta = COL_LABELS[col] || {title: col, color: 'inherit'};
+    fetch('/fluxo/items-json?year=' + CASHFLOW_YEAR + '&col=' + col)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var items = data[idx] || [];
+        var list = document.getElementById('ev-list');
+        var total = document.getElementById('ev-total');
+        document.getElementById('ev-modal').querySelector('h3').textContent = meta.title;
+        list.innerHTML = '';
+        var sum = 0;
+        items.forEach(function(item) {
+          sum += item.amount;
+          var tr = document.createElement('tr');
+          tr.style.borderTop = '1px solid var(--border)';
+          var td1 = document.createElement('td'); td1.style.padding = '6px 4px'; td1.textContent = item.desc;
+          var td2 = document.createElement('td'); td2.className = 'text-right mono';
+          td2.style.padding = '6px 4px'; td2.style.color = meta.color;
+          td2.textContent = item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2});
+          var td3 = document.createElement('td'); td3.style.padding = '2px';
+          if (item._block_key) {
+            var btn = document.createElement('button');
+            btn.textContent = '×';
+            btn.title = 'Excluir da projeção';
+            btn.style.cssText = 'background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 4px;';
+            btn.onclick = function() {
+              fetch('/fluxo/bloquear-projecao', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(item._block_key),
+                credentials: 'same-origin'
+              }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d.ok) { tr.style.opacity='0.3'; btn.textContent='✓'; btn.disabled=true; }
+              });
+            };
+            td3.appendChild(btn);
+          }
+          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); list.appendChild(tr);
+        });
+        total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2});
+        var modal = document.getElementById('ev-modal');
+        modal.style.display = 'flex';
+        modal.onclick = function(e) { if(e.target===modal) modal.style.display='none'; };
+      });
+  });
+});
+</script>
 
-    # 1. Apaga excedentes existentes do usuário
-    todos = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-        Expense.description.like("% - excedente %"),
-        Expense.kind == "pontual"
-    ).all()
-    count_exc = len(todos)
-    for exp in todos:
-        ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-        db.session.delete(exp)
-
-    # 2. Preencher billing_month nos entries que não têm
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_closing = {c.id: c.closing_day for c in cards}
-    card_ids = [c.id for c in cards]
-    entries_sem_bm = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        CardEntry.status == "ativo",
-        CardEntry.billing_month == None,
-    ).all() if card_ids else []
-    count_bm = 0
-    for e in entries_sem_bm:
-        closing = card_closing.get(e.card_id)
-        yr, mo = get_billing_month(e.entry_date, closing)
-        e.billing_month = f"{yr}-{mo:02d}"
-        count_bm += 1
-
-    db.session.commit()
-    flash(f"✅ {count_exc} excedente(s) removidos. {count_bm} lançamento(s) com fatura corrigida.", "success")
-    return redirect(url_for("cashflow.index"))
-
-@cashflow_bp.route("/debug-parcelados")
-@login_required
-def debug_parcelados():
-    from flask import jsonify
-    from app.models import CardEntry, Card
-    from app.utils import get_billing_month
-    import calendar as _cal
-    from datetime import date as _d
-
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_closing = {c.id: c.closing_day for c in cards}
-    card_names = {c.id: c.name for c in cards}
-    card_ids = [c.id for c in cards]
-
-    parcelados = CardEntry.query.filter(
-        CardEntry.user_id == current_user.id,
-        CardEntry.status == "ativo",
-        CardEntry.installments > 1,
-    ).all()
-
-    def add_m(dt, n):
-        month = dt.month - 1 + n
-        yr = dt.year + month // 12
-        month = month % 12 + 1
-        return _d(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
-
-    proj = {}
-    for e in parcelados:
-        first = add_m(e.entry_date, 1 - (e.installment_no or 1))
-        for i in range(e.installment_no or 1, e.installments + 1):
-            d = add_m(first, i - 1)
-            if i == (e.installment_no or 1) and e.billing_month:
-                try:
-                    bm_yr = int(e.billing_month[:4])
-                    bm_mo = int(e.billing_month[5:7])
-                    extra = i - (e.installment_no or 1)
-                    mo_t = bm_mo - 1 + extra
-                    key = f"{bm_yr + mo_t // 12}-{mo_t % 12 + 1:02d}"
-                except:
-                    key = f"{d.year}-{d.month:02d}"
-            else:
-                closing = card_closing.get(e.card_id)
-                byr, bmo = get_billing_month(d, closing)
-                key = f"{byr}-{bmo:02d}"
-            if key not in proj:
-                proj[key] = 0.0
-            proj[key] += float(e.amount)
-
-    return jsonify({
-        "total_parcelados_encontrados": len(parcelados),
-        "cartoes": [{"id": c.id, "nome": c.name, "closing": c.closing_day} for c in cards],
-        "projecao_por_mes": dict(sorted(proj.items())),
-        "amostra_entries": [
-            {"desc": e.description, "amount": float(e.amount),
-             "installment_no": e.installment_no, "installments": e.installments,
-             "kind": e.kind, "billing_month": e.billing_month,
-             "card": card_names.get(e.card_id)}
-            for e in parcelados[:5]
-        ]
-    })
-
-@cashflow_bp.route("/debug-parc-junho")
-@login_required
-def debug_parc_junho():
-    from app.models import Card, CardEntry
-    from app.utils import get_billing_month
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_ids = [c.id for c in cards]
-    card_map = {c.id: c.name for c in cards}
-    card_closing = {c.id: c.closing_day for c in cards}
-
-    parcelados = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        CardEntry.status == "ativo",
-        CardEntry.installments > 1,
-    ).all() if card_ids else []
-
-    import calendar as _cal
-    from datetime import date as _d
-
-    def add_m(dt, n):
-        mo = dt.month - 1 + n
-        yr = dt.year + mo // 12
-        mo = mo % 12 + 1
-        return _d(yr, mo, min(dt.day, _cal.monthrange(yr, mo)[1]))
-
-    junho = []
-    total = 0.0
-    for e in parcelados:
-        if e.billing_month:
-            try: bm_yr, bm_mo = int(e.billing_month[:4]), int(e.billing_month[5:7])
-            except: bm_yr, bm_mo = e.entry_date.year, e.entry_date.month
-        else:
-            bm_yr, bm_mo = get_billing_month(e.entry_date, card_closing.get(e.card_id))
-
-        for i in range(e.installment_no, e.installments + 1):
-            extra = i - e.installment_no
-            mo_t = bm_mo - 1 + extra
-            key = (bm_yr + mo_t // 12, mo_t % 12 + 1)
-            if key == (2026, 6):
-                total += float(e.amount)
-                junho.append({
-                    "id": e.id,
-                    "desc": e.description,
-                    "amount": float(e.amount),
-                    "parcela": f"{i}/{e.installments}",
-                    "billing_month": e.billing_month,
-                    "entry_date": str(e.entry_date),
-                    "cartao": card_map.get(e.card_id, "?"),
-                })
-
-    junho.sort(key=lambda x: x["amount"], reverse=True)
-
-    rows = "".join(
-        f"<tr><td>{r['id']}</td><td>{r['desc'][:40]}</td><td>{r['cartao']}</td>"
-        f"<td>{r['parcela']}</td><td>R$ {r['amount']:.2f}</td>"
-        f"<td>{r['billing_month']}</td><td>{r['entry_date']}</td></tr>"
-        for r in junho
-    )
-    return f"""<html><body style='font-family:monospace;padding:20px'>
-    <h2>Parcelados junho/2026 — Total: R$ {total:.2f}</h2>
-    <p>{len(junho)} parcelas</p>
-    <table border=1 cellpadding=4>
-    <tr><th>ID</th><th>Descrição</th><th>Cartão</th><th>Parcela</th>
-        <th>Valor</th><th>billing_month</th><th>entry_date</th></tr>
-    {rows}
-    </table></body></html>"""
-
-@cashflow_bp.route("/debug-env")
-@login_required
-def debug_env():
-    from flask import jsonify
-    import os
-    keys = {k: (v[:6]+"***" if len(v)>6 else "***") for k,v in os.environ.items()
-            if any(x in k.upper() for x in ["GEMINI","GROQ","CLOUD","API","KEY","TOKEN"])}
-    return jsonify(keys)
-
-@cashflow_bp.route("/debug-billing")
-@login_required
-def debug_billing():
-    from flask import jsonify
-    from app.models import CardEntry, Card
-    from sqlalchemy import text
-    # Verifica coluna diretamente no banco
-    with db.engine.connect() as conn:
-        result = conn.execute(text("""
-            SELECT 
-                COUNT(*) as total,
-                COUNT(billing_month) as com_billing,
-                SUM(CASE WHEN billing_month IS NULL THEN 1 ELSE 0 END) as sem_billing,
-                array_agg(DISTINCT billing_month) as valores
-            FROM card_entries
-            WHERE card_id IN (
-                SELECT id FROM cards WHERE user_id = :uid AND is_active = true
-            )
-        """), {"uid": current_user.id})
-        row = result.fetchone()
-    return jsonify({
-        "total": row[0],
-        "com_billing_month": row[1],
-        "sem_billing_month_null": row[2],
-        "valores_billing_month": str(row[3]),
-    })
-
-@cashflow_bp.route("/items-json")
-@login_required
-def items_json():
-    from flask import jsonify, request as req
-    year = req.args.get("year", type=int) or date.today().year
-    col  = req.args.get("col", "eventual")
-    months = get_yearly_cashflow(current_user.id, year)
-    key_map = {
-        "eventual":         "eventual_items",
-        "fixed":            "fixed_items",
-        "income_recurring": "income_recurring_items",
-        "income_eventual":  "income_eventual_items",
-    }
-    key  = key_map.get(col, "eventual_items")
-    data = [m.get(key, []) for m in months]
-    return jsonify(data)
-
-
-@cashflow_bp.route("/parcelados")
-@login_required
-def planejados():
-    from app.models import PlannedInstallment
-    # Mostrar TODOS os meses com parcelas planejadas (sem limite de ano)
-    items = PlannedInstallment.query.filter_by(user_id=current_user.id)        .order_by(PlannedInstallment.billing_month, PlannedInstallment.description)        .all()
-    from collections import defaultdict
-    por_mes = defaultdict(list)
-    for p in items:
-        por_mes[p.billing_month].append(p)
-    return render_template("cashflow/planejados.html",
-                           por_mes=dict(sorted(por_mes.items())))
-
-
-@cashflow_bp.route("/planejados/<int:planned_id>/delete", methods=["POST"])
-@login_required
-def delete_planejado(planned_id):
-    from app.models import PlannedInstallment
-    from app import db
-    p = PlannedInstallment.query.get_or_404(planned_id)
-    if p.user_id != current_user.id:
-        abort(403)
-    year = p.billing_month[:4]
-    db.session.delete(p)
-    db.session.commit()
-    flash("Lançamento removido da projeção.", "success")
-    return redirect(url_for("cashflow.planejados"))
-
-
-@cashflow_bp.route("/planejados/delete-bulk", methods=["POST"])
-@login_required
-def delete_planejados_bulk():
-    from app.models import PlannedInstallment
-    from app import db
-    ids = request.form.getlist("ids")
-    year = request.form.get("year", str(date.today().year))
-    if not ids:
-        flash("Nenhum item selecionado.", "warning")
-        return redirect(url_for("cashflow.planejados", year=year))
-    count = 0
-    for id_str in ids:
-        try:
-            p = PlannedInstallment.query.get(int(id_str))
-            if p and p.user_id == current_user.id:
-                db.session.delete(p)
-                count += 1
-        except Exception:
-            continue
-    db.session.commit()
-    flash(f"{count} item(s) removido(s) da projeção.", "success")
-    return redirect(url_for("cashflow.planejados"))
+{% endblock %}
