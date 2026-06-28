@@ -15,9 +15,10 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def index():
     today = date.today()
     # Filtro de mês para contas entre membros
-    # Dashboard: usa o primeiro mês aberto a partir do mês atual
+    # Dashboard: aceita ?mes= mas nunca permite mês fechado
     from app.utils import get_open_billing_month as _gobm_dash
-    _mes_aberto = _gobm_dash(current_user.id, today.strftime("%Y-%m"))
+    _mes_param = request.args.get("mes", today.strftime("%Y-%m"))
+    _mes_aberto = _gobm_dash(current_user.id, _mes_param)
     try:
         filter_year  = int(_mes_aberto[:4])
         filter_month = int(_mes_aberto[5:7])
@@ -25,6 +26,13 @@ def index():
         filter_year  = today.year
         filter_month = today.month
     mes_filter = f"{filter_year}-{filter_month:02d}"
+    # Prev/next para navegação
+    _prev_mo = filter_month - 1 if filter_month > 1 else 12
+    _prev_yr = filter_year if filter_month > 1 else filter_year - 1
+    _next_mo = filter_month + 1 if filter_month < 12 else 1
+    _next_yr = filter_year if filter_month < 12 else filter_year + 1
+    prev_mes = f"{_prev_yr}-{_prev_mo:02d}"
+    next_mes = f"{_next_yr}-{_next_mo:02d}"
     import calendar as _cal
     mes_nome = _cal.month_name[filter_month]
 
@@ -218,5 +226,7 @@ def index():
         filter_year=filter_year,
         filter_month=filter_month,
         mes_nome=mes_nome,
+        prev_mes=prev_mes,
+        next_mes=next_mes,
         mes_atual=today.strftime("%B/%Y").capitalize(),
     )
