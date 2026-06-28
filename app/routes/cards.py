@@ -1397,9 +1397,10 @@ def _process_batch(card):
         # Adicionar a parcela atual ao planned_installments
         # Pular se foi excluído intencionalmente pelo usuário
         from app.models import PlannedInstallmentDeletion as _PID2
+        # Checar se esta série foi excluída para este billing_month
         _was_deleted = _PID2.query.filter_by(
             user_id=current_user.id, card_id=card.id,
-            description=_e.description, installment_no=_e.installment_no,
+            description=_e.description, billing_month=_e.billing_month,
         ).first()
         _exists_cur = PlannedInstallment.query.filter_by(
             user_id=current_user.id, card_id=card.id,
@@ -1421,9 +1422,10 @@ def _process_batch(card):
             _pmo = (_pmo % 12) + 1
             _proj_bm = f"{_pyr}-{_pmo:02d}"
             # Pular se foi excluído intencionalmente ou já existe
+            # Checar se esta série foi excluída para o billing_month projetado
             _was_del_fut = _PID2.query.filter_by(
                 user_id=current_user.id, card_id=card.id,
-                description=_e.description, installment_no=_i,
+                description=_e.description, billing_month=_proj_bm,
             ).first()
             if _was_del_fut:
                 continue
