@@ -15,12 +15,10 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def index():
     today = date.today()
     # Filtro de mês para contas entre membros
-    mes_filter = request.args.get("mes", today.strftime("%Y-%m"))
-    try:
-        filter_year  = int(mes_filter[:4])
-        filter_month = int(mes_filter[5:7])
-    except (ValueError, IndexError):
-        filter_year, filter_month = today.year, today.month
+    # Dashboard sempre mostra o mês atual
+    filter_year  = today.year
+    filter_month = today.month
+    mes_filter   = today.strftime("%Y-%m")
     import calendar as _cal
     mes_nome = _cal.month_name[filter_month]
 
@@ -43,13 +41,10 @@ def index():
     ).order_by(Project.is_completed, Project.created_at.desc()).all()
 
     # Últimos gastos
-    recent_expenses = Expense.query.join(ExpenseShare).filter(
-        (Expense.payer_id == current_user.id) | (ExpenseShare.user_id == current_user.id)
-    ).distinct().order_by(Expense.spent_at.desc()).limit(6).all()
+    recent_expenses = []
 
     # Últimas rendas
-    recent_incomes = Income.query.filter_by(user_id=current_user.id)\
-        .order_by(Income.received_at.desc()).limit(5).all()
+    recent_incomes = []
 
     # Detalhes de gastos entre membros
     credits_debits_detail = []
@@ -184,20 +179,6 @@ def index():
         round(household_total_spent / household_total_planned * 100, 1)
         if household_total_planned > 0 else 0, 100
     )
-
-    # Navegação de mês
-    if filter_month == 1:
-        prev_mes = f"{filter_year-1}-12"
-    else:
-        prev_mes = f"{filter_year}-{filter_month-1:02d}"
-    if filter_month == 12:
-        next_mes = f"{filter_year+1}-01"
-    else:
-        next_mes = f"{filter_year}-{filter_month+1:02d}"
-
-    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-    mes_label_dash = f"{MESES_PT[filter_month-1]}/{filter_year}"
 
     return render_template(
         "dashboard.html",
