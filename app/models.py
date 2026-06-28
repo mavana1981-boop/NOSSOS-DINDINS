@@ -418,7 +418,7 @@ class PlannedInstallment(db.Model):
     installments    = db.Column(db.Integer, nullable=False)
     billing_month   = db.Column(db.String(7), nullable=False)
     expense_id      = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
-    origin_entry_id = db.Column(db.Integer, db.ForeignKey("card_entries.id"), nullable=True)
+    origin_entry_id = db.Column(db.Integer, db.ForeignKey("card_entries.id", ondelete="SET NULL"), nullable=True)
     created_at      = db.Column(db.DateTime, default=db.func.now())
     user    = db.relationship("User", backref="user_planned_installments")
     card    = db.relationship("Card", backref="card_planned_installments")
