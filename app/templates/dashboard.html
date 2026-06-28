@@ -5,12 +5,9 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Olá, <em style="font-style:italic;color:var(--accent);">{{ current_user.full_name.split()[0] }}</em></h1>
-    <p>Resumo financeiro de <strong>{{ mes_label_dash }}</strong></p>
+    <p>Resumo financeiro de <strong>{{ mes_nome }}/{{ filter_year }}</strong></p>
   </div>
-  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
-    <a href="{{ url_for('dashboard.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
-    <strong style="min-width:130px;text-align:center;">{{ mes_label_dash }}</strong>
-    <a href="{{ url_for('dashboard.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
+  <div class="flex flex-gap" style="gap:8px;">
     <a href="{{ url_for('income.new_income') }}" class="btn btn-ghost btn-sm">+ Renda</a>
     <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm">+ Gasto</a>
   </div>
@@ -244,74 +241,7 @@
 <!-- Movimentações recentes -->
 <div class="grid grid-2">
   <div class="card">
-    <div class="card-title">
-      <h3>Gastos recentes</h3>
-      <a href="{{ url_for('expenses.list_expenses') }}" class="small-link">ver todos →</a>
-    </div>
-    {% if recent_expenses %}
-    <table class="tbl sortable-table" id="tbl-recent-exp">
-      <thead>
-        <tr>
-          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
-          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
-          <th class="th-sort" data-col="2" style="cursor:pointer;">Tipo ↕</th>
-          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Valor ↕</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in recent_expenses %}
-        <tr>
-          <td class="text-dim" data-val="{{ e.spent_at.isoformat() }}">{{ e.spent_at|data_br }}</td>
-          <td data-val="{{ e.description }}">
-            <strong>{{ e.description }}</strong>
-            <div class="text-faint text-small">{{ e.category }}</div>
-          </td>
-          <td data-val="{{ e.share_mode }}">
-            {% if e.share_mode == 'integral' %}<span class="badge badge-shared">repasse</span>
-            {% elif e.share_mode == 'split' %}<span class="badge badge-shared">dividido</span>
-            {% else %}<span class="badge badge-solo">solo</span>{% endif %}
-          </td>
-          <td class="text-right mono" data-val="{{ e.amount }}">{{ e.amount|brl }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <div class="empty-state"><p>Nenhum gasto registrado.</p></div>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <div class="card-title">
-      <h3>Rendas recentes</h3>
-      <a href="{{ url_for('income.list_incomes') }}" class="small-link">ver todas →</a>
-    </div>
-    {% if recent_incomes %}
-    <table class="tbl sortable-table" id="tbl-recent-inc">
-      <thead>
-        <tr>
-          <th class="th-sort" data-col="0" style="cursor:pointer;">Data ↕</th>
-          <th class="th-sort" data-col="1" style="cursor:pointer;">Descrição ↕</th>
-          <th class="th-sort" data-col="2" style="cursor:pointer;">Categoria ↕</th>
-          <th class="th-sort text-right" data-col="3" style="cursor:pointer;">Valor ↕</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for i in recent_incomes %}
-        <tr>
-          <td class="text-dim" data-val="{{ i.received_at.isoformat() }}">{{ i.received_at|data_br }}</td>
-          <td data-val="{{ i.description }}"><strong>{{ i.description }}</strong></td>
-          <td data-val="{{ i.category }}"><span class="badge badge-solo">{{ i.category }}</span></td>
-          <td class="text-right mono" data-val="{{ i.amount }}" style="color:var(--green);">{{ i.amount|brl }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <div class="empty-state"><p>Nenhuma renda registrada.</p></div>
-    {% endif %}
-  </div>
-</div>
+    
 
 <script>
 function toggleMemberEntries(btn) {
