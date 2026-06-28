@@ -150,7 +150,7 @@
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" title="Duplo clique para editar / Clique para ver cálculo"
-               data-breakdown='{"renda_fixa":{{ (m.income_recurring or 0)|float|round(2) }},"renda_eventual":{{ (m.income_eventual or 0)|float|round(2) }},"gastos_fixos":{{ (m.fixed_total or 0)|float|round(2) }},"gastos_eventuais":{{ (m.eventual_total or 0)|float|round(2) }}}'
+
                onclick="mostrarMemoria(this)">
             {{ m.net|brl }}
           </td>
@@ -222,14 +222,21 @@ var CASHFLOW_YEAR = {{ year }};
 
 // Edição inline — duplo clique em qualquer célula editável
 // Modal de memória de cálculo — Saldo
+// Lê os valores diretamente das células da mesma linha (mais confiável que data-attrs)
 function mostrarMemoria(td) {
   try {
-    var bd = JSON.parse(td.getAttribute('data-breakdown') || '{}');
+    var row = td.closest('tr');
+    function cellVal(col) {
+      var cell = row.querySelector('[data-col="' + col + '"]');
+      if (!cell) return 0;
+      var v = parseFloat(cell.getAttribute('data-value') || '0');
+      return isNaN(v) ? 0 : v;
+    }
+    var rf = cellVal('income_recurring');
+    var re = cellVal('income_eventual');
+    var gf = cellVal('fixed');
+    var ge = cellVal('eventual');
     var netExibido = parseFloat(td.getAttribute('data-value') || '0');
-    var rf = parseFloat(bd.renda_fixa || 0);
-    var re = parseFloat(bd.renda_eventual || 0);
-    var gf = parseFloat(bd.gastos_fixos || 0);
-    var ge = parseFloat(bd.gastos_eventuais || 0);
     var netCalc = Math.round((rf + re - gf - ge) * 100) / 100;
     var isOverride = Math.abs(netCalc - netExibido) > 0.05;
 
@@ -238,16 +245,13 @@ function mostrarMemoria(td) {
     html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(re) + '</span></div>';
     html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(gf) + '</span></div>';
     html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(ge) + '</span></div>';
-
     if (isOverride) {
-      // Há override manual — mostrar o calculado E o ajustado
       html += '<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;color:var(--text-dim);">';
       html += '<span>= Calculado</span><span class="mono">' + fmtBRL(netCalc) + '</span></div>';
       var ajuste = netExibido - netCalc;
       html += '<div style="display:flex;justify-content:space-between;color:var(--gold);font-size:0.8rem;">';
       html += '<span>± Ajuste manual</span><span class="mono">' + fmtBRL(ajuste) + '</span></div>';
     }
-
     html += '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">';
     html += '<span>= Saldo</span><span class="mono" style="color:' + (netExibido >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(netExibido) + '</span></div>';
     html += '</div>';
