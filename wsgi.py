@@ -74,18 +74,23 @@ def bootstrap():
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
         try:
             with db.engine.connect() as _cc_del:
+                # Recriar tabela com billing_month (em vez de installment_no)
+                _cc_del.execute(text(
+                    "DROP TABLE IF EXISTS planned_installment_deletions"
+                ))
                 _cc_del.execute(text("""
                     CREATE TABLE IF NOT EXISTS planned_installment_deletions (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER REFERENCES users(id),
                         card_id INTEGER,
                         description VARCHAR(200) NOT NULL,
-                        installment_no INTEGER NOT NULL,
+                        billing_month VARCHAR(7) NOT NULL,
                         deleted_at TIMESTAMP DEFAULT NOW(),
-                        UNIQUE(user_id, card_id, description, installment_no)
+                        UNIQUE(user_id, card_id, description, billing_month)
                     )
                 """))
                 _cc_del.commit()
+                print("[migrate] planned_installment_deletions recriada com billing_month")
         except Exception as _edel:
             print(f"[migrate] planned_installment_deletions: {_edel}")
         # Corrigir FK de origin_entry_id para ON DELETE SET NULL
@@ -335,7 +340,7 @@ def _add_current_installments():
             # Carregar exclusões permanentes
             from app.models import PlannedInstallmentDeletion as _PID
             _deleted = set(
-                (d.user_id, d.card_id, d.description, d.installment_no)
+                (d.user_id, d.card_id, d.description, d.billing_month)
                 for d in _PID.query.all()
             )
 
@@ -349,8 +354,8 @@ def _add_current_installments():
 
             count = 0
             for e in parcs:
-                # Pular se foi excluído intencionalmente
-                if (e.user_id, e.card_id, e.description, e.installment_no) in _deleted:
+                # Pular se esta série foi excluída para este billing_month
+                if (e.user_id, e.card_id, e.description, e.billing_month) in _deleted:
                     continue
                 exists = _PI.query.filter_by(
                     user_id=e.user_id,
