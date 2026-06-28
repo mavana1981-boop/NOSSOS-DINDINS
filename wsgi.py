@@ -72,6 +72,22 @@ def bootstrap():
         except Exception as _e_fix:
             print(f"[migrate] payment_plans constraint: {_e_fix}")
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
+        try:
+            with db.engine.connect() as _cc_del:
+                _cc_del.execute(text("""
+                    CREATE TABLE IF NOT EXISTS planned_installment_deletions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        card_id INTEGER,
+                        description VARCHAR(200) NOT NULL,
+                        installment_no INTEGER NOT NULL,
+                        deleted_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(user_id, card_id, description, installment_no)
+                    )
+                """))
+                _cc_del.commit()
+        except Exception as _edel:
+            print(f"[migrate] planned_installment_deletions: {_edel}")
         # Corrigir FK de origin_entry_id para ON DELETE SET NULL
         try:
             with db.engine.connect() as _cc_fk:
@@ -305,11 +321,23 @@ def _backfill_planned_installments():
 
 
 def _add_current_installments():
-    """Adiciona ao planned_installments os lançamentos ATUAIS (a parcela importada em si),
-    não só as futuras. Isso garante visibilidade completa no menu Parcelados."""
+    """Adiciona ao planned_installments os lançamentos ATUAIS.
+    Roda apenas uma vez — se já há dados, sai imediatamente para não
+    recriar itens que o usuário excluiu manualmente."""
     with app.app_context():
         try:
             from app.models import CardEntry as _CE, PlannedInstallment as _PI
+
+            # Sair se já há planejados — evitar recriar exclusões manuais
+            if _PI.query.count() > 0:
+                print("[add_current] Planejados já existem — pulando.")
+                return
+            # Carregar exclusões permanentes
+            from app.models import PlannedInstallmentDeletion as _PID
+            _deleted = set(
+                (d.user_id, d.card_id, d.description, d.installment_no)
+                for d in _PID.query.all()
+            )
 
             # Buscar todos os parcelados ativos com billing_month definido
             parcs = _CE.query.filter(
@@ -321,6 +349,9 @@ def _add_current_installments():
 
             count = 0
             for e in parcs:
+                # Pular se foi excluído intencionalmente
+                if (e.user_id, e.card_id, e.description, e.installment_no) in _deleted:
+                    continue
                 exists = _PI.query.filter_by(
                     user_id=e.user_id,
                     card_id=e.card_id,
