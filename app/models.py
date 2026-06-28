@@ -423,3 +423,16 @@ class PlannedInstallment(db.Model):
     user    = db.relationship("User", backref="user_planned_installments")
     card    = db.relationship("Card", backref="card_planned_installments")
     expense = db.relationship("Expense", backref="expense_planned_installments")
+
+
+class PlannedInstallmentDeletion(db.Model):
+    """Registro de exclusão intencional de planned_installment pelo usuário."""
+    __tablename__ = "planned_installment_deletions"
+    id             = db.Column(db.Integer, primary_key=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id        = db.Column(db.Integer, nullable=True)
+    description    = db.Column(db.String(200), nullable=False)
+    installment_no = db.Column(db.Integer, nullable=False)
+    deleted_at     = db.Column(db.DateTime, default=db.func.now())
+    __table_args__ = (db.UniqueConstraint("user_id", "card_id", "description", "installment_no"),)
+    user = db.relationship("User", backref="planned_deletions")
