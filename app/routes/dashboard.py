@@ -37,7 +37,15 @@ def index():
         cf_months[0] if cf_months else {}
     )
     cf_dec = next((m for m in cf_months if m["month"] == 12), cf_months[-1] if cf_months else {})
-    credits_debits = get_credits_debits(current_user.id)
+    # Usar filter_year/filter_month para calcular saldos entre membros
+    from app.utils import get_user_balance_with as _gubw
+    from app.models import User as _User
+    _others = _User.query.filter(_User.id != current_user.id).all()
+    credits_debits = []
+    for _o in _others:
+        _bal = _gubw(current_user.id, _o.id, filter_year, filter_month)
+        if abs(_bal) > 0.005:
+            credits_debits.append({"user": _o, "balance": _bal})
 
     # Projetos do usuário
     member_project_ids = [m.project_id for m in
@@ -146,14 +154,18 @@ def index():
         if not exp:
             continue
         if exp.kind == 'recorrente':
-            visible = exp.is_active_on(today.year, today.month)
+            visible = exp.is_active_on(filter_year, filter_month)
         else:
             visible = True
         if not visible:
             continue
 
-        # Soma lançamentos reais no cartão — se não houver cartão vinculado, spent = 0
-        entries_card = CardEntry.query.filter_by(expense_id=exp.id).all()
+        # Soma lançamentos reais no cartão do mês selecionado
+        entries_card = CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            CardEntry.billing_month == mes_filter,
+            CardEntry.status != "excluido",
+        ).all()
         spent_this_month = sum(float(e.amount) for e in entries_card)
 
         planned = float(exp.amount)
