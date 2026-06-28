@@ -421,12 +421,20 @@ def planejados():
 @cashflow_bp.route("/planejados/<int:planned_id>/delete", methods=["POST"])
 @login_required
 def delete_planejado(planned_id):
-    from app.models import PlannedInstallment
+    from app.models import PlannedInstallment, PlannedInstallmentDeletion
     from app import db
     p = PlannedInstallment.query.get_or_404(planned_id)
     if p.user_id != current_user.id:
         abort(403)
-    year = p.billing_month[:4]
+    # Registrar exclusão permanente para não recriar no próximo boot
+    try:
+        d = PlannedInstallmentDeletion(
+            user_id=p.user_id, card_id=p.card_id,
+            description=p.description, installment_no=p.installment_no,
+        )
+        db.session.add(d)
+    except Exception:
+        pass
     db.session.delete(p)
     db.session.commit()
     flash("Lançamento removido da projeção.", "success")
@@ -448,6 +456,14 @@ def delete_planejados_bulk():
         try:
             p = PlannedInstallment.query.get(int(id_str))
             if p and p.user_id == current_user.id:
+                try:
+                    from app.models import PlannedInstallmentDeletion
+                    db.session.add(PlannedInstallmentDeletion(
+                        user_id=p.user_id, card_id=p.card_id,
+                        description=p.description, installment_no=p.installment_no,
+                    ))
+                except Exception:
+                    pass
                 db.session.delete(p)
                 count += 1
         except Exception:
