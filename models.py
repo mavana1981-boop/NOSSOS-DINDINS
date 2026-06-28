@@ -295,11 +295,12 @@ class CardEntry(db.Model):
     installment_no = db.Column(db.Integer, default=1) # parcela atual
     status = db.Column(db.String(20), default="ativo")  # ativo / em_avaliacao
     batch_id = db.Column(db.String(64), nullable=True)  # ID do lote de importação
+    billing_month = db.Column(db.String(7), nullable=True)  # YYYY-MM do mês de faturamento
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    user = db.relationship("User", backref="card_entries")
-    expense = db.relationship("Expense", backref="card_entries")
+    user = db.relationship("User", backref="user_card_entries")
+    expense = db.relationship("Expense", backref="expense_card_entries")
 
 
 class HouseholdExpense(db.Model):
@@ -314,3 +315,127 @@ class HouseholdExpense(db.Model):
     expense = db.relationship("Expense", backref=db.backref("household", uselist=False))
     owner = db.relationship("User", foreign_keys=[owner_id], backref="household_owned")
     shared_with = db.relationship("User", foreign_keys=[shared_with_id], backref="household_shared")
+
+
+class CashflowOverride(db.Model):
+    """Ajuste manual de valores no fluxo de caixa por mês."""
+    __tablename__ = "cashflow_overrides"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    net_override = db.Column(db.Numeric(12, 2), nullable=True)
+    cumulative_override = db.Column(db.Numeric(12, 2), nullable=True)
+    income_recurring_override = db.Column(db.Numeric(12, 2), nullable=True)
+    income_eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
+    fixed_override = db.Column(db.Numeric(12, 2), nullable=True)
+    eventual_override = db.Column(db.Numeric(12, 2), nullable=True)
+
+    user = db.relationship("User", backref="cashflow_overrides")
+
+    __table_args__ = (db.UniqueConstraint("user_id", "year", "month"),)
+
+
+class CardMonthHistory(db.Model):
+    """Histórico mensal de gastos por cartão."""
+    __tablename__ = "card_month_history"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id       = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
+    billing_month = db.Column(db.String(7), nullable=False)
+    snapshot      = db.Column(db.Text, nullable=True)
+    total_geral   = db.Column(db.Numeric(12, 2), default=0)
+    entry_count   = db.Column(db.Integer, default=0)
+    created_at    = db.Column(db.DateTime, default=db.func.now())
+
+    user = db.relationship("User", backref="card_histories")
+    card = db.relationship("Card", backref="month_histories")
+    __table_args__ = (db.UniqueConstraint("user_id", "card_id", "billing_month"),)
+
+
+class MerchantRule(db.Model):
+    """Regras de categorização automática por nome de estabelecimento."""
+    __tablename__ = "merchant_rules"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    keyword    = db.Column(db.String(120), nullable=False)   # palavra-chave do nome
+    category   = db.Column(db.String(80),  nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    user    = db.relationship("User",    backref="user_merchant_rules")
+    expense = db.relationship("Expense", backref="expense_merchant_rules")
+    __table_args__ = (db.UniqueConstraint("user_id", "keyword"),)
+
+
+class PaymentPlan(db.Model):
+    """Plano de gerenciamento de pagamentos por mês."""
+    __tablename__ = "payment_plans"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    mes_ref       = db.Column(db.String(7), nullable=False, default="")  # ex: "2026-06"
+    saldo_inicial = db.Column(db.Numeric(12, 2), default=0)
+    updated_at    = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+    user  = db.relationship("User", backref="payment_plans")
+    items = db.relationship("PaymentItem", backref="plan", cascade="all, delete-orphan")
+    __table_args__ = (db.UniqueConstraint("user_id", "mes_ref"),)
+
+
+class PaymentItem(db.Model):
+    """Item de gasto no plano de pagamento."""
+    __tablename__ = "payment_items"
+    id          = db.Column(db.Integer, primary_key=True)
+    plan_id     = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
+    description = db.Column(db.String(200), nullable=False)
+    amount      = db.Column(db.Numeric(12, 2), nullable=False)
+    expense_id  = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    is_paid     = db.Column(db.Boolean, default=False)
+    due_date    = db.Column(db.Date, nullable=True)
+    created_at  = db.Column(db.DateTime, default=db.func.now())
+    expense = db.relationship("Expense", backref="payment_items")
+
+
+class PaymentCardStatus(db.Model):
+    """Status de pagamento de fatura de cartão por mês."""
+    __tablename__ = "payment_card_status"
+    id              = db.Column(db.Integer, primary_key=True)
+    plan_id         = db.Column(db.Integer, db.ForeignKey("payment_plans.id"), nullable=False)
+    card_id         = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=False)
+    is_paid         = db.Column(db.Boolean, default=False)
+    due_date        = db.Column(db.Date, nullable=True)
+    amount_override = db.Column(db.Numeric(12, 2), nullable=True)  # valor manual
+    __table_args__ = (db.UniqueConstraint("plan_id", "card_id"),)
+    card = db.relationship("Card", backref="payment_status")
+
+
+class ClosedMonth(db.Model):
+    """Meses fechados no menu Meus Cartões (por usuário)."""
+    __tablename__ = "closed_months"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    billing_month = db.Column(db.String(7), nullable=False)   # YYYY-MM
+    closed_at     = db.Column(db.DateTime, default=db.func.now())
+    __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
+    user = db.relationship("User", backref="closed_months")
+
+
+
+
+
+class PlannedInstallment(db.Model):
+    """Parcela futura planejada — gerada automaticamente no import, editável pelo usuário."""
+    __tablename__ = "planned_installments"
+    id             = db.Column(db.Integer, primary_key=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id        = db.Column(db.Integer, db.ForeignKey("cards.id"), nullable=True)
+    description    = db.Column(db.String(200), nullable=False)
+    amount         = db.Column(db.Numeric(12, 2), nullable=False)
+    installment_no = db.Column(db.Integer, nullable=False)
+    installments   = db.Column(db.Integer, nullable=False)
+    billing_month  = db.Column(db.String(7), nullable=False)  # YYYY-MM projetado
+    expense_id     = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    origin_entry_id = db.Column(db.Integer, db.ForeignKey("card_entries.id"), nullable=True)
+    created_at     = db.Column(db.DateTime, default=db.func.now())
+    user    = db.relationship("User", backref="planned_installments")
+    card    = db.relationship("Card", backref="planned_installments")
+    expense = db.relationship("Expense", backref="planned_installments")
