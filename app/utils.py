@@ -356,34 +356,36 @@ def get_yearly_cashflow(user_id, year):
     card_closing_map2 = {c.id: c.closing_day for c in cards_user}
     _card_ids2 = [c.id for c in cards_user]
 
+    # Busca parcelados para usar como base de projeção
     parcelados = CardEntry.query.filter(
         CardEntry.card_id.in_(_card_ids2),
         CardEntry.status == "ativo",
         CardEntry.installments > 1,
     ).all() if _card_ids2 else []
 
-
-    # Deduplicar parcelados:
-    # - Normaliza a descrição removendo sufixos " XX DE YY" ou " XX/YY"
-    # - Agrupa por (desc_normalizada, total_parcelas, card_id)
-    # - Usa o de maior installment_no (mais recente importado)
-    # - Projeta APENAS installments FUTUROS que NÃO existam ainda no banco
     import re as _re
 
     def _norm_desc(desc):
         """Remove notação de parcela (XX DE YY, XX/YY, ou XX YY) da descrição."""
         d = (desc or "").upper().strip()
-        d = _re.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', d)   # "04 DE 10"
-        d = _re.sub(r'\s+\d{1,2}/\d{1,2}', '', d)            # "04/10"
-        d = _re.sub(r'\s+\d{1,2}\s+\d{1,2}(?=\s|$)', '', d) # "04 10" (sem DE)
+        d = _re.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', d)
+        d = _re.sub(r'\s+\d{1,2}/\d{1,2}', '', d)
+        d = _re.sub(r'\s+\d{1,2}\s+\d{1,2}(?=\s|$)', '', d)
         return d[:25].strip()
 
-    # Conjunto de (desc_norm, card_id, installment_no) já existentes no banco
-    # Usado para NÃO projetar installments que já foram importados
-    _existing = set()  # (desc_norm, card_id, installment_no)
-    for entry in parcelados:
-        if entry.installment_no:
-            _existing.add((_norm_desc(entry.description), entry.card_id, entry.installment_no))
+    # _existing: TODOS os entries ativos do cartão (não só installments>1)
+    # Garante que qualquer entry já importado — mesmo com flags erradas —
+    # seja detectado e não seja projetado novamente
+    _all_active = CardEntry.query.filter(
+        CardEntry.card_id.in_(_card_ids2),
+        CardEntry.status == "ativo",
+        CardEntry.installment_no != None,
+        CardEntry.installment_no > 0,
+    ).all() if _card_ids2 else []
+
+    _existing = set()
+    for entry in _all_active:
+        _existing.add((_norm_desc(entry.description), entry.card_id, entry.installment_no))
 
     # Para cada série, pegar o entry com maior installment_no (mais recente)
     _latest = {}
