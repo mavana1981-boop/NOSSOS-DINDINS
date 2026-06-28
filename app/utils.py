@@ -204,6 +204,28 @@ def get_parcelados_from_history(user_id):
     return parcelados
 
 
+def get_open_billing_month(user_id, billing_month):
+    """
+    Dado um billing_month (YYYY-MM), verifica se está fechado.
+    Se fechado, avança para o próximo mês aberto.
+    Retorna o billing_month final (sempre aberto).
+    """
+    from app.models import ClosedMonth
+    for _ in range(24):
+        closed = ClosedMonth.query.filter_by(
+            user_id=user_id, billing_month=billing_month
+        ).first()
+        if not closed:
+            return billing_month
+        # Avança um mês
+        yr, mo = int(billing_month[:4]), int(billing_month[5:7])
+        mo += 1
+        if mo > 12:
+            yr += 1; mo = 1
+        billing_month = f"{yr}-{mo:02d}"
+    return billing_month
+
+
 def get_billing_month(entry_date, closing_day):
     """
     Retorna (year, month) do mês da fatura de uma compra.
@@ -341,15 +363,45 @@ def get_yearly_cashflow(user_id, year):
     ).all() if _card_ids2 else []
 
 
-    # Agrupa valor por (ano, mês da fatura) para cada parcela futura
-    # Agrupa valor por mês — mesma lógica da projeção do menu cartões (entry_date)
-    parcelados_por_mes = {}
+    # Deduplicar parcelados:
+    # - Normaliza a descrição removendo sufixos " XX DE YY" ou " XX/YY"
+    # - Agrupa por (desc_normalizada, total_parcelas, card_id)
+    # - Usa o de maior installment_no (mais recente importado)
+    # - Projeta APENAS installments FUTUROS que NÃO existam ainda no banco
+    import re as _re
+
+    def _norm_desc(desc):
+        """Remove notação de parcela da descrição para deduplicar corretamente."""
+        d = (desc or "").upper().strip()
+        d = _re.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', d)  # " 01 DE 10"
+        d = _re.sub(r'\s+\d{1,2}/\d{1,2}$', '', d)         # " 01/10"
+        return d[:25].strip()
+
+    # Coletar todos os billing_months existentes por (desc_norm, installments, card_id)
+    # para evitar projetar installments que já foram importados
+    _existing_keys = set()
+    for entry in parcelados:
+        if entry.billing_month and entry.installment_no:
+            _dk = (_norm_desc(entry.description), entry.installments, entry.card_id)
+            _existing_keys.add((_dk, entry.installment_no))
+
+    _latest = {}
     for entry in parcelados:
         if not entry.installments or entry.installment_no is None:
             continue
+        _key = (_norm_desc(entry.description), entry.installments, entry.card_id)
+        if _key not in _latest or entry.installment_no > _latest[_key].installment_no:
+            _latest[_key] = entry
+
+    parcelados_por_mes = {}
+    for (_nk, _ni, _cid), entry in _latest.items():
         planned_v = float(entry.expense.amount) if (entry.expense_id and entry.expense) else 0.0
         first_date = _add_months(entry.entry_date, 1 - entry.installment_no)
-        for i in range(entry.installment_no, entry.installments + 1):
+        # Projetar apenas installments ainda não importados
+        for i in range(entry.installment_no + 1, entry.installments + 1):
+            _ek = ((_nk, _ni, _cid), i)
+            if _ek in _existing_keys:
+                continue  # já existe no banco — não projetar
             d = _add_months(first_date, i - 1)
             key = (d.year, d.month)
             if key not in parcelados_por_mes:
