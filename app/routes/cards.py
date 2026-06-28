@@ -1309,6 +1309,29 @@ def _process_batch(card):
 
     batch_id = str(uuid.uuid4())[:8]
     count = 0
+    skipped = 0
+
+    # Pré-carregar parcelados existentes no cartão para deduplicação cross-month
+    # Parcelado é único: mesma série (desc_norm + inst_no + amount) não pode existir
+    # em dois meses diferentes para o mesmo cartão.
+    import re as _re_b
+    def _norm_b(s):
+        s = (s or "").upper().strip()
+        s = _re_b.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+        s = _re_b.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+        s = _re_b.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+        return s[:30].strip()
+
+    _parc_existentes = CardEntry.query.filter(
+        CardEntry.card_id == card.id,
+        CardEntry.installments > 1,
+        CardEntry.status != "excluido",
+    ).all()
+    # Chave: (desc_norm, installment_no) — único para cada parcela do cartão
+    _parc_set = set(
+        (_norm_b(e.description), e.installment_no or 0)
+        for e in _parc_existentes
+    )
 
     for t in transactions:
         try:
@@ -1326,6 +1349,14 @@ def _process_batch(card):
             if inst > 1:
                 kind = "parcelado"
             desc = str(t.get("description", "Sem descrição"))[:160]
+
+            # Parcelado: verificar se esta parcela já existe em qualquer mês
+            if inst > 1:
+                _ck = (_norm_b(desc), inst_no)
+                if _ck in _parc_set:
+                    skipped += 1
+                    continue  # parcela já importada — pular
+
             entry = CardEntry(
                 card_id=card.id,
                 user_id=current_user.id,
@@ -1341,9 +1372,14 @@ def _process_batch(card):
                 billing_month=billing_month,
             )
             db.session.add(entry)
+            if inst > 1:
+                _parc_set.add((_norm_b(desc), inst_no))  # evitar dup dentro do lote
             count += 1
         except Exception:
             continue
+
+    if skipped:
+        flash(f"⚠️ {skipped} parcela(s) ignorada(s) por já existirem no cartão.", "warning")
 
     # Aplicar regras de categorização automática
     from app.models import MerchantRule
