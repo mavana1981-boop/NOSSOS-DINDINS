@@ -402,3 +402,37 @@ def items_json():
     key  = key_map.get(col, "eventual_items")
     data = [m.get(key, []) for m in months]
     return jsonify(data)
+
+
+@cashflow_bp.route("/planejados")
+@login_required
+def planejados():
+    from app.models import PlannedInstallment
+    from datetime import date as _dt
+    year = request.args.get("year", _dt.today().year, type=int)
+    items = PlannedInstallment.query.filter_by(user_id=current_user.id)        .filter(PlannedInstallment.billing_month.like(f"{year}-%"))        .order_by(PlannedInstallment.billing_month, PlannedInstallment.description)        .all()
+    # Agrupar por billing_month
+    from collections import defaultdict
+    por_mes = defaultdict(list)
+    for p in items:
+        por_mes[p.billing_month].append(p)
+    return render_template("cashflow/planejados.html",
+                           por_mes=dict(sorted(por_mes.items())),
+                           year=year,
+                           prev_year=year-1,
+                           next_year=year+1)
+
+
+@cashflow_bp.route("/planejados/<int:planned_id>/delete", methods=["POST"])
+@login_required
+def delete_planejado(planned_id):
+    from app.models import PlannedInstallment
+    from app import db
+    p = PlannedInstallment.query.get_or_404(planned_id)
+    if p.user_id != current_user.id:
+        abort(403)
+    year = p.billing_month[:4]
+    db.session.delete(p)
+    db.session.commit()
+    flash(f"Lançamento removido da projeção.", "success")
+    return redirect(url_for("cashflow.planejados", year=year))
