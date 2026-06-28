@@ -404,23 +404,18 @@ def items_json():
     return jsonify(data)
 
 
-@cashflow_bp.route("/planejados")
+@cashflow_bp.route("/parcelados")
 @login_required
 def planejados():
     from app.models import PlannedInstallment
-    from datetime import date as _dt
-    year = request.args.get("year", _dt.today().year, type=int)
-    items = PlannedInstallment.query.filter_by(user_id=current_user.id)        .filter(PlannedInstallment.billing_month.like(f"{year}-%"))        .order_by(PlannedInstallment.billing_month, PlannedInstallment.description)        .all()
-    # Agrupar por billing_month
+    # Mostrar TODOS os meses com parcelas planejadas (sem limite de ano)
+    items = PlannedInstallment.query.filter_by(user_id=current_user.id)        .order_by(PlannedInstallment.billing_month, PlannedInstallment.description)        .all()
     from collections import defaultdict
     por_mes = defaultdict(list)
     for p in items:
         por_mes[p.billing_month].append(p)
     return render_template("cashflow/planejados.html",
-                           por_mes=dict(sorted(por_mes.items())),
-                           year=year,
-                           prev_year=year-1,
-                           next_year=year+1)
+                           por_mes=dict(sorted(por_mes.items())))
 
 
 @cashflow_bp.route("/planejados/<int:planned_id>/delete", methods=["POST"])
@@ -435,7 +430,7 @@ def delete_planejado(planned_id):
     db.session.delete(p)
     db.session.commit()
     flash("Lançamento removido da projeção.", "success")
-    return redirect(url_for("cashflow.planejados", year=year))
+    return redirect(url_for("cashflow.planejados"))
 
 
 @cashflow_bp.route("/planejados/delete-bulk", methods=["POST"])
@@ -459,4 +454,4 @@ def delete_planejados_bulk():
             continue
     db.session.commit()
     flash(f"{count} item(s) removido(s) da projeção.", "success")
-    return redirect(url_for("cashflow.planejados", year=year))
+    return redirect(url_for("cashflow.planejados"))
