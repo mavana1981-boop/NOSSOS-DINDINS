@@ -22,14 +22,17 @@
 <form method="POST" action="{{ url_for('cashflow.delete_planejados_bulk') }}" id="bulk-form">
   <input type="hidden" name="year" value="{{ year }}">
 
-  <!-- Barra de ações em massa -->
+  <!-- Barra de ações -->
   <div class="card mb-3" style="background:var(--surface2);padding:12px 16px;">
     <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
-        <input type="checkbox" id="select-all" onchange="toggleAll(this)"
-               style="width:18px;height:18px;">
-        Selecionar todos
-      </label>
+      <div class="flex flex-gap" style="gap:12px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+          <input type="checkbox" id="select-all" onchange="toggleAll(this)" style="width:18px;height:18px;">
+          Todos
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAllMonths(true)">+ Expandir todos</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAllMonths(false)">− Recolher todos</button>
+      </div>
       <div class="flex flex-gap" style="gap:8px;align-items:center;">
         <span id="count-label" class="text-dim text-small">0 selecionado(s)</span>
         <button type="submit" class="btn btn-sm"
@@ -44,57 +47,113 @@
 
   {% for bm, items in por_mes.items() %}
   {% set total_mes = items | sum(attribute='amount') | float %}
-  <div class="card mb-3">
-    <div class="flex-between mb-2">
-      <strong style="font-size:1rem;">{{ bm }}</strong>
-      <span class="mono" style="color:var(--red);">{{ total_mes|brl }}</span>
+  {% set mes_id = bm | replace('-','') %}
+  <div class="card mb-2">
+    <!-- Header colapsável -->
+    <div class="flex-between" style="cursor:pointer;padding:4px 0;"
+         onclick="toggleMes('{{ mes_id }}')">
+      <div class="flex flex-gap" style="align-items:center;gap:12px;">
+        <span id="icon-{{ mes_id }}" style="font-size:1rem;transition:transform 0.2s;">▶</span>
+        <strong style="font-size:1rem;">{{ bm }}</strong>
+        <span class="text-dim text-small">({{ items|length }} parcela(s))</span>
+      </div>
+      <span class="mono" style="color:var(--red);font-weight:700;">{{ total_mes|brl }}</span>
     </div>
-    <table class="tbl">
-      <thead>
+
+    <!-- Conteúdo colapsável -->
+    <div id="mes-{{ mes_id }}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+      <table class="tbl" id="tbl-{{ mes_id }}">
+        <thead>
+          <tr>
+            <th style="width:36px;"></th>
+            <th class="th-sort" onclick="sortTable('tbl-{{ mes_id }}',1,this)">Descrição <span class="si">↕</span></th>
+            <th class="th-sort" style="text-align:center;" onclick="sortTable('tbl-{{ mes_id }}',2,this)">Parcela <span class="si">↕</span></th>
+            <th class="th-sort" onclick="sortTable('tbl-{{ mes_id }}',3,this)">Cartão <span class="si">↕</span></th>
+            <th class="th-sort text-right" onclick="sortTable('tbl-{{ mes_id }}',4,this)">Valor <span class="si">↕</span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in items %}
         <tr>
-          <th style="width:36px;"></th>
-          <th>Descrição</th>
-          <th style="text-align:center;">Parcela</th>
-          <th class="text-right">Valor</th>
-          <th></th>
+          <td>
+            <input type="checkbox" name="ids" value="{{ p.id }}"
+                   class="item-check" onchange="atualizarContador()"
+                   style="width:16px;height:16px;cursor:pointer;">
+          </td>
+          <td>{{ p.description }}</td>
+          <td style="text-align:center;color:var(--text-dim);">
+            {{ p.installment_no }}/{{ p.installments }}
+          </td>
+          <td>
+            {% if p.card %}
+            <span style="display:inline-flex;align-items:center;gap:5px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;"></span>
+              {{ p.card.name }}
+            </span>
+            {% else %}
+            <span class="text-faint">—</span>
+            {% endif %}
+          </td>
+          <td class="text-right mono" style="color:var(--red);">{{ p.amount|brl }}</td>
+          <td>
+            <button type="button" class="btn btn-ghost btn-sm" style="color:var(--red);"
+                    onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}')">×</button>
+          </td>
         </tr>
-      </thead>
-      <tbody>
-      {% for p in items %}
-      <tr>
-        <td>
-          <input type="checkbox" name="ids" value="{{ p.id }}"
-                 class="item-check" onchange="atualizarContador()"
-                 style="width:16px;height:16px;cursor:pointer;">
-        </td>
-        <td>{{ p.description }}</td>
-        <td style="text-align:center;color:var(--text-dim);">
-          {{ p.installment_no }}/{{ p.installments }}
-        </td>
-        <td class="text-right mono" style="color:var(--red);">{{ p.amount|brl }}</td>
-        <td>
-          <button type="button" class="btn btn-ghost btn-sm" style="color:var(--red);"
-                  onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}')">
-            ×
-          </button>
-        </td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
   {% endfor %}
 </form>
 
-<!-- Form oculto para exclusão individual -->
 <form id="form-one" method="POST" style="display:none;">
   <input type="hidden" name="ids" id="one-id">
   <input type="hidden" name="year" value="{{ year }}">
 </form>
 
+<style>
+.th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+.th-sort:hover { color:var(--accent); }
+.si { font-size:0.7rem; opacity:0.5; }
+.th-sort.asc .si::after  { content:"↑"; }
+.th-sort.desc .si::after { content:"↓"; }
+.th-sort.asc .si, .th-sort.desc .si { opacity:1; }
+</style>
+
 <script>
+// Toggle de um mês
+function toggleMes(id) {
+  const el = document.getElementById('mes-' + id);
+  const ic = document.getElementById('icon-' + id);
+  const open = el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  ic.textContent = open ? '▼' : '▶';
+  ic.style.transform = open ? 'rotate(0deg)' : '';
+}
+
+// Expandir/recolher todos
+function toggleAllMonths(expand) {
+  document.querySelectorAll('[id^="mes-"]').forEach(el => {
+    const id = el.id.replace('mes-','');
+    const ic = document.getElementById('icon-' + id);
+    el.style.display = expand ? 'block' : 'none';
+    ic.textContent = expand ? '▼' : '▶';
+  });
+}
+
+// Checkboxes
 function toggleAll(cb) {
-  document.querySelectorAll('.item-check').forEach(c => c.checked = cb.checked);
+  document.querySelectorAll('.item-check').forEach(c => {
+    // Só marcar items visíveis
+    const row = c.closest('tr');
+    const table = c.closest('table');
+    if (table && table.closest('[id^="mes-"]').style.display !== 'none') {
+      c.checked = cb.checked;
+    }
+  });
   atualizarContador();
 }
 
@@ -102,11 +161,10 @@ function atualizarContador() {
   const checked = document.querySelectorAll('.item-check:checked').length;
   document.getElementById('count-label').textContent = checked + ' selecionado(s)';
   document.getElementById('btn-delete-bulk').disabled = checked === 0;
-  // Atualizar select-all indeterminate
   const total = document.querySelectorAll('.item-check').length;
   const sa = document.getElementById('select-all');
   sa.indeterminate = checked > 0 && checked < total;
-  sa.checked = checked === total;
+  sa.checked = checked > 0 && checked === total;
 }
 
 function confirmarExclusao() {
@@ -121,7 +179,32 @@ function excluirUm(id, desc) {
   document.getElementById('one-id').value = id;
   f.submit();
 }
-</script>
-{% endif %}
 
+// Ordenação de colunas
+function sortTable(tblId, col, th) {
+  const tbl = document.getElementById(tblId);
+  if (!tbl) return;
+  const tbody = tbl.querySelector('tbody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  const asc = !th.classList.contains('asc');
+  // Resetar ícones desta tabela
+  tbl.querySelectorAll('.th-sort').forEach(t => t.classList.remove('asc','desc'));
+  th.classList.add(asc ? 'asc' : 'desc');
+  rows.sort((a, b) => {
+    const ca = a.children[col]?.innerText.trim() || '';
+    const cb = b.children[col]?.innerText.trim() || '';
+    // Valor BRL
+    const na = parseFloat(ca.replace(/[^\d,]/g,'').replace(',','.'));
+    const nb = parseFloat(cb.replace(/[^\d,]/g,'').replace(',','.'));
+    if (!isNaN(na) && !isNaN(nb)) return asc ? na-nb : nb-na;
+    // Parcela X/Y
+    const pa = parseInt(ca.split('/')[0]) || 0;
+    const pb = parseInt(cb.split('/')[0]) || 0;
+    if (ca.includes('/') && cb.includes('/')) return asc ? pa-pb : pb-pa;
+    // Texto
+    return asc ? ca.localeCompare(cb,'pt') : cb.localeCompare(ca,'pt');
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+</script>
 {% endblock %}
