@@ -201,7 +201,4 @@ def index():
         filter_month=filter_month,
         mes_nome=mes_nome,
         mes_atual=today.strftime("%B/%Y").capitalize(),
-        prev_mes=prev_mes,
-        next_mes=next_mes,
-        mes_label_dash=mes_label_dash,
     )
