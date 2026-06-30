@@ -79,12 +79,23 @@ def index():
         max((m["total_expense"] for m in months), default=0),
         1,
     )
-    # Dados do mês atual para os cards
+    # Dados do mês atual para os cards — usa primeiro mês aberto (não fechado)
     today = date.today()
-    current_month = next(
-        (m for m in months if m["month"] == today.month and not m.get("is_next_year")),
-        months[0] if months else {}
-    )
+    from app.utils import get_open_billing_month as _gobm_cf
+    _mes_aberto = _gobm_cf(current_user.id, today.strftime("%Y-%m"))
+    _aberto_yr = int(_mes_aberto[:4])
+    _aberto_mo = int(_mes_aberto[5:7])
+    if _aberto_yr == year:
+        current_month = next(
+            (m for m in months if m["month"] == _aberto_mo and not m.get("is_next_year")),
+            months[0] if months else {}
+        )
+    else:
+        # Mês aberto está em outro ano (ex: janeiro do próximo ano)
+        current_month = next(
+            (m for m in months if m.get("is_next_year") and m["month"] == _aberto_mo),
+            months[0] if months else {}
+        )
     # Saldo do ano = acumulado de dezembro
     dec = next((m for m in months12 if m["month"] == 12), months12[-1] if months12 else {})
 
