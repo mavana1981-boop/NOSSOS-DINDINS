@@ -193,6 +193,45 @@
         <span style="font-size:0.72rem;color:var(--red);">sem saldo disponível</span>
         {% endif %}
       </div>
+
+      {% set eid = loop.index %}
+      {% if True %}
+      <div style="margin-top:8px;">
+        <button type="button" onclick="toggleEntries({{ eid }})"
+                style="background:none;border:none;color:var(--accent);font-size:0.75rem;
+                       cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;">
+          <span id="ic-{{ eid }}">▶</span>
+          {% if item.entries %}Ver {{ item.entries|length }} lançamento(s){% else %}Sem lançamentos vinculados{% endif %}
+        </button>
+        <div id="entries-{{ eid }}" style="display:none;margin-top:6px;">
+          <table style="width:100%;font-size:0.78rem;border-collapse:collapse;">
+            <thead>
+              <tr style="color:var(--text-dim);border-bottom:1px solid var(--border);">
+                <th style="text-align:left;padding:3px 4px;">Descrição</th>
+                <th style="text-align:left;padding:3px 4px;">Cartão</th>
+                <th style="text-align:right;padding:3px 4px;">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for e in item.entries %}
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:4px;">{{ e.description }}</td>
+              <td style="padding:4px;">
+                {% if e.card %}
+                <span style="display:inline-flex;align-items:center;gap:4px;">
+                  <span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>
+                  {{ e.card.name }}
+                </span>
+                {% else %}<span class="text-faint">—</span>{% endif %}
+              </td>
+              <td style="text-align:right;padding:4px;color:var(--red);" class="mono">{{ e.amount|brl }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -286,4 +325,13 @@ function toggleMemberEntries(btn) {
 })();
 </script>
 
+<script>
+function toggleEntries(id) {
+  var el = document.getElementById('entries-' + id);
+  var ic = document.getElementById('ic-' + id);
+  var open = el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  ic.textContent = open ? '▼' : '▶';
+}
+</script>
 {% endblock %}
