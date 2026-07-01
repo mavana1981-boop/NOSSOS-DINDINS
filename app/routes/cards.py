@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import Card, CardEntry, Expense, ExpenseShare
@@ -1050,7 +1050,6 @@ def _process_batch(card):
         payload = json.dumps({"contents": [{"parts": parts}]}).encode()
 
         # Cache dinâmico: tenta o último modelo que funcionou primeiro
-        from flask import current_app
         # Tenta v1 e v1beta para cada modelo
         CANDIDATES = [
             ("v1",    "gemini-2.0-flash-001"),
