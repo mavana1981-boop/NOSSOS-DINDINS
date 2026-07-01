@@ -326,219 +326,95 @@ def _backfill_planned_installments():
 
 
 def _add_current_installments():
-    """Adiciona ao planned_installments os lançamentos ATUAIS.
-    Roda apenas uma vez — se já há dados, sai imediatamente para não
-    recriar itens que o usuário excluiu manualmente."""
+    pass
+
+
+def _sync_missing_planned_installments():
+    """Sincroniza CardEntries parcelados que não têm planned_installments.
+    Roda sempre — sem guard de count — para pegar entradas manuais novas."""
     with app.app_context():
         try:
             from app.models import CardEntry as _CE, PlannedInstallment as _PI
-
-            # Sair se já há planejados — evitar recriar exclusões manuais
-            if _PI.query.count() > 0:
-                print("[add_current] Planejados já existem — pulando.")
-                return
-            # Carregar exclusões permanentes
             from app.models import PlannedInstallmentDeletion as _PID
-            _deleted = set(
-                (d.user_id, d.card_id, d.description, d.billing_month)
+            import re as _re_s
+
+            def _norm_s(s):
+                s = (s or "").upper().strip()
+                s = _re_s.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+                s = _re_s.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_s.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+                return s[:30].strip()
+
+            parcs = _CE.query.filter(
+                _CE.installments > 1,
+                _CE.installment_no != None,
+                _CE.billing_month != None,
+                _CE.status == "ativo",
+            ).all()
+
+            # Chave dos planned já existentes
+            _existing_keys = set(
+                (p.card_id, p.description, p.installment_no)
+                for p in _PI.query.all()
+            )
+            _deleted_bm = set(
+                (d.card_id, d.description, d.billing_month)
                 for d in _PID.query.all()
             )
 
-            # Buscar todos os parcelados ativos com billing_month definido
-            parcs = _CE.query.filter(
-                _CE.installments > 1,
-                _CE.installment_no != None,
-                _CE.billing_month != None,
-                _CE.status != "excluido",
-            ).all()
-
             count = 0
             for e in parcs:
-                # Pular se esta série foi excluída para este billing_month
-                if (e.user_id, e.card_id, e.description, e.billing_month) in _deleted:
-                    continue
-                exists = _PI.query.filter_by(
-                    user_id=e.user_id,
-                    card_id=e.card_id,
-                    description=e.description,
-                    installment_no=e.installment_no,
-                ).first()
-                if exists:
-                    continue
-                pi = _PI(
-                    user_id=e.user_id,
-                    card_id=e.card_id,
-                    description=e.description,
-                    amount=e.amount,
-                    installment_no=e.installment_no,
-                    installments=e.installments,
-                    billing_month=e.billing_month,
-                    expense_id=e.expense_id,
-                    origin_entry_id=e.id,
-                )
-                db.session.add(pi)
-                count += 1
-
-            db.session.commit()
-            print(f"[add_current] {count} parcela(s) atual(is) adicionada(s).")
-        except Exception as _ex:
-            db.session.rollback()
-            print(f"[add_current] Erro: {_ex}")
-
-
-    """Popula planned_installments a partir dos CardEntries parcelados já existentes."""
-    with app.app_context():
-        try:
-            from app.models import CardEntry as _CE, PlannedInstallment as _PI
-
-            # Verificar se já tem dados (evitar reprocessar)
-            if _PI.query.count() > 0:
-                print(f"[backfill_planned] {_PI.query.count()} item(s) já existem — pulando.")
-                return
-
-            # Buscar todos os parcelados ativos com billing_month definido
-            parcs = _CE.query.filter(
-                _CE.installments > 1,
-                _CE.installment_no != None,
-                _CE.billing_month != None,
-                _CE.status != "excluido",
-            ).all()
-
-            # Para cada série (card + desc_norm), pegar a parcela mais recente
-            import re as _re_bf
-            def _norm_bf(s):
-                s = (s or "").upper().strip()
-                s = _re_bf.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
-                s = _re_bf.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
-                s = _re_bf.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
-                return s[:30].strip()
-
-            latest = {}
-            for e in parcs:
-                k = (e.card_id, _norm_bf(e.description))
-                prev = latest.get(k)
-                if prev is None or e.installment_no > prev.installment_no:
-                    latest[k] = e
-
-            count = 0
-            for (cid, dnorm), entry in latest.items():
                 try:
-                    byr = int(entry.billing_month[:4])
-                    bmo = int(entry.billing_month[5:7])
+                    _byr = int(e.billing_month[:4])
+                    _bmo = int(e.billing_month[5:7])
                 except Exception:
                     continue
 
-                for i in range(entry.installment_no + 1, entry.installments + 1):
-                    steps = i - entry.installment_no
-                    pmo = bmo + steps - 1
-                    pyr = byr + pmo // 12
-                    pmo = (pmo % 12) + 1
-                    proj_bm = f"{pyr}-{pmo:02d}"
+                # Parcela atual
+                if (e.card_id, e.description, e.installment_no) not in _existing_keys:
+                    if (e.card_id, e.description, e.billing_month) not in _deleted_bm:
+                        db.session.add(_PI(
+                            user_id=e.user_id, card_id=e.card_id,
+                            description=e.description, amount=e.amount,
+                            installment_no=e.installment_no, installments=e.installments,
+                            billing_month=e.billing_month, expense_id=e.expense_id,
+                            origin_entry_id=e.id,
+                        ))
+                        _existing_keys.add((e.card_id, e.description, e.installment_no))
+                        count += 1
 
-                    # Não duplicar
-                    exists = _PI.query.filter_by(
-                        user_id=entry.user_id,
-                        card_id=entry.card_id,
-                        description=entry.description,
-                        installment_no=i,
-                    ).first()
-                    if exists:
+                # Parcelas futuras
+                for _i in range(e.installment_no + 1, e.installments + 1):
+                    if (e.card_id, e.description, _i) in _existing_keys:
                         continue
-
-                    pi = _PI(
-                        user_id=entry.user_id,
-                        card_id=entry.card_id,
-                        description=entry.description,
-                        amount=entry.amount,
-                        installment_no=i,
-                        installments=entry.installments,
-                        billing_month=proj_bm,
-                        expense_id=entry.expense_id,
-                        origin_entry_id=entry.id,
-                    )
-                    db.session.add(pi)
+                    _steps = _i - e.installment_no
+                    _pmo = _bmo + _steps - 1
+                    _pyr = _byr + _pmo // 12
+                    _pmo = (_pmo % 12) + 1
+                    _proj_bm = f"{_pyr}-{_pmo:02d}"
+                    if (e.card_id, e.description, _proj_bm) in _deleted_bm:
+                        continue
+                    db.session.add(_PI(
+                        user_id=e.user_id, card_id=e.card_id,
+                        description=e.description, amount=e.amount,
+                        installment_no=_i, installments=e.installments,
+                        billing_month=_proj_bm, expense_id=e.expense_id,
+                        origin_entry_id=e.id,
+                    ))
+                    _existing_keys.add((e.card_id, e.description, _i))
                     count += 1
 
             db.session.commit()
-            print(f"[backfill_planned] {count} parcela(s) planejada(s) criada(s).")
-        except Exception as _ex:
-            db.session.rollback()
-            print(f"[backfill_planned] Erro: {_ex}")
-
-
-    """Remove entradas duplicadas cross-month: mesmo cartão, mesma desc, mesmo valor.
-    Mantém a do billing_month mais recente."""
-    import re as _re_fix
-    def _norm_fix(s):
-        s = (s or "").upper().strip()
-        s = _re_fix.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
-        s = _re_fix.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
-        s = _re_fix.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
-        return s[:30].strip()
-
-    with app.app_context():
-        try:
-            from app.models import CardEntry as _CE
-            # Buscar TODOS os entries ativos (independente de installments)
-            todos = _CE.query.filter(
-                _CE.status != "excluido",
-                _CE.billing_month != None,
-            ).all()
-
-            # Agrupar por (card_id, desc_norm, amount, installment_no)
-            # installment_no=None → tratado como 0
-            grupos = {}
-            for e in todos:
-                k = (
-                    e.card_id,
-                    _norm_fix(e.description),
-                    str(round(float(e.amount or 0), 2)),
-                    e.installment_no or 0,
-                )
-                if k not in grupos:
-                    grupos[k] = []
-                grupos[k].append(e)
-
-            removidos = 0
-            detalhes = []
-            for k, entries in grupos.items():
-                if len(entries) <= 1:
-                    continue
-                # Mais de 1 entry com mesma (cartão, desc, valor, parcela) → duplicata
-                entries_sorted = sorted(
-                    entries,
-                    key=lambda e: (e.billing_month or "0000-00"),
-                    reverse=True  # mais recente primeiro
-                )
-                manter = entries_sorted[0]
-                for e in entries_sorted[1:]:
-                    detalhes.append(
-                        f"  del id={e.id} '{e.description}' "
-                        f"R${e.amount} bm={e.billing_month} "
-                        f"(mantém id={manter.id} bm={manter.billing_month})"
-                    )
-                    db.session.delete(e)
-                    removidos += 1
-
-            if removidos:
-                db.session.commit()
-                print(f"[fix_parcelados] {removidos} duplicata(s) removida(s):")
-                for d in detalhes:
-                    print(d)
+            if count:
+                print(f"[sync_planned] {count} planned_installment(s) criado(s) para entries sem projeção.")
             else:
-                # Log das chaves com 2+ entries para diagnóstico
-                multi = [(k, v) for k, v in grupos.items() if len(v) >= 2]
-                if not multi:
-                    print("[fix_parcelados] Nenhuma duplicata cross-month encontrada.")
-                else:
-                    print(f"[fix_parcelados] {len(multi)} grupos com 2+ entries (não removidos por segurança):")
-                    for k, v in multi[:5]:
-                        bms = [e.billing_month for e in v]
-                        print(f"  {k} → billing_months={bms}")
+                print("[sync_planned] Nenhuma entrada faltando.")
         except Exception as _ex:
             db.session.rollback()
-            print(f"[fix_parcelados] Erro: {_ex}")
+            print(f"[sync_planned] Erro: {_ex}")
 
+
+_sync_missing_planned_installments()
 
 bootstrap()
 _fix_parcelados_duplicados()
