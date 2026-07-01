@@ -173,7 +173,7 @@ def index():
         entries_card = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == mes_filter,
-            CardEntry.status != "excluido",
+            CardEntry.status == "ativo",   # igual ao detalhe do cartão
         ).order_by(CardEntry.entry_date.desc()).all()
 
         spent_this_month = sum(float(e.amount) for e in entries_card)
