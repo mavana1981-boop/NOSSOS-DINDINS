@@ -1050,7 +1050,7 @@ def _process_batch(card):
         payload = json.dumps({"contents": [{"parts": parts}]}).encode()
 
         # Cache dinâmico: tenta o último modelo que funcionou primeiro
-        from flask import current_app as _app
+        from flask import current_app
         # Tenta v1 e v1beta para cada modelo
         CANDIDATES = [
             ("v1",    "gemini-2.0-flash-001"),
