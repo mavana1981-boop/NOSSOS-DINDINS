@@ -168,47 +168,13 @@ def index():
         if not visible:
             continue
 
-        # 1. Buscar por expense_id no mês
+        # Apenas entries explicitamente vinculados a este gasto via expense_id
+        # Garante que os lançamentos batem exatamente com o que aparece no detalhe do cartão
         entries_card = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == mes_filter,
             CardEntry.status != "excluido",
-        ).all()
-
-        # 2. Buscar por expense_id SEM filtro de mês (billing_month pode ser NULL)
-        if not entries_card:
-            entries_card = CardEntry.query.filter(
-                CardEntry.expense_id == exp.id,
-                CardEntry.status != "excluido",
-                CardEntry.entry_date >= date(filter_year, filter_month, 1),
-            ).all()
-
-        # 3. Buscar por categoria no mês
-        if not entries_card and exp.category and exp.category not in ("Outros", "A classificar"):
-            entries_card = CardEntry.query.filter(
-                CardEntry.category == exp.category,
-                CardEntry.billing_month == mes_filter,
-                CardEntry.status != "excluido",
-                CardEntry.user_id == current_user.id,
-            ).all()
-
-        # 4. Fallback por palavra-chave da descrição no mês
-        if not entries_card:
-            _kw = exp.description.split()[0].upper()
-            entries_card = CardEntry.query.filter(
-                CardEntry.billing_month == mes_filter,
-                CardEntry.status != "excluido",
-                CardEntry.user_id == current_user.id,
-                CardEntry.description.ilike(f"%{_kw}%"),
-            ).all()
-
-        # 5. Fallback amplo: qualquer entry do mês do cartão vinculado ao expense
-        if not entries_card and exp.card_id:
-            entries_card = CardEntry.query.filter(
-                CardEntry.card_id == exp.card_id,
-                CardEntry.billing_month == mes_filter,
-                CardEntry.status != "excluido",
-            ).all()
+        ).order_by(CardEntry.entry_date.desc()).all()
 
         spent_this_month = sum(float(e.amount) for e in entries_card)
 
