@@ -1713,6 +1713,30 @@ def batch_delete_entry(card_id, batch_id, entry_id):
                             card_id=card_id, batch_id=batch_id))
 
 
+@cards_bp.route("/duplicados/apagar-planejados", methods=["POST"])
+@login_required
+def apagar_planejados_duplicados():
+    """Apaga planned_installments duplicados mantendo o de menor id."""
+    from app.models import PlannedInstallment as _PI
+    ids_str = request.form.get("ids", "")
+    manter_id = request.form.get("manter_id", "").strip()
+    ids = [i.strip() for i in ids_str.split(",") if i.strip()]
+    count = 0
+    for id_str in ids:
+        if id_str == manter_id:
+            continue
+        try:
+            p = _PI.query.get(int(id_str))
+            if p and p.user_id == current_user.id:
+                db.session.delete(p)
+                count += 1
+        except Exception:
+            continue
+    db.session.commit()
+    flash(f"{count} planejado(s) duplicado(s) removido(s).", "success")
+    return redirect(url_for("cards.duplicados"))
+
+
 @cards_bp.route("/<int:card_id>/fechar-mes", methods=["POST"])
 @login_required
 def fechar_mes(card_id):
@@ -1857,10 +1881,32 @@ def duplicados():
             })
     dup_pontuais.sort(key=lambda x: x["count"], reverse=True)
 
-    total_dup = len(dup_parcelados) + len(dup_pontuais)
+    # Duplicatas no menu Parcelados (planned_installments)
+    from app.models import PlannedInstallment as _PI
+    planned = _PI.query.filter_by(user_id=current_user.id).order_by(_PI.id).all()
+
+    # Duplicata: mesmo (card_id, description, installment_no)
+    plan_grupos = defaultdict(list)
+    for p in planned:
+        k = (p.card_id, (p.description or "").upper().strip(), p.installment_no or 0)
+        plan_grupos[k].append(p)
+
+    dup_planejados = []
+    for k, itens in plan_grupos.items():
+        if len(itens) > 1:
+            dup_planejados.append({
+                "desc": k[1],
+                "installment_no": k[2],
+                "entries": sorted(itens, key=lambda p: p.id),
+                "count": len(itens),
+            })
+    dup_planejados.sort(key=lambda x: x["count"], reverse=True)
+
+    total_dup = len(dup_parcelados) + len(dup_pontuais) + len(dup_planejados)
     return render_template("cards/duplicados.html",
                            dup_parcelados=dup_parcelados,
                            dup_pontuais=dup_pontuais,
+                           dup_planejados=dup_planejados,
                            total_dup=total_dup)
 
 
