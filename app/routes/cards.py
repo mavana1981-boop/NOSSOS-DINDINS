@@ -1786,3 +1786,92 @@ def historico_mes(card_id, mes):
     return render_template("cards/historico_mes.html",
                            card=card, hist=hist,
                            entries=entries, mes=mes)
+
+
+@cards_bp.route("/duplicados")
+@login_required
+def duplicados():
+    """Lista lançamentos agrupados por descrição para exclusão em massa."""
+    import re as _re_dup
+
+    def _norm(s):
+        s = (s or "").upper().strip()
+        s = _re_dup.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+        s = _re_dup.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+        s = _re_dup.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+        return s[:40].strip()
+
+    entries = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.status == "ativo",
+    ).order_by(CardEntry.description, CardEntry.id).all()
+
+    # Agrupar por descrição normalizada
+    from collections import defaultdict
+    grupos = defaultdict(list)
+    for e in entries:
+        grupos[_norm(e.description)].append(e)
+
+    # Só mostrar grupos com 2+ entries
+    duplicatas = [
+        {
+            "desc_norm": k,
+            "entries": v,
+            "count": len(v),
+            "total": sum(float(e.amount) for e in v),
+        }
+        for k, v in grupos.items() if len(v) > 1
+    ]
+    duplicatas.sort(key=lambda x: x["count"], reverse=True)
+
+    # Todos os grupos (para filtro por descrição)
+    todos = [
+        {
+            "desc_norm": k,
+            "entries": v,
+            "count": len(v),
+            "total": sum(float(e.amount) for e in v),
+        }
+        for k, v in grupos.items()
+    ]
+    todos.sort(key=lambda x: x["desc_norm"])
+
+    return render_template("cards/duplicados.html",
+                           duplicatas=duplicatas,
+                           todos=todos)
+
+
+@cards_bp.route("/duplicados/apagar", methods=["POST"])
+@login_required
+def apagar_por_descricao():
+    """Apaga todos os lançamentos com determinada descrição normalizada."""
+    import re as _re_ap
+    desc_norm = request.form.get("desc_norm", "").strip().upper()
+    manter_id = request.form.get("manter_id", "").strip()
+    if not desc_norm:
+        flash("Descrição não informada.", "danger")
+        return redirect(url_for("cards.duplicados"))
+
+    def _norm_ap(s):
+        s = (s or "").upper().strip()
+        s = _re_ap.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+        s = _re_ap.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+        s = _re_ap.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+        return s[:40].strip()
+
+    entries = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.status == "ativo",
+    ).all()
+
+    count = 0
+    for e in entries:
+        if _norm_ap(e.description) == desc_norm:
+            if manter_id and str(e.id) == manter_id:
+                continue  # mantém o selecionado
+            e.status = "excluido"
+            count += 1
+
+    db.session.commit()
+    flash(f"{count} lançamento(s) marcados como excluídos.", "success")
+    return redirect(url_for("cards.duplicados"))
