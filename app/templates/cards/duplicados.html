@@ -1,116 +1,123 @@
 {% extends "base.html" %}
-{% block title %}Gerenciar Duplicatas{% endblock %}
+{% block title %}Duplicatas{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
-    <h1>🗑 Gerenciar Lançamentos</h1>
-    <p>Selecione uma descrição e apague todos os lançamentos ou mantenha apenas um.</p>
+    <h1>🗑 Duplicatas</h1>
+    <p>Parcelados: mesmo número de parcela, valor e descrição. Avulsos: mesma data e valor.</p>
   </div>
   <a href="{{ url_for('cards.list_cards') }}" class="btn btn-ghost">← Cartões</a>
 </div>
 
-{% if duplicatas %}
+{% if total_dup == 0 %}
+<div class="card text-center" style="padding:40px;border-left:4px solid var(--green);">
+  ✅ Nenhuma duplicata encontrada.
+</div>
+{% else %}
 <div class="card mb-3" style="border-left:4px solid var(--red);">
-  <strong style="color:var(--red);">⚠️ {{ duplicatas|length }} descrição(ões) com duplicatas detectadas</strong>
-  <div class="text-small text-dim mt-1">Duplicatas são lançamentos com a mesma descrição (ignorando número da parcela).</div>
+  <strong style="color:var(--red);">⚠️ {{ total_dup }} grupo(s) com duplicatas</strong>
 </div>
 {% endif %}
 
-<!-- Filtro por descrição -->
-<div class="card mb-3">
-  <div class="form-group mb-2">
-    <label class="form-label">Buscar por descrição</label>
-    <input type="text" id="search-desc" class="form-control" placeholder="Digite para filtrar..."
-           oninput="filtrarGrupos(this.value)" style="max-width:400px;">
-  </div>
-</div>
-
-<!-- Lista de grupos -->
-<div id="grupos-container">
-{% for g in todos %}
-<div class="card mb-2 grupo-item" data-desc="{{ g.desc_norm }}">
+{% if dup_parcelados %}
+<h3 style="margin:16px 0 8px;">📋 Parcelados duplicados ({{ dup_parcelados|length }})</h3>
+{% for g in dup_parcelados %}
+<div class="card mb-2">
   <div class="flex-between mb-2">
-    <div>
-      <strong>{{ g.desc_norm }}</strong>
-      <span class="badge" style="margin-left:6px;background:{% if g.count > 1 %}var(--red){% else %}var(--surface2){% endif %};color:white;font-size:0.7rem;padding:2px 6px;border-radius:4px;">
-        {{ g.count }} lançamento(s)
-      </span>
-    </div>
-    <span class="mono text-small" style="color:var(--red);">{{ g.total|brl }}</span>
+    <strong style="color:var(--red);">{{ g.label }}</strong>
+    <span class="badge" style="background:var(--red);color:white;font-size:0.7rem;padding:2px 8px;border-radius:4px;">
+      {{ g.count }}x duplicado
+    </span>
   </div>
-
-  <!-- Sub-lista dos entries -->
-  <table class="tbl" style="font-size:0.8rem;margin-bottom:8px;">
+  <table class="tbl" style="font-size:0.8rem;margin-bottom:10px;">
     <thead><tr>
-      <th>Data</th><th>Descrição exata</th><th>Parcela</th>
-      <th>Cartão</th><th class="text-right">Valor</th>
+      <th>ID</th><th>Data</th><th>Descrição</th><th>Parcela</th>
+      <th>Cartão</th><th>Billing</th><th class="text-right">Valor</th>
     </tr></thead>
     <tbody>
     {% for e in g.entries %}
     <tr>
+      <td class="text-faint">#{{ e.id }}</td>
       <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
       <td>{{ e.description }}</td>
-      <td style="text-align:center;">
-        {% if e.installments and e.installments > 1 %}{{ e.installment_no }}/{{ e.installments }}{% else %}—{% endif %}
-      </td>
-      <td>
-        {% if e.card %}
-        <span style="display:inline-flex;align-items:center;gap:4px;">
-          <span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>
-          {{ e.card.name }}
-        </span>
-        {% else %}—{% endif %}
-      </td>
+      <td style="text-align:center;">{{ e.installment_no }}/{{ e.installments }}</td>
+      <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
+      <td class="text-faint">{{ e.billing_month or '—' }}</td>
       <td class="text-right mono">{{ e.amount|brl }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
-
-  <!-- Ações -->
-  <div class="flex flex-gap" style="gap:8px;flex-wrap:wrap;">
-    <!-- Apagar todos -->
-    <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}"
-          onsubmit="return confirm('Apagar TODOS os {{ g.count }} lançamentos de \'{{ g.desc_norm }}\'?');">
-      <input type="hidden" name="desc_norm" value="{{ g.desc_norm }}">
-      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;">
-        🗑 Apagar todos ({{ g.count }})
-      </button>
-    </form>
-
-    <!-- Manter apenas um (aparece se > 1) -->
-    {% if g.count > 1 %}
-    <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}"
-          onsubmit="return confirm('Manter só o selecionado e apagar os outros {{ g.count - 1 }}?');">
-      <input type="hidden" name="desc_norm" value="{{ g.desc_norm }}">
-      <span class="text-small text-dim" style="line-height:2.5;">Manter:</span>
-      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;padding:4px 8px;">
+  <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}">
+    <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
+    <div class="flex flex-gap" style="gap:8px;align-items:center;flex-wrap:wrap;">
+      <span class="text-small text-dim">Manter:</span>
+      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;">
         {% for e in g.entries %}
-        <option value="{{ e.id }}">
-          {{ e.entry_date.strftime('%d/%m') if e.entry_date else '?' }} —
-          {{ e.amount|brl }}
-          {% if e.installments and e.installments > 1 %}({{ e.installment_no }}/{{ e.installments }}){% endif %}
-        </option>
+        <option value="{{ e.id }}">#{{ e.id }} — {{ e.billing_month or e.entry_date.strftime('%d/%m') }}</option>
         {% endfor %}
       </select>
-      <button class="btn btn-ghost btn-sm" style="border-color:var(--red);color:var(--red);">
-        Apagar restantes
+      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;"
+              onclick="return confirm('Apagar {{ g.count - 1 }} duplicata(s)?');">
+        🗑 Apagar duplicatas
       </button>
-    </form>
-    {% endif %}
-  </div>
+      <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}" style="margin:0;"
+            onsubmit="return confirm('Apagar TODOS os {{ g.count }} lançamentos?');">
+        <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
+        <button class="btn btn-ghost btn-sm" style="color:var(--red);">Apagar todos</button>
+      </form>
+    </div>
+  </form>
 </div>
 {% endfor %}
-</div>
+{% endif %}
 
-<script>
-function filtrarGrupos(q) {
-  q = q.toUpperCase().trim();
-  document.querySelectorAll('.grupo-item').forEach(function(el) {
-    var desc = el.getAttribute('data-desc') || '';
-    el.style.display = (!q || desc.includes(q)) ? '' : 'none';
-  });
-}
-</script>
+{% if dup_pontuais %}
+<h3 style="margin:16px 0 8px;">💳 Avulsos duplicados — mesma data e valor ({{ dup_pontuais|length }})</h3>
+{% for g in dup_pontuais %}
+<div class="card mb-2">
+  <div class="flex-between mb-2">
+    <strong>{{ g.label }}</strong>
+    <span class="badge" style="background:var(--gold);color:black;font-size:0.7rem;padding:2px 8px;border-radius:4px;">
+      {{ g.count }}x
+    </span>
+  </div>
+  <table class="tbl" style="font-size:0.8rem;margin-bottom:10px;">
+    <thead><tr>
+      <th>ID</th><th>Data</th><th>Descrição</th>
+      <th>Cartão</th><th>Billing</th><th class="text-right">Valor</th>
+    </tr></thead>
+    <tbody>
+    {% for e in g.entries %}
+    <tr>
+      <td class="text-faint">#{{ e.id }}</td>
+      <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
+      <td>{{ e.description }}</td>
+      <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
+      <td class="text-faint">{{ e.billing_month or '—' }}</td>
+      <td class="text-right mono">{{ e.amount|brl }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}">
+    <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
+    <div class="flex flex-gap" style="gap:8px;align-items:center;flex-wrap:wrap;">
+      <span class="text-small text-dim">Manter:</span>
+      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;">
+        {% for e in g.entries %}
+        <option value="{{ e.id }}">#{{ e.id }} — {{ e.description[:30] }} ({{ e.billing_month or '?' }})</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;"
+              onclick="return confirm('Apagar {{ g.count - 1 }} duplicata(s)?');">
+        🗑 Apagar duplicatas
+      </button>
+    </div>
+  </form>
+</div>
+{% endfor %}
+{% endif %}
+
 {% endblock %}
