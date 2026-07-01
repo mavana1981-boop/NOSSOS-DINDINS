@@ -567,6 +567,18 @@ def reverter_mes():
         return redirect(url_for("cards.list_cards"))
 
     count = 0
+    skipped = 0
+
+    # Pré-carregar entries existentes para não duplicar no restore
+    _existing_restore = set()
+    for _e in CardEntry.query.filter(CardEntry.status != "excluido").all():
+        _existing_restore.add((
+            _e.card_id,
+            (_e.description or "")[:60].upper().strip(),
+            str(round(float(_e.amount or 0), 2)),
+            _e.installment_no or 0,
+        ))
+
     for nome, dados in snap.items():
         for entry_data in dados.get("entries", []):
             try:
@@ -584,11 +596,25 @@ def reverter_mes():
                     inst_no    = int(parts[0]) if parts[0].isdigit() else 1
                     inst_total = int(parts[1]) if parts[1].isdigit() else 1
 
+                desc = entry_data.get("desc", nome)[:160]
+                amount = entry_data.get("amount", 0)
+
+                # Verificar duplicata antes de inserir
+                _rk = (
+                    default_card_id,
+                    desc[:60].upper().strip(),
+                    str(round(float(amount), 2)),
+                    inst_no,
+                )
+                if _rk in _existing_restore:
+                    skipped += 1
+                    continue
+
                 entry = CardEntry(
                     card_id=default_card_id,
                     user_id=current_user.id,
-                    description=entry_data.get("desc", nome)[:160],
-                    amount=entry_data.get("amount", 0),
+                    description=desc,
+                    amount=amount,
                     entry_date=d,
                     kind="parcelado" if inst_total > 1 else "pontual",
                     installments=inst_total,
@@ -597,9 +623,13 @@ def reverter_mes():
                     status="ativo",
                 )
                 db.session.add(entry)
+                _existing_restore.add(_rk)
                 count += 1
             except Exception:
                 continue
+
+    if skipped:
+        flash(f"{skipped} lançamento(s) ignorados por já existirem.", "info")
 
     # Remove o histórico restaurado
     db.session.delete(hist)
@@ -849,7 +879,58 @@ def _save_entry(entry, card):
     if entry.expense_id:
         _check_excedente(entry.expense_id)
 
-    # Projeta parcelas futuras como eventuais
+    # Se parcelado, criar/atualizar planned_installments
+    if entry.installments and entry.installments > 1 and entry.installment_no and entry.billing_month:
+        from app.models import PlannedInstallment, PlannedInstallmentDeletion
+        try:
+            _byr = int(entry.billing_month[:4])
+            _bmo = int(entry.billing_month[5:7])
+        except Exception:
+            _byr, _bmo = None, None
+        if _byr:
+            # Parcela atual
+            _ex_cur = PlannedInstallment.query.filter_by(
+                user_id=entry.user_id, card_id=entry.card_id,
+                description=entry.description, installment_no=entry.installment_no,
+            ).first()
+            _del_cur = PlannedInstallmentDeletion.query.filter_by(
+                user_id=entry.user_id, card_id=entry.card_id,
+                description=entry.description, billing_month=entry.billing_month,
+            ).first()
+            if not _ex_cur and not _del_cur:
+                db.session.add(PlannedInstallment(
+                    user_id=entry.user_id, card_id=entry.card_id,
+                    description=entry.description, amount=entry.amount,
+                    installment_no=entry.installment_no, installments=entry.installments,
+                    billing_month=entry.billing_month, expense_id=entry.expense_id,
+                    origin_entry_id=entry.id,
+                ))
+            # Parcelas futuras
+            for _i in range(entry.installment_no + 1, entry.installments + 1):
+                _steps = _i - entry.installment_no
+                _pmo = _bmo + _steps - 1
+                _pyr = _byr + _pmo // 12
+                _pmo = (_pmo % 12) + 1
+                _proj_bm = f"{_pyr}-{_pmo:02d}"
+                _del_fut = PlannedInstallmentDeletion.query.filter_by(
+                    user_id=entry.user_id, card_id=entry.card_id,
+                    description=entry.description, billing_month=_proj_bm,
+                ).first()
+                if _del_fut:
+                    continue
+                _ex_fut = PlannedInstallment.query.filter_by(
+                    user_id=entry.user_id, card_id=entry.card_id,
+                    description=entry.description, installment_no=_i,
+                ).first()
+                if not _ex_fut:
+                    db.session.add(PlannedInstallment(
+                        user_id=entry.user_id, card_id=entry.card_id,
+                        description=entry.description, amount=entry.amount,
+                        installment_no=_i, installments=entry.installments,
+                        billing_month=_proj_bm, expense_id=entry.expense_id,
+                        origin_entry_id=entry.id,
+                    ))
+            db.session.commit()
 
     flash("Lançamento salvo.", "success")
     mes_back = entry.billing_month or date.today().strftime("%Y-%m")
