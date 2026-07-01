@@ -569,9 +569,9 @@ def reverter_mes():
     count = 0
     skipped = 0
 
-    # Pré-carregar entries existentes para não duplicar no restore
+    # Pré-carregar entries existentes E excluídos para não duplicar/restaurar deletados
     _existing_restore = set()
-    for _e in CardEntry.query.filter(CardEntry.status != "excluido").all():
+    for _e in CardEntry.query.all():  # inclui excluidos
         _existing_restore.add((
             _e.card_id,
             (_e.description or "")[:60].upper().strip(),
@@ -945,7 +945,8 @@ def delete_entry(card_id, entry_id):
     if card.user_id != current_user.id:
         abort(403)
     expense_id = entry.expense_id
-    db.session.delete(entry)
+    # Soft delete: marca como excluido para não reaparecer em restores
+    entry.status = "excluido"
     db.session.commit()
     # Recalcula excedente após exclusão
     if expense_id:
