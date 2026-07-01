@@ -27,6 +27,9 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
       Gastos
     </a>
+    <a href="{{ url_for('cards.duplicados') }}" class="nav-link {% if request.endpoint == 'cards.duplicados' %}active{% endif %}">
+      🗑 Duplicatas
+    </a>
     <a href="{{ url_for('cards.list_cards') }}" class="nav-link {% if 'cards' in request.endpoint %}active{% endif %}">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
       <span class="nav-label">Cartões</span>
