@@ -1791,8 +1791,12 @@ def historico_mes(card_id, mes):
 @cards_bp.route("/duplicados")
 @login_required
 def duplicados():
-    """Lista lançamentos agrupados por descrição para exclusão em massa."""
+    """Detecta:
+    - Parcelados duplicados: mesma desc_norm + installment_no + installments + amount
+    - Pontuais duplicados: mesma entry_date + amount
+    """
     import re as _re_dup
+    from collections import defaultdict
 
     def _norm(s):
         s = (s or "").upper().strip()
@@ -1804,74 +1808,83 @@ def duplicados():
     entries = CardEntry.query.filter(
         CardEntry.user_id == current_user.id,
         CardEntry.status == "ativo",
-    ).order_by(CardEntry.description, CardEntry.id).all()
+    ).order_by(CardEntry.id).all()
 
-    # Agrupar por descrição normalizada
-    from collections import defaultdict
-    grupos = defaultdict(list)
+    # Parcelados: agrupar por (desc_norm, installment_no, installments, amount)
+    parc_grupos = defaultdict(list)
+    pont_grupos = defaultdict(list)
+
     for e in entries:
-        grupos[_norm(e.description)].append(e)
+        if e.installments and e.installments > 1:
+            k = (
+                _norm(e.description),
+                e.installment_no or 0,
+                e.installments or 0,
+                str(round(float(e.amount or 0), 2)),
+            )
+            parc_grupos[k].append(e)
+        else:
+            # Pontuais: duplicata = mesma data + mesmo valor
+            k = (
+                str(e.entry_date or ""),
+                str(round(float(e.amount or 0), 2)),
+            )
+            pont_grupos[k].append(e)
 
-    # Só mostrar grupos com 2+ entries
-    duplicatas = [
-        {
-            "desc_norm": k,
-            "entries": v,
-            "count": len(v),
-            "total": sum(float(e.amount) for e in v),
-        }
-        for k, v in grupos.items() if len(v) > 1
-    ]
-    duplicatas.sort(key=lambda x: x["count"], reverse=True)
+    # Parcelados duplicados
+    dup_parcelados = []
+    for k, itens in parc_grupos.items():
+        if len(itens) > 1:
+            dup_parcelados.append({
+                "tipo": "parcelado",
+                "label": f"{k[0]} {k[1]}/{k[2]} — R$ {float(k[3]):.2f}",
+                "chave": f"parc|{k[0]}|{k[1]}|{k[2]}|{k[3]}",
+                "entries": sorted(itens, key=lambda e: e.id),
+                "count": len(itens),
+            })
+    dup_parcelados.sort(key=lambda x: x["count"], reverse=True)
 
-    # Todos os grupos (para filtro por descrição)
-    todos = [
-        {
-            "desc_norm": k,
-            "entries": v,
-            "count": len(v),
-            "total": sum(float(e.amount) for e in v),
-        }
-        for k, v in grupos.items()
-    ]
-    todos.sort(key=lambda x: x["desc_norm"])
+    # Pontuais duplicados
+    dup_pontuais = []
+    for k, itens in pont_grupos.items():
+        if len(itens) > 1:
+            dup_pontuais.append({
+                "tipo": "pontual",
+                "label": f"{k[0]} — R$ {float(k[1]):.2f} ({len(itens)}x: {', '.join(e.description[:20] for e in itens[:3])})",
+                "chave": f"pont|{k[0]}|{k[1]}",
+                "entries": sorted(itens, key=lambda e: e.id),
+                "count": len(itens),
+            })
+    dup_pontuais.sort(key=lambda x: x["count"], reverse=True)
 
+    total_dup = len(dup_parcelados) + len(dup_pontuais)
     return render_template("cards/duplicados.html",
-                           duplicatas=duplicatas,
-                           todos=todos)
+                           dup_parcelados=dup_parcelados,
+                           dup_pontuais=dup_pontuais,
+                           total_dup=total_dup)
 
 
 @cards_bp.route("/duplicados/apagar", methods=["POST"])
 @login_required
 def apagar_por_descricao():
-    """Apaga todos os lançamentos com determinada descrição normalizada."""
-    import re as _re_ap
-    desc_norm = request.form.get("desc_norm", "").strip().upper()
+    """Apaga duplicatas pelo id_list enviado, mantendo o manter_id."""
+    ids_str = request.form.get("ids", "")
     manter_id = request.form.get("manter_id", "").strip()
-    if not desc_norm:
-        flash("Descrição não informada.", "danger")
+    ids = [i.strip() for i in ids_str.split(",") if i.strip()]
+    if not ids:
+        flash("Nenhum lançamento selecionado.", "warning")
         return redirect(url_for("cards.duplicados"))
-
-    def _norm_ap(s):
-        s = (s or "").upper().strip()
-        s = _re_ap.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
-        s = _re_ap.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
-        s = _re_ap.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
-        return s[:40].strip()
-
-    entries = CardEntry.query.filter(
-        CardEntry.user_id == current_user.id,
-        CardEntry.status == "ativo",
-    ).all()
-
     count = 0
-    for e in entries:
-        if _norm_ap(e.description) == desc_norm:
-            if manter_id and str(e.id) == manter_id:
-                continue  # mantém o selecionado
-            e.status = "excluido"
-            count += 1
-
+    for id_str in ids:
+        if id_str == manter_id:
+            continue
+        try:
+            e = CardEntry.query.get(int(id_str))
+            if e and e.user_id == current_user.id and e.status == "ativo":
+                e.status = "excluido"
+                count += 1
+        except Exception:
+            continue
     db.session.commit()
-    flash(f"{count} lançamento(s) marcados como excluídos.", "success")
+    flash(f"{count} duplicata(s) removida(s).", "success")
     return redirect(url_for("cards.duplicados"))
