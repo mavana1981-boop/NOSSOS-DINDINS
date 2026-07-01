@@ -216,7 +216,9 @@ def recalcular_excedentes():
 def list_cards():
     from datetime import date as _dt
     today = _dt.today()
-    mes_filter = request.args.get("mes", today.strftime("%Y-%m"))
+    from app.utils import get_open_billing_month as _gobm_list
+    _mes_param = request.args.get("mes", today.strftime("%Y-%m"))
+    mes_filter = _gobm_list(current_user.id, _mes_param)
     try:
         filter_year2  = int(mes_filter[:4])
         filter_month2 = int(mes_filter[5:7])
@@ -679,9 +681,11 @@ def detail_card(card_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
-    # Detalhe filtrado pelo billing_month do mês selecionado
+    # Detalhe filtrado pelo billing_month — usa primeiro mês aberto se não especificado
     from datetime import date as _dt_d
-    mes_filter_d = request.args.get("mes", _dt_d.today().strftime("%Y-%m"))
+    from app.utils import get_open_billing_month as _gobm_det
+    _mes_param_d = request.args.get("mes", _dt_d.today().strftime("%Y-%m"))
+    mes_filter_d = _gobm_det(current_user.id, _mes_param_d)
     entries = CardEntry.query.filter(
         CardEntry.card_id == card_id,
         CardEntry.status == "ativo",
@@ -1069,7 +1073,7 @@ def _process_batch(card):
             ("v1beta","gemini-pro"),
         ]
         # Cache dinâmico: tenta o último que funcionou primeiro
-        cached = getattr(_app, "_gemini_batch_model", None)
+        cached = getattr(current_app, "_gemini_batch_model", None)
         if cached:
             CANDIDATES = [c for c in CANDIDATES if c[1]==cached] +                          [c for c in CANDIDATES if c[1]!=cached]
 
@@ -1084,8 +1088,8 @@ def _process_batch(card):
                 raw = result["candidates"][0]["content"]["parts"][0]["text"]
                 parsed = _parse_json(raw)
                 try:
-                    _app._gemini_batch_model = model
-                    _app._gemini_last_used = f"{api_ver}/{model}"
+                    current_app._gemini_batch_model = model
+                    current_app._gemini_last_used = f"{api_ver}/{model}"
                 except Exception:
                     pass
                 return parsed, None
@@ -1298,7 +1302,7 @@ def _process_batch(card):
 
     # Aviso de qual IA processou
     if ia_usada == "Gemini":
-        modelo = getattr(_app, "_gemini_last_used", "Gemini")
+        modelo = getattr(current_app, "_gemini_last_used", "Gemini")
         flash(f"✅ Extrato processado via {modelo}", "success")
     elif ia_usada:
         flash(f"✅ Extrato processado via {ia_usada}", "success")
@@ -1311,9 +1315,6 @@ def _process_batch(card):
     count = 0
     skipped = 0
 
-    # Pré-carregar parcelados existentes no cartão para deduplicação cross-month
-    # Parcelado é único: mesma série (desc_norm + inst_no + amount) não pode existir
-    # em dois meses diferentes para o mesmo cartão.
     import re as _re_b
     def _norm_b(s):
         s = (s or "").upper().strip()
@@ -1322,15 +1323,28 @@ def _process_batch(card):
         s = _re_b.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
         return s[:30].strip()
 
+    # Dedup para parcelados: (desc_norm, installment_no) único por cartão
     _parc_existentes = CardEntry.query.filter(
         CardEntry.card_id == card.id,
         CardEntry.installments > 1,
         CardEntry.status != "excluido",
     ).all()
-    # Chave: (desc_norm, installment_no) — único para cada parcela do cartão
     _parc_set = set(
         (_norm_b(e.description), e.installment_no or 0)
         for e in _parc_existentes
+    )
+
+    # Dedup para pontuais: (desc[:40], amount, entry_date, billing_month) no mesmo mês
+    _pont_existentes = CardEntry.query.filter(
+        CardEntry.card_id == card.id,
+        CardEntry.billing_month == billing_month,
+        CardEntry.installments <= 1,
+        CardEntry.status != "excluido",
+    ).all()
+    _pont_set = set(
+        (e.description[:40].upper().strip(), str(round(float(e.amount), 2)),
+         str(e.entry_date))
+        for e in _pont_existentes
     )
 
     for t in transactions:
@@ -1355,7 +1369,16 @@ def _process_batch(card):
                 _ck = (_norm_b(desc), inst_no)
                 if _ck in _parc_set:
                     skipped += 1
-                    continue  # parcela já importada — pular
+                    continue
+
+            # Pontual: verificar se mesmo lançamento já existe no billing_month
+            if inst <= 1:
+                _pk = (desc[:40].upper().strip(),
+                       str(round(float(amount), 2)),
+                       str(d))
+                if _pk in _pont_set:
+                    skipped += 1
+                    continue
 
             entry = CardEntry(
                 card_id=card.id,
