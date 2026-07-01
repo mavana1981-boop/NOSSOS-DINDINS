@@ -201,12 +201,13 @@
                 style="background:none;border:none;color:var(--accent);font-size:0.75rem;
                        cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;">
           <span id="ic-{{ eid }}">▶</span>
-          {% if item.entries %}Ver {{ item.entries|length }} lançamento(s){% else %}Sem lançamentos vinculados{% endif %}
+          {% if item.entries %}▶ Ver {{ item.entries|length }} lançamento(s){% else %}⚠️ Nenhum lançamento vinculado — classifique via Regras{% endif %}
         </button>
         <div id="entries-{{ eid }}" style="display:none;margin-top:6px;">
           <table style="width:100%;font-size:0.78rem;border-collapse:collapse;">
             <thead>
               <tr style="color:var(--text-dim);border-bottom:1px solid var(--border);">
+                <th style="text-align:left;padding:3px 4px;">Data</th>
                 <th style="text-align:left;padding:3px 4px;">Descrição</th>
                 <th style="text-align:left;padding:3px 4px;">Cartão</th>
                 <th style="text-align:right;padding:3px 4px;">Valor</th>
@@ -215,6 +216,7 @@
             <tbody>
             {% for e in item.entries %}
             <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:4px;white-space:nowrap;color:var(--text-dim);">{{ e.entry_date.strftime('%d/%m') }}</td>
               <td style="padding:4px;">{{ e.description }}</td>
               <td style="padding:4px;">
                 {% if e.card %}
