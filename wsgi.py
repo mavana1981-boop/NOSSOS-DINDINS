@@ -419,27 +419,35 @@ _sync_missing_planned_installments()
 
 def _dedup_card_entries():
     """Remove CardEntries duplicados mantendo o de menor id.
-    Duplicata = mesma (card_id, description, amount, installment_no, billing_month)."""
+    Parcelados: mesma (card_id, desc_norm, installment_no) em qualquer billing_month.
+    Pontuais: mesma (card_id, description, amount, entry_date)."""
     with app.app_context():
         try:
             from app.models import CardEntry as _CE
-            from sqlalchemy import text as _text
+            import re as _re_dd
 
-            # Buscar todos os entries ativos
+            def _norm_dd(s):
+                s = (s or "").upper().strip()
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+                return s[:30].strip()
+
             entries = _CE.query.filter(
                 _CE.status != "excluido"
             ).order_by(_CE.id).all()
 
-            # Agrupar por chave única
             grupos = {}
             for e in entries:
-                k = (
-                    e.card_id,
-                    (e.description or "")[:60].upper().strip(),
-                    str(round(float(e.amount or 0), 2)),
-                    e.installment_no or 0,
-                    e.billing_month or "",
-                )
+                if e.installments and e.installments > 1:
+                    # Parcelado: chave cross-month
+                    k = ("parc", e.card_id, _norm_dd(e.description), e.installment_no or 0)
+                else:
+                    # Pontual: chave com data
+                    k = ("pont", e.card_id,
+                         (e.description or "")[:50].upper().strip(),
+                         str(round(float(e.amount or 0), 2)),
+                         str(e.entry_date or ""))
                 if k not in grupos:
                     grupos[k] = []
                 grupos[k].append(e)
@@ -448,16 +456,15 @@ def _dedup_card_entries():
             for k, itens in grupos.items():
                 if len(itens) <= 1:
                     continue
-                # Manter o primeiro (menor id), remover os demais
                 for dup in itens[1:]:
                     db.session.delete(dup)
                     removidos += 1
 
             if removidos:
                 db.session.commit()
-                print(f"[dedup_entries] {removidos} entry(ies) duplicado(s) removido(s).")
+                print(f"[dedup_entries] {removidos} duplicata(s) removida(s).")
             else:
-                print("[dedup_entries] Nenhum duplicado encontrado.")
+                print("[dedup_entries] Nenhum duplicado.")
         except Exception as _ex:
             db.session.rollback()
             print(f"[dedup_entries] Erro: {_ex}")
