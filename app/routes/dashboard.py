@@ -168,12 +168,48 @@ def index():
         if not visible:
             continue
 
-        # Soma lançamentos reais no cartão do mês selecionado
+        # 1. Buscar por expense_id no mês
         entries_card = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == mes_filter,
             CardEntry.status != "excluido",
         ).all()
+
+        # 2. Buscar por expense_id SEM filtro de mês (billing_month pode ser NULL)
+        if not entries_card:
+            entries_card = CardEntry.query.filter(
+                CardEntry.expense_id == exp.id,
+                CardEntry.status != "excluido",
+                CardEntry.entry_date >= date(filter_year, filter_month, 1),
+            ).all()
+
+        # 3. Buscar por categoria no mês
+        if not entries_card and exp.category and exp.category not in ("Outros", "A classificar"):
+            entries_card = CardEntry.query.filter(
+                CardEntry.category == exp.category,
+                CardEntry.billing_month == mes_filter,
+                CardEntry.status != "excluido",
+                CardEntry.user_id == current_user.id,
+            ).all()
+
+        # 4. Fallback por palavra-chave da descrição no mês
+        if not entries_card:
+            _kw = exp.description.split()[0].upper()
+            entries_card = CardEntry.query.filter(
+                CardEntry.billing_month == mes_filter,
+                CardEntry.status != "excluido",
+                CardEntry.user_id == current_user.id,
+                CardEntry.description.ilike(f"%{_kw}%"),
+            ).all()
+
+        # 5. Fallback amplo: qualquer entry do mês do cartão vinculado ao expense
+        if not entries_card and exp.card_id:
+            entries_card = CardEntry.query.filter(
+                CardEntry.card_id == exp.card_id,
+                CardEntry.billing_month == mes_filter,
+                CardEntry.status != "excluido",
+            ).all()
+
         spent_this_month = sum(float(e.amount) for e in entries_card)
 
         planned = float(exp.amount)
@@ -197,6 +233,7 @@ def index():
             "esperado_ate_hoje": esperado_ate_hoje,
             "gasto_dia_disponivel": gasto_dia_disponivel,
             "dias_ate_fechamento": dias_ate_fechamento,
+            "entries": entries_card,   # lançamentos individuais com cartão
         })
         household_total_planned += planned
         household_total_spent += spent_this_month
