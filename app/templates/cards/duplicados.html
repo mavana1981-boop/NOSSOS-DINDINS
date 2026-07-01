@@ -120,4 +120,51 @@
 {% endfor %}
 {% endif %}
 
+{% if dup_planejados %}
+<h3 style="margin:16px 0 8px;">📋 Parcelados duplicados — menu Parcelados ({{ dup_planejados|length }})</h3>
+{% for g in dup_planejados %}
+<div class="card mb-2">
+  <div class="flex-between mb-2">
+    <strong>{{ g.desc }} — parcela {{ g.installment_no }}</strong>
+    <span class="badge" style="background:var(--red);color:white;font-size:0.7rem;padding:2px 8px;border-radius:4px;">
+      {{ g.count }}x duplicado
+    </span>
+  </div>
+  <table class="tbl" style="font-size:0.8rem;margin-bottom:10px;">
+    <thead><tr>
+      <th>ID</th><th>Descrição</th><th>Parcela</th><th>Mês</th>
+      <th>Cartão</th><th class="text-right">Valor</th>
+    </tr></thead>
+    <tbody>
+    {% for p in g.entries %}
+    <tr>
+      <td class="text-faint">#{{ p.id }}</td>
+      <td>{{ p.description }}</td>
+      <td style="text-align:center;">{{ p.installment_no }}/{{ p.installments }}</td>
+      <td>{{ p.billing_month or '—' }}</td>
+      <td>{% if p.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;"></span>{{ p.card.name }}</span>{% else %}—{% endif %}</td>
+      <td class="text-right mono">{{ p.amount|brl }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <form method="POST" action="{{ url_for('cards.apagar_planejados_duplicados') }}">
+    <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
+    <div class="flex flex-gap" style="gap:8px;align-items:center;flex-wrap:wrap;">
+      <span class="text-small text-dim">Manter:</span>
+      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;">
+        {% for p in g.entries %}
+        <option value="{{ p.id }}">#{{ p.id }} — {{ p.billing_month }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;"
+              onclick="return confirm('Apagar {{ g.count - 1 }} planejado(s) duplicado(s)?');">
+        🗑 Apagar duplicatas
+      </button>
+    </div>
+  </form>
+</div>
+{% endfor %}
+{% endif %}
+
 {% endblock %}
