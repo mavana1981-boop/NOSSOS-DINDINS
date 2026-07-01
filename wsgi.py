@@ -416,6 +416,56 @@ def _sync_missing_planned_installments():
 
 _sync_missing_planned_installments()
 
+
+def _dedup_card_entries():
+    """Remove CardEntries duplicados mantendo o de menor id.
+    Duplicata = mesma (card_id, description, amount, installment_no, billing_month)."""
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE
+            from sqlalchemy import text as _text
+
+            # Buscar todos os entries ativos
+            entries = _CE.query.filter(
+                _CE.status != "excluido"
+            ).order_by(_CE.id).all()
+
+            # Agrupar por chave única
+            grupos = {}
+            for e in entries:
+                k = (
+                    e.card_id,
+                    (e.description or "")[:60].upper().strip(),
+                    str(round(float(e.amount or 0), 2)),
+                    e.installment_no or 0,
+                    e.billing_month or "",
+                )
+                if k not in grupos:
+                    grupos[k] = []
+                grupos[k].append(e)
+
+            removidos = 0
+            for k, itens in grupos.items():
+                if len(itens) <= 1:
+                    continue
+                # Manter o primeiro (menor id), remover os demais
+                for dup in itens[1:]:
+                    db.session.delete(dup)
+                    removidos += 1
+
+            if removidos:
+                db.session.commit()
+                print(f"[dedup_entries] {removidos} entry(ies) duplicado(s) removido(s).")
+            else:
+                print("[dedup_entries] Nenhum duplicado encontrado.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[dedup_entries] Erro: {_ex}")
+
+
+_dedup_card_entries()
+
+
 bootstrap()
 _fix_parcelados_duplicados()
 
