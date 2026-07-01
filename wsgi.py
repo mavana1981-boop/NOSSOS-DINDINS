@@ -415,6 +415,58 @@ def _sync_missing_planned_installments():
 
 
 
+
+def _dedup_card_entries():
+    """Remove CardEntries duplicados. Roda em todo boot.
+    Parcelados: mesmo (card_id, desc_norm, installment_no) em qualquer billing_month.
+    Pontuais: mesmo (card_id, description, amount, entry_date)."""
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE
+            import re as _re_dd
+
+            def _norm_dd(s):
+                s = (s or "").upper().strip()
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+                return s[:30].strip()
+
+            entries = _CE.query.filter(
+                _CE.status != "excluido"
+            ).order_by(_CE.id).all()
+
+            grupos = {}
+            for e in entries:
+                if e.installments and e.installments > 1:
+                    k = ("parc", e.card_id, _norm_dd(e.description), e.installment_no or 0)
+                else:
+                    k = ("pont", e.card_id,
+                         (e.description or "")[:50].upper().strip(),
+                         str(round(float(e.amount or 0), 2)),
+                         str(e.entry_date or ""))
+                if k not in grupos:
+                    grupos[k] = []
+                grupos[k].append(e)
+
+            removidos = 0
+            for k, itens in grupos.items():
+                if len(itens) <= 1:
+                    continue
+                for dup in itens[1:]:
+                    dup.status = "excluido"
+                    removidos += 1
+
+            if removidos:
+                db.session.commit()
+                print(f"[dedup_entries] {removidos} duplicata(s) marcada(s) como excluida.")
+            else:
+                print("[dedup_entries] Nenhum duplicado encontrado.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[dedup_entries] Erro: {_ex}")
+
+
 bootstrap()
 _dedup_card_entries()
 _fix_parcelados_duplicados()
