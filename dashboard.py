@@ -168,12 +168,33 @@ def index():
         if not visible:
             continue
 
-        # Soma lançamentos reais no cartão do mês selecionado
+        # Buscar lançamentos: primeiro por expense_id, depois por categoria
         entries_card = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == mes_filter,
             CardEntry.status != "excluido",
         ).all()
+
+        # Se não há vinculados por ID, buscar por categoria do mês
+        if not entries_card and exp.category and exp.category != "Outros":
+            entries_card = CardEntry.query.filter(
+                CardEntry.category == exp.category,
+                CardEntry.billing_month == mes_filter,
+                CardEntry.status != "excluido",
+                CardEntry.user_id == current_user.id,
+            ).all()
+
+        # Fallback: buscar por descrição similar (palavra principal do gasto)
+        if not entries_card:
+            _kw = exp.description.split()[0].upper()
+            from sqlalchemy import func as _func
+            entries_card = CardEntry.query.filter(
+                CardEntry.billing_month == mes_filter,
+                CardEntry.status != "excluido",
+                CardEntry.user_id == current_user.id,
+                CardEntry.description.ilike(f"%{_kw}%"),
+            ).all()
+
         spent_this_month = sum(float(e.amount) for e in entries_card)
 
         planned = float(exp.amount)
