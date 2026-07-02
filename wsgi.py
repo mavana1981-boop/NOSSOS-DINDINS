@@ -223,7 +223,7 @@ def bootstrap():
             ).all()
             print(f"[debug] CardEntries órfãos com 'assinatura': {len(orphans)}")
             for e in orphans:
-                print(f"[debug]   orphan id={e.id} desc='{e.description}'  status={e.status} card_id={e.card_id}")
+                print(f"[debug]   orphan id={e.id} desc='{e.description}' status={e.status} card_id={e.card_id}")
         except Exception as ex:
             print(f"[debug] erro: {ex}")
 
@@ -325,11 +325,11 @@ def _backfill_planned_installments():
     pass
 
 
-def _add_current_installments():
+def _add_current_installments():  # DESATIVADO — não chame no boot
     pass
 
 
-def _sync_missing_planned_installments():
+def _sync_missing_planned_installments():  # DESATIVADO — não chame no boot
     """Sincroniza CardEntries parcelados que não têm planned_installments.
     Usa descrição NORMALIZADA em todas as comparações para evitar
     falsos negativos por espaços/capitalização."""
@@ -482,8 +482,6 @@ bootstrap()
 _dedup_card_entries()
 _fix_parcelados_duplicados()
 _backfill_planned_installments()
-_add_current_installments()
-_sync_missing_planned_installments()
 
 
 if __name__ == "__main__":
