@@ -910,10 +910,19 @@ def _save_entry(entry, card):
             db.session.flush()
 
             # Recriar parcela atual
-            _del_cur = PlannedInstallmentDeletion.query.filter_by(
+            # Verificar exclusão por descrição normalizada
+            import re as _re_sv
+            def _n_sv(s):
+                s = (s or "").upper().strip()
+                s = _re_sv.sub(r"\s+[0-9]{1,2}\s+DE\s+[0-9]{1,2}", "", s)
+                s = _re_sv.sub(r"\s+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_sv.sub(r"\s+[0-9]{1,2}\s+[0-9]{1,2}(?=\s|$)", "", s)
+                return s.strip()
+            _dels_cur = PlannedInstallmentDeletion.query.filter_by(
                 user_id=entry.user_id, card_id=entry.card_id,
-                description=entry.description, billing_month=entry.billing_month,
-            ).first()
+                billing_month=entry.billing_month,
+            ).all()
+            _del_cur = any(_n_sv(d.description) == _n_sv(entry.description) for d in _dels_cur)
             if not _del_cur:
                 db.session.add(PlannedInstallment(
                     user_id=entry.user_id, card_id=entry.card_id,
@@ -930,10 +939,11 @@ def _save_entry(entry, card):
                 _pyr = _byr + _pmo // 12
                 _pmo = (_pmo % 12) + 1
                 _proj_bm = f"{_pyr}-{_pmo:02d}"
-                _del_fut = PlannedInstallmentDeletion.query.filter_by(
+                _dels_fut = PlannedInstallmentDeletion.query.filter_by(
                     user_id=entry.user_id, card_id=entry.card_id,
-                    description=entry.description, billing_month=_proj_bm,
-                ).first()
+                    billing_month=_proj_bm,
+                ).all()
+                _del_fut = any(_n_sv(d.description) == _n_sv(entry.description) for d in _dels_fut)
                 if _del_fut:
                     continue
                 db.session.add(PlannedInstallment(
@@ -1515,16 +1525,24 @@ def _process_batch(card):
         # Adicionar a parcela atual ao planned_installments
         # Pular se foi excluído intencionalmente pelo usuário
         from app.models import PlannedInstallmentDeletion as _PID2
-        # Checar se esta série foi excluída para este billing_month
-        _was_deleted = _PID2.query.filter_by(
+        import re as _re_pid
+        def _n_pid(s):
+            s = (s or "").upper().strip()
+            s = _re_pid.sub(r"\s+[0-9]{1,2}\s+DE\s+[0-9]{1,2}", "", s)
+            s = _re_pid.sub(r"\s+[0-9]{1,2}/[0-9]{1,2}", "", s)
+            s = _re_pid.sub(r"\s+[0-9]{1,2}\s+[0-9]{1,2}(?=\s|$)", "", s)
+            return s.strip()
+        # Verificar exclusão comparando descrição normalizada
+        _all_dels = _PID2.query.filter_by(
             user_id=current_user.id, card_id=card.id,
-            description=_e.description, billing_month=_e.billing_month,
-        ).first()
+            billing_month=_e.billing_month,
+        ).all()
+        _was_deleted = any(_n_pid(d.description) == _n_pid(_e.description) for d in _all_dels)
         _exists_cur = PlannedInstallment.query.filter_by(
             user_id=current_user.id, card_id=card.id,
             description=_e.description, installment_no=_e.installment_no,
         ).first()
-        if not _exists_cur and not _was_deleted:
+        if not _exists_cur and not _was_deleted:  # _was_deleted já é bool
             db.session.add(PlannedInstallment(
                 user_id=current_user.id, card_id=card.id,
                 description=_e.description, amount=_e.amount,
@@ -1541,10 +1559,11 @@ def _process_batch(card):
             _proj_bm = f"{_pyr}-{_pmo:02d}"
             # Pular se foi excluído intencionalmente ou já existe
             # Checar se esta série foi excluída para o billing_month projetado
-            _was_del_fut = _PID2.query.filter_by(
+            _all_dels_fut = _PID2.query.filter_by(
                 user_id=current_user.id, card_id=card.id,
-                description=_e.description, billing_month=_proj_bm,
-            ).first()
+                billing_month=_proj_bm,
+            ).all()
+            _was_del_fut = any(_n_pid(d.description) == _n_pid(_e.description) for d in _all_dels_fut)
             if _was_del_fut:
                 continue
             _exists_plan = PlannedInstallment.query.filter_by(
@@ -1730,8 +1749,9 @@ def batch_delete_entry(card_id, batch_id, entry_id):
 @cards_bp.route("/duplicados/apagar-planejados", methods=["POST"])
 @login_required
 def apagar_planejados_duplicados():
-    """Apaga planned_installments duplicados mantendo o de menor id."""
-    from app.models import PlannedInstallment as _PI
+    """Apaga planned_installments duplicados mantendo o de menor id.
+    CRÍTICO: registra PID para cada deletado, evitando que voltem no boot."""
+    from app.models import PlannedInstallment as _PI, PlannedInstallmentDeletion as _PID
     ids_str = request.form.get("ids", "")
     manter_id = request.form.get("manter_id", "").strip()
     ids = [i.strip() for i in ids_str.split(",") if i.strip()]
@@ -1742,12 +1762,22 @@ def apagar_planejados_duplicados():
         try:
             p = _PI.query.get(int(id_str))
             if p and p.user_id == current_user.id:
+                # Registrar exclusão permanente
+                _ex = _PID.query.filter_by(
+                    user_id=p.user_id, card_id=p.card_id,
+                    description=p.description, billing_month=p.billing_month,
+                ).first()
+                if not _ex:
+                    db.session.add(_PID(
+                        user_id=p.user_id, card_id=p.card_id,
+                        description=p.description, billing_month=p.billing_month,
+                    ))
                 db.session.delete(p)
                 count += 1
         except Exception:
             continue
     db.session.commit()
-    flash(f"{count} planejado(s) duplicado(s) removido(s).", "success")
+    flash(f"{count} planejado(s) duplicado(s) removido(s) permanentemente.", "success")
     return redirect(url_for("cards.duplicados"))
 
 
