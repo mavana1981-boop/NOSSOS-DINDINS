@@ -879,7 +879,7 @@ def _save_entry(entry, card):
     if entry.expense_id:
         _check_excedente(entry.expense_id)
 
-    # Se parcelado, criar/atualizar planned_installments
+    # Sincronizar planned_installments quando parcelado é salvo/editado
     if entry.installments and entry.installments > 1 and entry.installment_no and entry.billing_month:
         from app.models import PlannedInstallment, PlannedInstallmentDeletion
         try:
@@ -888,16 +888,33 @@ def _save_entry(entry, card):
         except Exception:
             _byr, _bmo = None, None
         if _byr:
-            # Parcela atual
-            _ex_cur = PlannedInstallment.query.filter_by(
-                user_id=entry.user_id, card_id=entry.card_id,
-                description=entry.description, installment_no=entry.installment_no,
-            ).first()
+            # Apagar todos os planned_installments vinculados a este entry (via origin_entry_id)
+            # para recriar com dados atualizados
+            _old_plans = PlannedInstallment.query.filter_by(
+                origin_entry_id=entry.id
+            ).all()
+            for _op in _old_plans:
+                db.session.delete(_op)
+
+            # Também apagar planned com mesma (card_id, description, installment_no)
+            # para garantir que não ficam órfãos com descrição antiga
+            _old_same = PlannedInstallment.query.filter_by(
+                user_id=entry.user_id,
+                card_id=entry.card_id,
+                installment_no=entry.installment_no,
+            ).all()
+            for _os in _old_same:
+                if _os.description.upper().strip() == entry.description.upper().strip():
+                    db.session.delete(_os)
+
+            db.session.flush()
+
+            # Recriar parcela atual
             _del_cur = PlannedInstallmentDeletion.query.filter_by(
                 user_id=entry.user_id, card_id=entry.card_id,
                 description=entry.description, billing_month=entry.billing_month,
             ).first()
-            if not _ex_cur and not _del_cur:
+            if not _del_cur:
                 db.session.add(PlannedInstallment(
                     user_id=entry.user_id, card_id=entry.card_id,
                     description=entry.description, amount=entry.amount,
@@ -905,7 +922,8 @@ def _save_entry(entry, card):
                     billing_month=entry.billing_month, expense_id=entry.expense_id,
                     origin_entry_id=entry.id,
                 ))
-            # Parcelas futuras
+
+            # Recriar parcelas futuras
             for _i in range(entry.installment_no + 1, entry.installments + 1):
                 _steps = _i - entry.installment_no
                 _pmo = _bmo + _steps - 1
@@ -918,19 +936,15 @@ def _save_entry(entry, card):
                 ).first()
                 if _del_fut:
                     continue
-                _ex_fut = PlannedInstallment.query.filter_by(
+                db.session.add(PlannedInstallment(
                     user_id=entry.user_id, card_id=entry.card_id,
-                    description=entry.description, installment_no=_i,
-                ).first()
-                if not _ex_fut:
-                    db.session.add(PlannedInstallment(
-                        user_id=entry.user_id, card_id=entry.card_id,
-                        description=entry.description, amount=entry.amount,
-                        installment_no=_i, installments=entry.installments,
-                        billing_month=_proj_bm, expense_id=entry.expense_id,
-                        origin_entry_id=entry.id,
-                    ))
+                    description=entry.description, amount=entry.amount,
+                    installment_no=_i, installments=entry.installments,
+                    billing_month=_proj_bm, expense_id=entry.expense_id,
+                    origin_entry_id=entry.id,
+                ))
             db.session.commit()
+            flash(f"Projeção de parcelados atualizada para '{entry.description}'.", "info")
 
     flash("Lançamento salvo.", "success")
     mes_back = entry.billing_month or date.today().strftime("%Y-%m")
