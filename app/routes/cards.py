@@ -879,82 +879,58 @@ def _save_entry(entry, card):
     if entry.expense_id:
         _check_excedente(entry.expense_id)
 
-    # Sincronizar planned_installments quando parcelado é salvo/editado
+    # Atualizar planned_installments quando parcelado é salvo/editado
+    # ATUALIZA valores existentes — não deleta/recria — conserva exclusões manuais
     if entry.installments and entry.installments > 1 and entry.installment_no and entry.billing_month:
         from app.models import PlannedInstallment, PlannedInstallmentDeletion
+        import re as _re_sv2
+        def _nsv(s):
+            s = (s or "").upper().strip()
+            s = _re_sv2.sub(r"\s+\d{1,2}\s+DE\s+\d{1,2}", "", s)
+            s = _re_sv2.sub(r"\s+\d{1,2}/\d{1,2}", "", s)
+            s = _re_sv2.sub(r"\s+\d{1,2}\s+\d{1,2}(?=\s|$)", "", s)
+            return s.strip()
         try:
             _byr = int(entry.billing_month[:4])
             _bmo = int(entry.billing_month[5:7])
         except Exception:
             _byr, _bmo = None, None
         if _byr:
-            # Apagar todos os planned_installments vinculados a este entry (via origin_entry_id)
-            # para recriar com dados atualizados
-            _old_plans = PlannedInstallment.query.filter_by(
-                origin_entry_id=entry.id
-            ).all()
-            for _op in _old_plans:
-                db.session.delete(_op)
-
-            # Também apagar planned com mesma (card_id, description, installment_no)
-            # para garantir que não ficam órfãos com descrição antiga
-            _old_same = PlannedInstallment.query.filter_by(
-                user_id=entry.user_id,
-                card_id=entry.card_id,
-                installment_no=entry.installment_no,
-            ).all()
-            for _os in _old_same:
-                if _os.description.upper().strip() == entry.description.upper().strip():
-                    db.session.delete(_os)
-
-            db.session.flush()
-
-            # Recriar parcela atual
-            # Verificar exclusão por descrição normalizada
-            import re as _re_sv
-            def _n_sv(s):
-                s = (s or "").upper().strip()
-                s = _re_sv.sub(r"\s+[0-9]{1,2}\s+DE\s+[0-9]{1,2}", "", s)
-                s = _re_sv.sub(r"\s+[0-9]{1,2}/[0-9]{1,2}", "", s)
-                s = _re_sv.sub(r"\s+[0-9]{1,2}\s+[0-9]{1,2}(?=\s|$)", "", s)
-                return s.strip()
-            _dels_cur = PlannedInstallmentDeletion.query.filter_by(
-                user_id=entry.user_id, card_id=entry.card_id,
-                billing_month=entry.billing_month,
-            ).all()
-            _del_cur = any(_n_sv(d.description) == _n_sv(entry.description) for d in _dels_cur)
-            if not _del_cur:
-                db.session.add(PlannedInstallment(
+            # Atualizar PI atual vinculado a este entry
+            _pi_cur = PlannedInstallment.query.filter_by(
+                origin_entry_id=entry.id).first()
+            if _pi_cur:
+                _pi_cur.amount = entry.amount
+                _pi_cur.description = entry.description
+                _pi_cur.installments = entry.installments
+                _pi_cur.billing_month = entry.billing_month
+                _pi_cur.expense_id = entry.expense_id
+            else:
+                # Criar se não existe e não foi excluído
+                _dels = PlannedInstallmentDeletion.query.filter_by(
                     user_id=entry.user_id, card_id=entry.card_id,
-                    description=entry.description, amount=entry.amount,
-                    installment_no=entry.installment_no, installments=entry.installments,
-                    billing_month=entry.billing_month, expense_id=entry.expense_id,
-                    origin_entry_id=entry.id,
-                ))
-
-            # Recriar parcelas futuras
-            for _i in range(entry.installment_no + 1, entry.installments + 1):
-                _steps = _i - entry.installment_no
-                _pmo = _bmo + _steps - 1
-                _pyr = _byr + _pmo // 12
-                _pmo = (_pmo % 12) + 1
-                _proj_bm = f"{_pyr}-{_pmo:02d}"
-                _dels_fut = PlannedInstallmentDeletion.query.filter_by(
-                    user_id=entry.user_id, card_id=entry.card_id,
-                    billing_month=_proj_bm,
-                ).all()
-                _del_fut = any(_n_sv(d.description) == _n_sv(entry.description) for d in _dels_fut)
-                if _del_fut:
-                    continue
-                db.session.add(PlannedInstallment(
-                    user_id=entry.user_id, card_id=entry.card_id,
-                    description=entry.description, amount=entry.amount,
-                    installment_no=_i, installments=entry.installments,
-                    billing_month=_proj_bm, expense_id=entry.expense_id,
-                    origin_entry_id=entry.id,
-                ))
+                    billing_month=entry.billing_month).all()
+                if not any(_nsv(d.description) == _nsv(entry.description) for d in _dels):
+                    db.session.add(PlannedInstallment(
+                        user_id=entry.user_id, card_id=entry.card_id,
+                        description=entry.description, amount=entry.amount,
+                        installment_no=entry.installment_no,
+                        installments=entry.installments,
+                        billing_month=entry.billing_month,
+                        expense_id=entry.expense_id,
+                        origin_entry_id=entry.id,
+                    ))
+            # Atualizar projeções futuras desta série
+            for _pp in PlannedInstallment.query.filter(
+                PlannedInstallment.user_id == entry.user_id,
+                PlannedInstallment.card_id == entry.card_id,
+                PlannedInstallment.description == entry.description,
+                PlannedInstallment.installment_no > entry.installment_no,
+            ).all():
+                _pp.amount = entry.amount
+                _pp.installments = entry.installments
             db.session.commit()
-            flash(f"Projeção de parcelados atualizada para '{entry.description}'.", "info")
+            flash(f"Projecao de '{entry.description}' sincronizada.", "info")
 
     flash("Lançamento salvo.", "success")
     mes_back = entry.billing_month or date.today().strftime("%Y-%m")
