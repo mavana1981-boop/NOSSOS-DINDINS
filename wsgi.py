@@ -331,19 +331,22 @@ def _add_current_installments():
 
 def _sync_missing_planned_installments():
     """Sincroniza CardEntries parcelados que não têm planned_installments.
-    Roda sempre — sem guard de count — para pegar entradas manuais novas."""
+    Usa descrição NORMALIZADA em todas as comparações para evitar
+    falsos negativos por espaços/capitalização."""
     with app.app_context():
         try:
             from app.models import CardEntry as _CE, PlannedInstallment as _PI
             from app.models import PlannedInstallmentDeletion as _PID
             import re as _re_s
 
-            def _norm_s(s):
+            def _n(s):
+                """Normaliza descrição: uppercase, sem espaços extras,
+                sem sufixos de parcela como '04 DE 10' ou '04/10'."""
                 s = (s or "").upper().strip()
-                s = _re_s.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
-                s = _re_s.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
-                s = _re_s.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
-                return s[:30].strip()
+                s = _re_s.sub(r"\s+[0-9]{1,2}\s+DE\s+[0-9]{1,2}", "", s)
+                s = _re_s.sub(r"\s+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_s.sub(r"\s+[0-9]{1,2}\s+[0-9]{1,2}(?=\s|$)", "", s)
+                return s.strip()
 
             parcs = _CE.query.filter(
                 _CE.installments > 1,
@@ -352,13 +355,16 @@ def _sync_missing_planned_installments():
                 _CE.status == "ativo",
             ).all()
 
-            # Chave dos planned já existentes
-            _existing_keys = set(
-                (p.card_id, p.description, p.installment_no)
+            # Chaves normalizadas dos planned já existentes
+            # (card_id, desc_norm, installment_no)
+            _existing = set(
+                (p.card_id, _n(p.description), p.installment_no)
                 for p in _PI.query.all()
             )
-            _deleted_bm = set(
-                (d.card_id, d.description, d.billing_month)
+
+            # Exclusões normalizadas: (card_id, desc_norm, billing_month)
+            _deleted = set(
+                (d.card_id, _n(d.description), d.billing_month)
                 for d in _PID.query.all()
             )
 
@@ -370,45 +376,50 @@ def _sync_missing_planned_installments():
                 except Exception:
                     continue
 
+                _dn = _n(e.description)
+
                 # Parcela atual
-                if (e.card_id, e.description, e.installment_no) not in _existing_keys:
-                    if (e.card_id, e.description, e.billing_month) not in _deleted_bm:
+                if (e.card_id, _dn, e.installment_no) not in _existing:
+                    if (e.card_id, _dn, e.billing_month) not in _deleted:
                         db.session.add(_PI(
                             user_id=e.user_id, card_id=e.card_id,
                             description=e.description, amount=e.amount,
-                            installment_no=e.installment_no, installments=e.installments,
-                            billing_month=e.billing_month, expense_id=e.expense_id,
+                            installment_no=e.installment_no,
+                            installments=e.installments,
+                            billing_month=e.billing_month,
+                            expense_id=e.expense_id,
                             origin_entry_id=e.id,
                         ))
-                        _existing_keys.add((e.card_id, e.description, e.installment_no))
+                        _existing.add((e.card_id, _dn, e.installment_no))
                         count += 1
 
                 # Parcelas futuras
                 for _i in range(e.installment_no + 1, e.installments + 1):
-                    if (e.card_id, e.description, _i) in _existing_keys:
+                    if (e.card_id, _dn, _i) in _existing:
                         continue
                     _steps = _i - e.installment_no
                     _pmo = _bmo + _steps - 1
                     _pyr = _byr + _pmo // 12
                     _pmo = (_pmo % 12) + 1
                     _proj_bm = f"{_pyr}-{_pmo:02d}"
-                    if (e.card_id, e.description, _proj_bm) in _deleted_bm:
+                    if (e.card_id, _dn, _proj_bm) in _deleted:
                         continue
                     db.session.add(_PI(
                         user_id=e.user_id, card_id=e.card_id,
                         description=e.description, amount=e.amount,
                         installment_no=_i, installments=e.installments,
-                        billing_month=_proj_bm, expense_id=e.expense_id,
+                        billing_month=_proj_bm,
+                        expense_id=e.expense_id,
                         origin_entry_id=e.id,
                     ))
-                    _existing_keys.add((e.card_id, e.description, _i))
+                    _existing.add((e.card_id, _dn, _i))
                     count += 1
 
             db.session.commit()
             if count:
-                print(f"[sync_planned] {count} planned_installment(s) criado(s) para entries sem projeção.")
+                print(f"[sync_planned] {count} planned(s) criado(s).")
             else:
-                print("[sync_planned] Nenhuma entrada faltando.")
+                print("[sync_planned] Tudo sincronizado.")
         except Exception as _ex:
             db.session.rollback()
             print(f"[sync_planned] Erro: {_ex}")
