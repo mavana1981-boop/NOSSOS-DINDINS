@@ -4,7 +4,7 @@ try:
     from app.models import User, SubProject, Investment, Card, CardEntry, HouseholdExpense
 except Exception as _boot_err:
     print(f"[BOOT ERROR] Import falhou: {_boot_err}", file=sys.stderr)
-    traceback.print_exc()
+    traceback.print_exc() 
     raise
 from werkzeug.security import generate_password_hash
 from sqlalchemy import text, inspect
