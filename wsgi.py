@@ -223,7 +223,7 @@ def bootstrap():
             ).all()
             print(f"[debug] CardEntries órfãos com 'assinatura': {len(orphans)}")
             for e in orphans:
-                print(f"[debug]   orphan id={e.id} desc='{e.description}' status={e.status} card_id={e.card_id}")
+                print(f"[debug]   orphan id={e.id} desc='{e.description}'  status={e.status} card_id={e.card_id}")
         except Exception as ex:
             print(f"[debug] erro: {ex}")
 
