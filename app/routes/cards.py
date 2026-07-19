@@ -1090,10 +1090,32 @@ def _process_batch(card):
                 pass
         return "\n".join(all_lines)
 
+    def _repair_json(raw):
+        """Repara JSON truncado fechando aspas/colchetes pendentes."""
+        text = raw.strip()
+        if text.count('"') % 2 != 0:
+            text += '"'
+        opens = {"{": "}", "[": "]"}
+        stack = []
+        in_string = False
+        for ch in text:
+            if ch == '"':
+                in_string = not in_string
+            if not in_string and ch in opens:
+                stack.append(opens[ch])
+            elif not in_string and stack and ch == stack[-1]:
+                stack.pop()
+        text += "".join(reversed(stack))
+        return json.loads(text)
+
     def _parse_json(raw):
         raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         raw = re.sub(r"\n?```$", "", raw)
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            # resposta pode ter sido cortada por limite de tokens: tenta reparar
+            return _repair_json(raw)
 
     def _try_gemini():
         key = os.environ.get("GEMINI_API_KEY", "")
@@ -1129,61 +1151,51 @@ def _process_batch(card):
             {"text": prompt_parcelado},
             {"text": "Extrato:\n" + extracted_text[:20000]},
         ]
-        payload = json.dumps({"contents": [{"parts": parts}]}).encode()
+        payload = json.dumps({
+            "contents": [{"parts": parts}],
+            "generationConfig": {"maxOutputTokens": 8192},
+        }).encode()
 
-        # Cache dinâmico: tenta o último modelo que funcionou primeiro
-        # Tenta v1 e v1beta para cada modelo
+        # Modelos vigentes em jul/2026 (gemini-2.0-*/1.5-* foram descontinuados
+        # pelo Google e sempre retornam 404; não vale a pena tentá-los)
         CANDIDATES = [
-            ("v1",    "gemini-2.0-flash-001"),
-            ("v1",    "gemini-2.0-flash"),
-            ("v1",    "gemini-1.5-flash-8b"),
-            ("v1",    "gemini-1.5-flash-001"),
-            ("v1",    "gemini-1.5-flash-002"),
-            ("v1",    "gemini-1.5-flash"),
-            ("v1",    "gemini-1.5-pro-001"),
-            ("v1beta","gemini-2.5-flash"),
-            ("v1beta","gemini-2.5-flash-preview-05-20"),
-            ("v1beta","gemini-2.0-flash-exp"),
-            ("v1beta","gemini-2.0-flash-lite"),
-            ("v1beta","gemini-1.5-flash-002"),
-            ("v1beta","gemini-1.5-flash-001"),
-            ("v1beta","gemini-1.5-flash"),
-            ("v1beta","gemini-1.5-flash-8b-001"),
-            ("v1beta","gemini-1.5-pro-002"),
-            ("v1beta","gemini-1.5-pro"),
-            ("v1beta","gemini-pro"),
+            ("v1beta", "gemini-2.5-flash"),
+            ("v1beta", "gemini-2.5-flash-lite"),
+            ("v1beta", "gemini-3.5-flash"),
         ]
         # Cache dinâmico: tenta o último que funcionou primeiro
         cached = getattr(current_app, "_gemini_batch_model", None)
         if cached:
             CANDIDATES = [c for c in CANDIDATES if c[1]==cached] +                          [c for c in CANDIDATES if c[1]!=cached]
 
+        import time as _time
         for api_ver, model in CANDIDATES:
-            try:
-                url = (f"https://generativelanguage.googleapis.com/{api_ver}/"
-                       f"models/{model}:generateContent?key={key}")
-                req = urllib.request.Request(url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=90) as resp:
-                    result = json.loads(resp.read())
-                raw = result["candidates"][0]["content"]["parts"][0]["text"]
-                parsed = _parse_json(raw)
+            url = (f"https://generativelanguage.googleapis.com/{api_ver}/"
+                   f"models/{model}:generateContent?key={key}")
+            # backoff exponencial em caso de 429 antes de desistir do modelo
+            for attempt in range(3):
                 try:
-                    current_app._gemini_batch_model = model
-                    current_app._gemini_last_used = f"{api_ver}/{model}"
-                except Exception:
-                    pass
-                return parsed, None
-            except urllib.error.HTTPError as e:
-                body = e.read().decode()
-                errors.append(f"{api_ver}/{model}:{e.code}")
-                if e.code in (429, 503):
-                    # Alta demanda ou quota: aguarda e tenta próximo
-                    import time as _time; _time.sleep(3)
-                continue
-            except Exception as _ex:
-                errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
-                continue
+                    req = urllib.request.Request(url, data=payload,
+                        headers={"Content-Type": "application/json"}, method="POST")
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        result = json.loads(resp.read())
+                    raw = result["candidates"][0]["content"]["parts"][0]["text"]
+                    parsed = _parse_json(raw)
+                    try:
+                        current_app._gemini_batch_model = model
+                        current_app._gemini_last_used = f"{api_ver}/{model}"
+                    except Exception:
+                        pass
+                    return parsed, None
+                except urllib.error.HTTPError as e:
+                    errors.append(f"{api_ver}/{model}:{e.code}")
+                    if e.code == 429 and attempt < 2:
+                        _time.sleep(2 ** (attempt + 1))  # 2s, 4s
+                        continue
+                    break  # 404 ou 429 esgotado: pula pro próximo modelo
+                except Exception as _ex:
+                    errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
+                    break
         return None, f"Gemini indisponível. Tentados: {', '.join(errors)}"
 
     def _try_groq():
@@ -1194,14 +1206,18 @@ def _process_batch(card):
             env_keys = [k for k in os.environ if "groq" in k.lower() or "GROQ" in k]
             return None, f"GROQ_API_KEY não encontrada (vars disponíveis: {env_keys})"
 
-        def _groq_call(text_chunk):
+        # Modelos vigentes em jul/2026. A Groq descontinuou llama-4-scout,
+        # llama-3.3-70b-versatile, llama-3.1-8b-instant e qwen3-32b.
+        GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+
+        def _groq_call(model, text_chunk):
             """Chama Groq com um chunk de texto."""
             msgs = [{"role": "user", "content": [
                 {"type": "text", "text": PROMPT},
                 {"type": "text", "text": "Extrato:\n" + text_chunk},
             ]}]
             payload = json.dumps({
-                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                "model": model,
                 "messages": msgs,
                 "max_tokens": 8192,
             }).encode()
@@ -1227,65 +1243,81 @@ def _process_batch(card):
         if not all_text.strip() and not has_image:
             return None, "Groq: sem conteúdo para processar"
 
-        all_transactions = []
-        CHUNK = 12000
-        OVERLAP = 500
+        errors = []
+        for model in GROQ_MODELS:
+            all_transactions = []
+            CHUNK = 12000
+            OVERLAP = 500
+            model_failed = False
 
-        if all_text.strip():
-            chunks = []
-            start = 0
-            while start < len(all_text):
-                end = min(start + CHUNK, len(all_text))
-                chunks.append(all_text[start:end])
-                if end >= len(all_text):
-                    break
-                start = end - OVERLAP
+            if all_text.strip():
+                chunks = []
+                start = 0
+                while start < len(all_text):
+                    end = min(start + CHUNK, len(all_text))
+                    chunks.append(all_text[start:end])
+                    if end >= len(all_text):
+                        break
+                    start = end - OVERLAP
 
-            for i, chunk in enumerate(chunks):
+                for i, chunk in enumerate(chunks):
+                    try:
+                        result = _groq_call(model, chunk)
+                        if isinstance(result, list):
+                            all_transactions.extend(result)
+                    except urllib.error.HTTPError as e:
+                        errors.append(f"{model}:{e.code}:{e.read().decode()[:150]}")
+                        model_failed = True
+                        break
+                    except Exception as e:
+                        errors.append(f"{model} chunk {i+1}: {e}")
+                        model_failed = True
+                        break
+            else:
                 try:
-                    result = _groq_call(chunk)
-                    if isinstance(result, list):
-                        all_transactions.extend(result)
+                    img_msgs = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
+                    for fd in file_data:
+                        if "image" in fd["mime"]:
+                            img_msgs[0]["content"].append({"type": "image_url",
+                                "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
+                    payload = json.dumps({
+                        "model": model,
+                        "messages": img_msgs, "max_tokens": 8192,
+                    }).encode()
+                    req = urllib.request.Request(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        data=payload,
+                        headers={"Content-Type": "application/json",
+                                 "Authorization": f"Bearer {key}",
+                                 "User-Agent": "Mozilla/5.0"},
+                        method="POST")
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        result = json.loads(resp.read())
+                    raw = result["choices"][0]["message"]["content"]
+                    all_transactions = _parse_json(raw)
                 except urllib.error.HTTPError as e:
-                    return None, f"Groq {e.code}: {e.read().decode()[:200]}"
+                    errors.append(f"{model}:{e.code}:{e.read().decode()[:150]}")
+                    model_failed = True
                 except Exception as e:
-                    return None, f"Groq chunk {i+1}: {e}"
-        else:
-            try:
-                img_msgs = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
-                for fd in file_data:
-                    if "image" in fd["mime"]:
-                        img_msgs[0]["content"].append({"type": "image_url",
-                            "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
-                payload = json.dumps({
-                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
-                    "messages": img_msgs, "max_tokens": 8192,
-                }).encode()
-                req = urllib.request.Request(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    data=payload,
-                    headers={"Content-Type": "application/json",
-                             "Authorization": f"Bearer {key}",
-                             "User-Agent": "Mozilla/5.0"},
-                    method="POST")
-                with urllib.request.urlopen(req, timeout=90) as resp:
-                    result = json.loads(resp.read())
-                raw = result["choices"][0]["message"]["content"]
-                all_transactions = _parse_json(raw)
-            except urllib.error.HTTPError as e:
-                return None, f"Groq {e.code}: {e.read().decode()[:200]}"
-            except Exception as e:
-                return None, f"Groq: {e}"
+                    errors.append(f"{model}: {e}")
+                    model_failed = True
 
-        seen = set()
-        unique = []
-        for t in all_transactions:
-            key2 = (str(t.get("description",""))[:40], str(t.get("amount","")), str(t.get("date","")))
-            if key2 not in seen:
-                seen.add(key2)
-                unique.append(t)
+            if model_failed:
+                continue  # tenta o próximo modelo da lista
 
-        return unique if unique else None, None if unique else "Groq: nenhuma transação encontrada"
+            seen = set()
+            unique = []
+            for t in all_transactions:
+                key2 = (str(t.get("description",""))[:40], str(t.get("amount","")), str(t.get("date","")))
+                if key2 not in seen:
+                    seen.add(key2)
+                    unique.append(t)
+
+            if unique:
+                return unique, None
+            errors.append(f"{model}: nenhuma transação encontrada")
+
+        return None, f"Groq indisponível. Tentados: {', '.join(errors)}"
 
     def _try_cloudflare():
         acct = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -1293,8 +1325,11 @@ def _process_batch(card):
         if not acct or not key:
             return None, "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurados"
 
-        def _cf_call(model, messages):
-            payload = json.dumps({"messages": messages}).encode()
+        def _cf_call(model, messages, max_tokens=4096):
+            payload = json.dumps({
+                "messages": messages,
+                "max_tokens": max_tokens,  # antes sem limite explícito -> respostas truncadas
+            }).encode()
             url = f"https://api.cloudflare.com/client/v4/accounts/{acct}/ai/run/{model}"
             req = urllib.request.Request(url, data=payload,
                 headers={"Content-Type": "application/json",
@@ -1340,13 +1375,13 @@ def _process_batch(card):
                 msgs = [
                     {"role": "user", "content": PROMPT + "\n\nExtrato:\n" + pdf_text[:12000]}
                 ]
-                result = _cf_call("@cf/meta/llama-3.1-8b-instruct", msgs)
+                result = _cf_call("@cf/meta/llama-3.1-8b-instruct", msgs, max_tokens=4096)
                 raw = result.get("result", {}).get("response", "")
             elif has_img:
                 # Imagem: aceita agreement do modelo de visão, depois envia
                 agree_msgs = [{"role": "user", "content": "agree"}]
                 try:
-                    _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", agree_msgs)
+                    _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", agree_msgs, max_tokens=64)
                 except Exception:
                     pass
                 img_content = [{"type": "text", "text": PROMPT}]
@@ -1355,7 +1390,7 @@ def _process_batch(card):
                         img_content.append({"type": "image_url",
                             "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                 msgs = [{"role": "user", "content": img_content}]
-                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs)
+                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs, max_tokens=4096)
                 raw = result.get("result", {}).get("response", "")
             else:
                 return None, "Cloudflare: sem conteúdo para processar"
