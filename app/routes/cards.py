@@ -1109,7 +1109,11 @@ def _process_batch(card):
         return json.loads(text)
 
     def _parse_json(raw):
-        raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
+        # Alguns modelos (ex: Cloudflare em certos casos) já retornam a resposta
+        # como list/dict em vez de string -> não dá pra chamar .strip() nisso.
+        if isinstance(raw, (list, dict)):
+            return raw
+        raw = re.sub(r"^```[a-z]*\n?", "", str(raw).strip())
         raw = re.sub(r"\n?```$", "", raw)
         try:
             return json.loads(raw)
@@ -1169,11 +1173,12 @@ def _process_batch(card):
             CANDIDATES = [c for c in CANDIDATES if c[1]==cached] +                          [c for c in CANDIDATES if c[1]!=cached]
 
         import time as _time
+        quota_esgotada = False
         for api_ver, model in CANDIDATES:
             url = (f"https://generativelanguage.googleapis.com/{api_ver}/"
                    f"models/{model}:generateContent?key={key}")
             # backoff exponencial em caso de 429 antes de desistir do modelo
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     req = urllib.request.Request(url, data=payload,
                         headers={"Content-Type": "application/json"}, method="POST")
@@ -1188,15 +1193,31 @@ def _process_batch(card):
                         pass
                     return parsed, None
                 except urllib.error.HTTPError as e:
+                    body = ""
+                    try:
+                        body = e.read().decode()[:200]
+                    except Exception:
+                        pass
                     errors.append(f"{api_ver}/{model}:{e.code}")
-                    if e.code == 429 and attempt < 2:
-                        _time.sleep(2 ** (attempt + 1))  # 2s, 4s
-                        continue
+                    if e.code == 429:
+                        # "RESOURCE_EXHAUSTED" com quota diária não se resolve
+                        # com retry; "rate limit" por minuto sim.
+                        if "PerDay" in body or "daily" in body.lower():
+                            quota_esgotada = True
+                            break  # não adianta insistir neste nem nos outros modelos
+                        if attempt == 0:
+                            _time.sleep(5)  # espera antes de tentar de novo
+                            continue
                     break  # 404 ou 429 esgotado: pula pro próximo modelo
                 except Exception as _ex:
                     errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
                     break
-        return None, f"Gemini indisponível. Tentados: {', '.join(errors)}"
+            if quota_esgotada:
+                break
+        msg = f"Gemini indisponível. Tentados: {', '.join(errors)}"
+        if quota_esgotada:
+            msg += " — cota diária do Gemini esgotada (verifique em aistudio.google.com/apikey ou aguarde o reset)."
+        return None, msg
 
     def _try_groq():
         key = (os.environ.get("GROQ_API_KEY") or
@@ -1219,7 +1240,7 @@ def _process_batch(card):
             payload = json.dumps({
                 "model": model,
                 "messages": msgs,
-                "max_tokens": 8192,
+                "max_tokens": 3000,
             }).encode()
             req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -1243,11 +1264,12 @@ def _process_batch(card):
         if not all_text.strip() and not has_image:
             return None, "Groq: sem conteúdo para processar"
 
+        import time as _time_groq
         errors = []
         for model in GROQ_MODELS:
             all_transactions = []
-            CHUNK = 12000
-            OVERLAP = 500
+            CHUNK = 4000  # reduzido de 12000: requests grandes demais causavam 413
+            OVERLAP = 300
             model_failed = False
 
             if all_text.strip():
@@ -1265,8 +1287,16 @@ def _process_batch(card):
                         result = _groq_call(model, chunk)
                         if isinstance(result, list):
                             all_transactions.extend(result)
+                        if i < len(chunks) - 1:
+                            _time_groq.sleep(1)  # evita estourar limite de tokens/min
                     except urllib.error.HTTPError as e:
-                        errors.append(f"{model}:{e.code}:{e.read().decode()[:150]}")
+                        body = e.read().decode()[:200]
+                        if e.code == 413:
+                            # request ainda grande demais: pula este chunk em vez
+                            # de descartar o modelo inteiro
+                            errors.append(f"{model} chunk {i+1}:413 (chunk pulado)")
+                            continue
+                        errors.append(f"{model}:{e.code}:{body}")
                         model_failed = True
                         break
                     except Exception as e:
@@ -1282,7 +1312,7 @@ def _process_batch(card):
                                 "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                     payload = json.dumps({
                         "model": model,
-                        "messages": img_msgs, "max_tokens": 8192,
+                        "messages": img_msgs, "max_tokens": 3000,
                     }).encode()
                     req = urllib.request.Request(
                         "https://api.groq.com/openai/v1/chat/completions",
