@@ -295,7 +295,19 @@ function abrirEdicao(td) {
   input.select();
 
   function salvar() {
-    var v = input.value.trim();  // envia valor bruto — Python faz a conversão
+    var raw = input.value.trim();
+    // Normalizar para formato BR antes de enviar ao Python:
+    // "1000.50" (US) → "1000,50" | "1.000,50" (BR) → "1000,50" | "1000" → "1000"
+    var v;
+    if (raw.indexOf(',') > -1) {
+      // Tem vírgula: ponto é separador de milhar → remover pontos
+      v = raw.replace(/[.]/g, '');   // "1.000,50" → "1000,50"
+    } else if (raw.indexOf('.') > -1) {
+      // Só tem ponto: é decimal americano → converter para vírgula
+      v = raw.replace('.', ',');    // "1000.50" → "1000,50"
+    } else {
+      v = raw;                       // "1000" → "1000"
+    }
     var fd = new FormData();
     fd.append('year', td.getAttribute('data-year'));
     fd.append('month', td.getAttribute('data-month'));
