@@ -155,6 +155,32 @@ def ajustar():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@cashflow_bp.route("/limpar-override", methods=["POST"])
+@login_required
+def limpar_override():
+    """Remove o override manual de um mês/coluna específico."""
+    from flask import request as req, jsonify
+    from app.models import CashflowOverride
+    year  = req.form.get("year", type=int)
+    month = req.form.get("month", type=int)
+    field = req.form.get("field", "net")
+    override = CashflowOverride.query.filter_by(
+        user_id=current_user.id, year=year, month=month
+    ).first()
+    if override:
+        field_map = {
+            "net": "net_override", "cumulative": "cumulative_override",
+            "income_recurring": "income_recurring_override",
+            "income_eventual": "income_eventual_override",
+            "fixed": "fixed_override", "eventual": "eventual_override",
+        }
+        col = field_map.get(field)
+        if col:
+            setattr(override, col, None)
+        db.session.commit()
+    return jsonify({"ok": True})
+
+
 @cashflow_bp.route("/debug-tudo")
 @login_required
 def debug_tudo():
