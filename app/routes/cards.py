@@ -1029,20 +1029,40 @@ def _process_batch(card):
         flash(f"Mês {_bm_orig} está fechado. Importando para {billing_month}.", "warning")
 
     PROMPT = (
-        "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações de compra. "
-        "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
-        'Formato: [{"description": "NOME DA COMPRA", "amount": 99.90, "date": "2026-05-15", "kind": "pontual"}] '
-        "REGRAS IMPORTANTES:\n"
-        "1. amount: sempre número positivo em reais (converta vírgula para ponto: 1.234,56 -> 1234.56)\n"
-        "2. date: formato YYYY-MM-DD. Se só tiver DD/MM, use ano 2026\n"
-        "3. kind: 'pontual' para compras normais, 'parcelado' para '01 DE 06' etc, 'recorrente' para assinaturas\n"
-        "4. Se parcelado (ex: '03 DE 10'): inclua installment_no=3 e installments=10\n"
-        "5. Extraia APENAS linhas marcadas com 'D' (débito). Ignore linhas com 'C' (crédito)\n"
-        "6. Ignore: TOTAL DA FATURA, PAGAMENTO, AJUSTE, saldos, limites, encargos, juros, IOF\n"
-        "7. Extraia compras de TODOS os cartões do extrato (0410, 6458, 8231, 3221)\n"
-        "8. O formato das linhas é: DD/MM DESCRICAO CIDADE VALOR D"
+        "Você é um extrator de dados extremamente rigoroso e cuidadoso, especializado em "
+        "faturas de cartão de crédito brasileiro. Erros de valor, nome ou parcela são "
+        "inaceitáveis — prefira marcar um campo como incerto a inventar ou arredondar.\n\n"
+        "TAREFA: extraia TODAS as transações de compra deste extrato. "
+        "Retorne SOMENTE um array JSON válido, sem markdown, sem \\`\\`\\`, sem texto antes ou depois.\n"
+        'Formato de cada item: {"description":"NOME EXATO DA COMPRA","amount":99.90,'
+        '"date":"2026-05-15","kind":"pontual","installment_no":1,"installments":1}\n\n'
+        "REGRAS OBRIGATÓRIAS — siga PASSO A PASSO para cada linha do extrato:\n"
+        "1. TRANSCREVA o valor exatamente como impresso, dígito por dígito, antes de converter. "
+        "Só então troque separador decimal: '1.234,56' -> 1234.56. NUNCA arredonde, NUNCA invente "
+        "centavos, NUNCA copie o valor de uma linha adjacente.\n"
+        "2. NOME (description): copie o nome do estabelecimento exatamente como aparece na linha, "
+        "sem truncar, sem traduzir, sem 'corrigir' abreviações, sem misturar com a linha anterior/seguinte.\n"
+        "3. PARCELAS — a linha pode conter um padrão 'NN DE MM' (ex: '03 DE 10', '01/06', '1 de 12'). "
+        "Antes de preencher installment_no/installments, releia a linha e confirme os dois números "
+        "separadamente: installment_no é o PRIMEIRO número (parcela atual), installments é o SEGUNDO "
+        "(total de parcelas). NUNCA troque a ordem. NUNCA use installments=1 se a linha tiver esse padrão. "
+        "Se NÃO houver esse padrão na linha, installment_no=1 e installments=1 (kind='pontual').\n"
+        "4. kind: 'parcelado' somente se houver o padrão NN DE MM. 'recorrente' apenas para assinaturas "
+        "explícitas (ex: Netflix, Spotify, mensalidades). Caso contrário 'pontual'.\n"
+        "5. date: formato YYYY-MM-DD. Se a linha só tiver DD/MM, use o ano 2026. Não invente datas.\n"
+        "6. Extraia APENAS linhas de débito (marcadas com 'D'). IGNORE COMPLETAMENTE linhas marcadas "
+        "com 'C' (crédito/estorno).\n"
+        "7. IGNORE linhas de: TOTAL DA FATURA, PAGAMENTO, PAGTO, AJUSTE, saldo anterior, limite, "
+        "encargos, juros, IOF, anuidade — essas não são compras.\n"
+        "8. O extrato pode ter várias colunas/cartões lado a lado (ex: final 0410, 6458, 8231, 3221). "
+        "Percorra TODAS as colunas e TODOS os cartões, não pare no primeiro.\n"
+        "9. NÃO invente transações que não estão explicitamente escritas no texto. Se uma linha estiver "
+        "ambígua ou cortada, faça sua melhor leitura literal do texto — não complete com suposições.\n"
+        "10. Antes de finalizar, revise mentalmente cada item comparando com o texto original: "
+        "o valor bate dígito a dígito? a parcela está na ordem certa (atual/total)? o nome não foi "
+        "misturado com outra linha? Só inclua o item se a resposta for sim para os três.\n"
+        "11. Retorne TODOS os lançamentos encontrados, sem omitir nenhum, mas sem duplicar."
     )
-
     file_data = []
     for fi in files:
         data = fi.read()
@@ -1131,33 +1151,13 @@ def _process_batch(card):
             return None, "Gemini: sem texto extraído do PDF"
         errors = []
 
-        prompt_parcelado = (
-            "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações. "
-            "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
-            'Formato: [{"description":"NOME","amount":99.90,"date":"2026-05-15","kind":"pontual"}] '
-            "REGRAS CRÍTICAS:\n"
-            "1. amount: número positivo em reais (1.234,56 → 1234.56)\n"
-            "2. date: YYYY-MM-DD. Se só DD/MM use ano 2026\n"
-            "3. Extraia APENAS linhas com 'D' (débito). Ignore 'C' (crédito)\n"
-            "4. Ignore: TOTAL DA FATURA, PAGAMENTO, AJUSTE, IOF, encargos, juros\n"
-            "5. PARCELADOS — MUITO IMPORTANTE: quando a linha contiver 'XX DE YY' (ex: '03 DE 10'):\n"
-            '   - kind = "parcelado"\n'
-            "   - installment_no = XX (número da parcela atual)\n"
-            "   - installments = YY (total de parcelas)\n"
-            '   Exemplo: "VIA ODONTOLOGIA 03 DE 10 BRASILIA 1000.00D" →\n'
-            '   {"description":"VIA ODONTOLOGIA","amount":1000.00,"date":"2026-04-02",'
-            '"kind":"parcelado","installment_no":3,"installments":10}\n'
-            "6. Extraia compras de TODOS os cartões (0410, 6458, 8231, 3221 etc.)\n"
-            "7. Retorne TODOS os lançamentos sem omitir nenhum"
-        )
-
         parts = [
-            {"text": prompt_parcelado},
+            {"text": PROMPT},
             {"text": "Extrato:\n" + extracted_text[:20000]},
         ]
         payload = json.dumps({
             "contents": [{"parts": parts}],
-            "generationConfig": {"maxOutputTokens": 8192},
+            "generationConfig": {"maxOutputTokens": 8192, "temperature": 0},
         }).encode()
 
         # Modelos vigentes em jul/2026 (gemini-2.0-*/1.5-* foram descontinuados
@@ -1241,6 +1241,7 @@ def _process_batch(card):
                 "model": model,
                 "messages": msgs,
                 "max_tokens": 3000,
+                "temperature": 0,
             }).encode()
             req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -1312,7 +1313,7 @@ def _process_batch(card):
                                 "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                     payload = json.dumps({
                         "model": model,
-                        "messages": img_msgs, "max_tokens": 3000,
+                        "messages": img_msgs, "max_tokens": 3000, "temperature": 0,
                     }).encode()
                     req = urllib.request.Request(
                         "https://api.groq.com/openai/v1/chat/completions",
@@ -1355,10 +1356,11 @@ def _process_batch(card):
         if not acct or not key:
             return None, "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurados"
 
-        def _cf_call(model, messages, max_tokens=4096):
+        def _cf_call(model, messages, max_tokens=3000):
             payload = json.dumps({
                 "messages": messages,
-                "max_tokens": max_tokens,  # antes sem limite explícito -> respostas truncadas
+                "max_tokens": max_tokens,
+                "temperature": 0,
             }).encode()
             url = f"https://api.cloudflare.com/client/v4/accounts/{acct}/ai/run/{model}"
             req = urllib.request.Request(url, data=payload,
@@ -1399,14 +1401,58 @@ def _process_batch(card):
             elif "image" in fd["mime"]:
                 has_img = True
 
+        # Modelo de texto atual: gpt-oss-120b é muito mais rigoroso que o antigo
+        # llama-3.1-8b-instruct, que estava trocando valores/parcelas/nomes.
+        CF_TEXT_MODEL = "@cf/openai/gpt-oss-120b"
+        CF_TEXT_MODEL_FALLBACK = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
         try:
             if pdf_text.strip():
-                # PDF: usa modelo de texto (sem agreement)
-                msgs = [
-                    {"role": "user", "content": PROMPT + "\n\nExtrato:\n" + pdf_text[:12000]}
-                ]
-                result = _cf_call("@cf/meta/llama-3.1-8b-instruct", msgs, max_tokens=4096)
-                raw = result.get("result", {}).get("response", "")
+                # Processa o extrato inteiro em chunks (antes truncava em 12000
+                # caracteres e perdia lançamentos / confundia parcelas por falta
+                # de contexto)
+                CHUNK = 6000
+                OVERLAP = 300
+                chunks = []
+                start = 0
+                while start < len(pdf_text):
+                    end = min(start + CHUNK, len(pdf_text))
+                    chunks.append(pdf_text[start:end])
+                    if end >= len(pdf_text):
+                        break
+                    start = end - OVERLAP
+
+                all_transactions = []
+                cf_errors = []
+                for i, chunk in enumerate(chunks):
+                    msgs = [{"role": "user", "content": PROMPT + "\n\nExtrato:\n" + chunk}]
+                    parsed_chunk = None
+                    for model in (CF_TEXT_MODEL, CF_TEXT_MODEL_FALLBACK):
+                        try:
+                            result = _cf_call(model, msgs, max_tokens=3000)
+                            raw = result.get("result", {}).get("response", "")
+                            parsed_chunk = _parse_json(raw)
+                            break
+                        except Exception as _e:
+                            cf_errors.append(f"{model} chunk {i+1}: {_e}")
+                            continue
+                    if isinstance(parsed_chunk, list):
+                        all_transactions.extend(parsed_chunk)
+
+                if not all_transactions:
+                    return None, "Cloudflare: " + " | ".join(cf_errors[-3:] or ["nenhuma transação extraída"])
+
+                # Dedup (chunks se sobrepõem propositalmente)
+                seen = set()
+                unique = []
+                for t in all_transactions:
+                    k = (str(t.get("description",""))[:40], str(t.get("amount","")),
+                         str(t.get("date","")), t.get("installment_no"), t.get("installments"))
+                    if k not in seen:
+                        seen.add(k)
+                        unique.append(t)
+                return unique, None
+
             elif has_img:
                 # Imagem: aceita agreement do modelo de visão, depois envia
                 agree_msgs = [{"role": "user", "content": "agree"}]
@@ -1420,11 +1466,11 @@ def _process_batch(card):
                         img_content.append({"type": "image_url",
                             "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                 msgs = [{"role": "user", "content": img_content}]
-                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs, max_tokens=4096)
+                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs, max_tokens=3000)
                 raw = result.get("result", {}).get("response", "")
+                return _parse_json(raw), None
             else:
                 return None, "Cloudflare: sem conteúdo para processar"
-            return _parse_json(raw), None
         except urllib.error.HTTPError as e:
             return None, f"Cloudflare {e.code}: {e.read().decode()[:200]}"
         except Exception as e:
