@@ -185,6 +185,11 @@ def list_expenses():
     total_my_share = round(total_paid - total_repassado, 2)
 
     mes_nome = _cal.month_name[filter_month]
+    MESES_PT_E = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label = f"{MESES_PT_E[filter_month-1]}/{filter_year}"
+    prev_mes = f"{filter_year-1}-12" if filter_month == 1 else f"{filter_year}-{filter_month-1:02d}"
+    next_mes = f"{filter_year+1}-01" if filter_month == 12 else f"{filter_year}-{filter_month+1:02d}"
 
     # Cartões do usuário para exibir nome na lista
     user_cards = {c.id: c for c in Card.query.filter_by(
@@ -202,6 +207,9 @@ def list_expenses():
                            mes_filter=mes_filter,
                            total_repassado=total_repassado,
                            mes_nome=mes_nome,
+                           mes_label=mes_label,
+                           prev_mes=prev_mes,
+                           next_mes=next_mes,
                            filter_year=filter_year,
                            filter_month=filter_month,
                            parcelados_no_mes=parcelados_no_mes)
