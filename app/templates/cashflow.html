@@ -149,7 +149,7 @@
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
-              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" title="Duplo clique para editar / Clique para ver cálculo"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}" title="Duplo clique para editar / Clique para ver cálculo"
 
                onclick="mostrarMemoria(this)">
             {{ m.net|brl }}
@@ -249,8 +249,12 @@ function mostrarMemoria(td) {
       html += '<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;color:var(--text-dim);">';
       html += '<span>= Calculado</span><span class="mono">' + fmtBRL(netCalc) + '</span></div>';
       var ajuste = netExibido - netCalc;
-      html += '<div style="display:flex;justify-content:space-between;color:var(--gold);font-size:0.8rem;">';
-      html += '<span>± Ajuste manual</span><span class="mono">' + fmtBRL(ajuste) + '</span></div>';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;color:var(--gold);font-size:0.8rem;gap:8px;">';
+      html += '<span>± Ajuste manual: <strong>' + fmtBRL(ajuste) + '</strong></span>';
+      var yr = td.getAttribute("data-year") || '';
+      var mo = td.getAttribute("data-month") || '';
+      html += '<button onclick="limparAjuste(this,' + yr + ',' + mo + ')" style="font-size:0.7rem;background:none;border:1px solid var(--gold);color:var(--gold);border-radius:4px;padding:2px 6px;cursor:pointer;">✕ Limpar</button>';
+      html += '</div>';
     }
     html += '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">';
     html += '<span>= Saldo</span><span class="mono" style="color:' + (netExibido >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(netExibido) + '</span></div>';
@@ -275,6 +279,18 @@ function mostrarMemoriaCum(td) {
   document.getElementById('mem-body').innerHTML = html;
   document.getElementById('mem-title').textContent = 'Memória: Acumulado';
   document.getElementById('mem-modal').style.display = 'flex';
+}
+
+function limparAjuste(btn, year, month) {
+  if (!confirm('Remover ajuste manual de ' + month + '/' + year + '? O saldo voltará ao valor calculado.')) return;
+  var fd = new FormData();
+  fd.append('year', year);
+  fd.append('month', month);
+  fd.append('field', 'net');
+  fetch('/fluxo/limpar-override', {method:'POST', body:fd, credentials:'same-origin'})
+    .then(r => r.json()).then(d => {
+      if (d.ok) { document.getElementById('mem-modal').style.display='none'; window.location.reload(); }
+    });
 }
 
 function fmtBRL(v) {
