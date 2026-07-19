@@ -6,11 +6,16 @@
   <div class="page-title-wrap">
     <h1>Gastos</h1>
     <p>
-      Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong>
+      {{ mes_label }} · Você pagou <strong style="color:var(--red);">{{ total_paid|brl }}</strong>
       · Sua cota total: <strong>{{ total_my_share|brl }}</strong>
     </p>
   </div>
-  <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary">+ Novo gasto</a>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <a href="{{ url_for('expenses.list_expenses', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
+    <span style="font-weight:600;min-width:120px;text-align:center;">{{ mes_label }}</span>
+    <a href="{{ url_for('expenses.list_expenses', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
+    <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm">+ Novo gasto</a>
+  </div>
 </div>
 
 <div class="card">
