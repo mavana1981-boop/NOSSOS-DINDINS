@@ -1029,40 +1029,20 @@ def _process_batch(card):
         flash(f"Mês {_bm_orig} está fechado. Importando para {billing_month}.", "warning")
 
     PROMPT = (
-        "Você é um extrator de dados extremamente rigoroso e cuidadoso, especializado em "
-        "faturas de cartão de crédito brasileiro. Erros de valor, nome ou parcela são "
-        "inaceitáveis — prefira marcar um campo como incerto a inventar ou arredondar.\n\n"
-        "TAREFA: extraia TODAS as transações de compra deste extrato. "
-        "Retorne SOMENTE um array JSON válido, sem markdown, sem \\`\\`\\`, sem texto antes ou depois.\n"
-        'Formato de cada item: {"description":"NOME EXATO DA COMPRA","amount":99.90,'
-        '"date":"2026-05-15","kind":"pontual","installment_no":1,"installments":1}\n\n'
-        "REGRAS OBRIGATÓRIAS — siga PASSO A PASSO para cada linha do extrato:\n"
-        "1. TRANSCREVA o valor exatamente como impresso, dígito por dígito, antes de converter. "
-        "Só então troque separador decimal: '1.234,56' -> 1234.56. NUNCA arredonde, NUNCA invente "
-        "centavos, NUNCA copie o valor de uma linha adjacente.\n"
-        "2. NOME (description): copie o nome do estabelecimento exatamente como aparece na linha, "
-        "sem truncar, sem traduzir, sem 'corrigir' abreviações, sem misturar com a linha anterior/seguinte.\n"
-        "3. PARCELAS — a linha pode conter um padrão 'NN DE MM' (ex: '03 DE 10', '01/06', '1 de 12'). "
-        "Antes de preencher installment_no/installments, releia a linha e confirme os dois números "
-        "separadamente: installment_no é o PRIMEIRO número (parcela atual), installments é o SEGUNDO "
-        "(total de parcelas). NUNCA troque a ordem. NUNCA use installments=1 se a linha tiver esse padrão. "
-        "Se NÃO houver esse padrão na linha, installment_no=1 e installments=1 (kind='pontual').\n"
-        "4. kind: 'parcelado' somente se houver o padrão NN DE MM. 'recorrente' apenas para assinaturas "
-        "explícitas (ex: Netflix, Spotify, mensalidades). Caso contrário 'pontual'.\n"
-        "5. date: formato YYYY-MM-DD. Se a linha só tiver DD/MM, use o ano 2026. Não invente datas.\n"
-        "6. Extraia APENAS linhas de débito (marcadas com 'D'). IGNORE COMPLETAMENTE linhas marcadas "
-        "com 'C' (crédito/estorno).\n"
-        "7. IGNORE linhas de: TOTAL DA FATURA, PAGAMENTO, PAGTO, AJUSTE, saldo anterior, limite, "
-        "encargos, juros, IOF, anuidade — essas não são compras.\n"
-        "8. O extrato pode ter várias colunas/cartões lado a lado (ex: final 0410, 6458, 8231, 3221). "
-        "Percorra TODAS as colunas e TODOS os cartões, não pare no primeiro.\n"
-        "9. NÃO invente transações que não estão explicitamente escritas no texto. Se uma linha estiver "
-        "ambígua ou cortada, faça sua melhor leitura literal do texto — não complete com suposições.\n"
-        "10. Antes de finalizar, revise mentalmente cada item comparando com o texto original: "
-        "o valor bate dígito a dígito? a parcela está na ordem certa (atual/total)? o nome não foi "
-        "misturado com outra linha? Só inclua o item se a resposta for sim para os três.\n"
-        "11. Retorne TODOS os lançamentos encontrados, sem omitir nenhum, mas sem duplicar."
+        "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações de compra. "
+        "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
+        'Formato: [{"description": "NOME DA COMPRA", "amount": 99.90, "date": "2026-05-15", "kind": "pontual"}] '
+        "REGRAS IMPORTANTES:\n"
+        "1. amount: sempre número positivo em reais (converta vírgula para ponto: 1.234,56 -> 1234.56)\n"
+        "2. date: formato YYYY-MM-DD. Se só tiver DD/MM, use ano 2026\n"
+        "3. kind: 'pontual' para compras normais, 'parcelado' para '01 DE 06' etc, 'recorrente' para assinaturas\n"
+        "4. Se parcelado (ex: '03 DE 10'): inclua installment_no=3 e installments=10\n"
+        "5. Extraia APENAS linhas marcadas com 'D' (débito). Ignore linhas com 'C' (crédito)\n"
+        "6. Ignore: TOTAL DA FATURA, PAGAMENTO, AJUSTE, saldos, limites, encargos, juros, IOF\n"
+        "7. Extraia compras de TODOS os cartões do extrato (0410, 6458, 8231, 3221)\n"
+        "8. O formato das linhas é: DD/MM DESCRICAO CIDADE VALOR D"
     )
+
     file_data = []
     for fi in files:
         data = fi.read()
@@ -1110,36 +1090,10 @@ def _process_batch(card):
                 pass
         return "\n".join(all_lines)
 
-    def _repair_json(raw):
-        """Repara JSON truncado fechando aspas/colchetes pendentes."""
-        text = raw.strip()
-        if text.count('"') % 2 != 0:
-            text += '"'
-        opens = {"{": "}", "[": "]"}
-        stack = []
-        in_string = False
-        for ch in text:
-            if ch == '"':
-                in_string = not in_string
-            if not in_string and ch in opens:
-                stack.append(opens[ch])
-            elif not in_string and stack and ch == stack[-1]:
-                stack.pop()
-        text += "".join(reversed(stack))
-        return json.loads(text)
-
     def _parse_json(raw):
-        # Alguns modelos (ex: Cloudflare em certos casos) já retornam a resposta
-        # como list/dict em vez de string -> não dá pra chamar .strip() nisso.
-        if isinstance(raw, (list, dict)):
-            return raw
-        raw = re.sub(r"^```[a-z]*\n?", "", str(raw).strip())
+        raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         raw = re.sub(r"\n?```$", "", raw)
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            # resposta pode ter sido cortada por limite de tokens: tenta reparar
-            return _repair_json(raw)
+        return json.loads(raw)
 
     def _try_gemini():
         key = os.environ.get("GEMINI_API_KEY", "")
@@ -1151,73 +1105,86 @@ def _process_batch(card):
             return None, "Gemini: sem texto extraído do PDF"
         errors = []
 
+        prompt_parcelado = (
+            "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações. "
+            "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
+            'Formato: [{"description":"NOME","amount":99.90,"date":"2026-05-15","kind":"pontual"}] '
+            "REGRAS CRÍTICAS:\n"
+            "1. amount: número positivo em reais (1.234,56 → 1234.56)\n"
+            "2. date: YYYY-MM-DD. Se só DD/MM use ano 2026\n"
+            "3. Extraia APENAS linhas com 'D' (débito). Ignore 'C' (crédito)\n"
+            "4. Ignore: TOTAL DA FATURA, PAGAMENTO, AJUSTE, IOF, encargos, juros\n"
+            "5. PARCELADOS — MUITO IMPORTANTE: quando a linha contiver 'XX DE YY' (ex: '03 DE 10'):\n"
+            '   - kind = "parcelado"\n'
+            "   - installment_no = XX (número da parcela atual)\n"
+            "   - installments = YY (total de parcelas)\n"
+            '   Exemplo: "VIA ODONTOLOGIA 03 DE 10 BRASILIA 1000.00D" →\n'
+            '   {"description":"VIA ODONTOLOGIA","amount":1000.00,"date":"2026-04-02",'
+            '"kind":"parcelado","installment_no":3,"installments":10}\n'
+            "6. Extraia compras de TODOS os cartões (0410, 6458, 8231, 3221 etc.)\n"
+            "7. Retorne TODOS os lançamentos sem omitir nenhum"
+        )
+
         parts = [
-            {"text": PROMPT},
+            {"text": prompt_parcelado},
             {"text": "Extrato:\n" + extracted_text[:20000]},
         ]
-        payload = json.dumps({
-            "contents": [{"parts": parts}],
-            "generationConfig": {"maxOutputTokens": 8192, "temperature": 0},
-        }).encode()
+        payload = json.dumps({"contents": [{"parts": parts}]}).encode()
 
-        # Modelos vigentes em jul/2026 (gemini-2.0-*/1.5-* foram descontinuados
-        # pelo Google e sempre retornam 404; não vale a pena tentá-los)
+        # Cache dinâmico: tenta o último modelo que funcionou primeiro
+        # Tenta v1 e v1beta para cada modelo
         CANDIDATES = [
-            ("v1beta", "gemini-2.5-flash"),
-            ("v1beta", "gemini-2.5-flash-lite"),
-            ("v1beta", "gemini-3.5-flash"),
+            ("v1",    "gemini-2.0-flash-001"),
+            ("v1",    "gemini-2.0-flash"),
+            ("v1",    "gemini-1.5-flash-8b"),
+            ("v1",    "gemini-1.5-flash-001"),
+            ("v1",    "gemini-1.5-flash-002"),
+            ("v1",    "gemini-1.5-flash"),
+            ("v1",    "gemini-1.5-pro-001"),
+            ("v1beta","gemini-2.5-flash"),
+            ("v1beta","gemini-2.5-flash-preview-05-20"),
+            ("v1beta","gemini-2.0-flash-exp"),
+            ("v1beta","gemini-2.0-flash-lite"),
+            ("v1beta","gemini-1.5-flash-002"),
+            ("v1beta","gemini-1.5-flash-001"),
+            ("v1beta","gemini-1.5-flash"),
+            ("v1beta","gemini-1.5-flash-8b-001"),
+            ("v1beta","gemini-1.5-pro-002"),
+            ("v1beta","gemini-1.5-pro"),
+            ("v1beta","gemini-pro"),
         ]
         # Cache dinâmico: tenta o último que funcionou primeiro
         cached = getattr(current_app, "_gemini_batch_model", None)
         if cached:
             CANDIDATES = [c for c in CANDIDATES if c[1]==cached] +                          [c for c in CANDIDATES if c[1]!=cached]
 
-        import time as _time
-        quota_esgotada = False
         for api_ver, model in CANDIDATES:
-            url = (f"https://generativelanguage.googleapis.com/{api_ver}/"
-                   f"models/{model}:generateContent?key={key}")
-            # backoff exponencial em caso de 429 antes de desistir do modelo
-            for attempt in range(2):
+            try:
+                url = (f"https://generativelanguage.googleapis.com/{api_ver}/"
+                       f"models/{model}:generateContent?key={key}")
+                req = urllib.request.Request(url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    result = json.loads(resp.read())
+                raw = result["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = _parse_json(raw)
                 try:
-                    req = urllib.request.Request(url, data=payload,
-                        headers={"Content-Type": "application/json"}, method="POST")
-                    with urllib.request.urlopen(req, timeout=90) as resp:
-                        result = json.loads(resp.read())
-                    raw = result["candidates"][0]["content"]["parts"][0]["text"]
-                    parsed = _parse_json(raw)
-                    try:
-                        current_app._gemini_batch_model = model
-                        current_app._gemini_last_used = f"{api_ver}/{model}"
-                    except Exception:
-                        pass
-                    return parsed, None
-                except urllib.error.HTTPError as e:
-                    body = ""
-                    try:
-                        body = e.read().decode()[:200]
-                    except Exception:
-                        pass
-                    errors.append(f"{api_ver}/{model}:{e.code}")
-                    if e.code == 429:
-                        # "RESOURCE_EXHAUSTED" com quota diária não se resolve
-                        # com retry; "rate limit" por minuto sim.
-                        if "PerDay" in body or "daily" in body.lower():
-                            quota_esgotada = True
-                            break  # não adianta insistir neste nem nos outros modelos
-                        if attempt == 0:
-                            _time.sleep(5)  # espera antes de tentar de novo
-                            continue
-                    break  # 404 ou 429 esgotado: pula pro próximo modelo
-                except Exception as _ex:
-                    errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
-                    break
-            if quota_esgotada:
-                break
-        msg = f"Gemini indisponível. Tentados: {', '.join(errors)}"
-        if quota_esgotada:
-            msg += " — cota diária do Gemini esgotada (verifique em aistudio.google.com/apikey ou aguarde o reset)."
-        return None, msg
+                    current_app._gemini_batch_model = model
+                    current_app._gemini_last_used = f"{api_ver}/{model}"
+                except Exception:
+                    pass
+                return parsed, None
+            except urllib.error.HTTPError as e:
+                body = e.read().decode()
+                errors.append(f"{api_ver}/{model}:{e.code}")
+                if e.code in (429, 503):
+                    # Alta demanda ou quota: aguarda e tenta próximo
+                    import time as _time; _time.sleep(3)
+                continue
+            except Exception as _ex:
+                errors.append(f"{api_ver}/{model}:{repr(_ex)[:60]}")
+                continue
+        return None, f"Gemini indisponível. Tentados: {', '.join(errors)}"
 
     def _try_groq():
         key = (os.environ.get("GROQ_API_KEY") or
@@ -1227,21 +1194,16 @@ def _process_batch(card):
             env_keys = [k for k in os.environ if "groq" in k.lower() or "GROQ" in k]
             return None, f"GROQ_API_KEY não encontrada (vars disponíveis: {env_keys})"
 
-        # Modelos vigentes em jul/2026. A Groq descontinuou llama-4-scout,
-        # llama-3.3-70b-versatile, llama-3.1-8b-instant e qwen3-32b.
-        GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-
-        def _groq_call(model, text_chunk):
+        def _groq_call(text_chunk):
             """Chama Groq com um chunk de texto."""
             msgs = [{"role": "user", "content": [
                 {"type": "text", "text": PROMPT},
                 {"type": "text", "text": "Extrato:\n" + text_chunk},
             ]}]
             payload = json.dumps({
-                "model": model,
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
                 "messages": msgs,
-                "max_tokens": 3000,
-                "temperature": 0,
+                "max_tokens": 8192,
             }).encode()
             req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -1265,90 +1227,65 @@ def _process_batch(card):
         if not all_text.strip() and not has_image:
             return None, "Groq: sem conteúdo para processar"
 
-        import time as _time_groq
-        errors = []
-        for model in GROQ_MODELS:
-            all_transactions = []
-            CHUNK = 4000  # reduzido de 12000: requests grandes demais causavam 413
-            OVERLAP = 300
-            model_failed = False
+        all_transactions = []
+        CHUNK = 12000
+        OVERLAP = 500
 
-            if all_text.strip():
-                chunks = []
-                start = 0
-                while start < len(all_text):
-                    end = min(start + CHUNK, len(all_text))
-                    chunks.append(all_text[start:end])
-                    if end >= len(all_text):
-                        break
-                    start = end - OVERLAP
+        if all_text.strip():
+            chunks = []
+            start = 0
+            while start < len(all_text):
+                end = min(start + CHUNK, len(all_text))
+                chunks.append(all_text[start:end])
+                if end >= len(all_text):
+                    break
+                start = end - OVERLAP
 
-                for i, chunk in enumerate(chunks):
-                    try:
-                        result = _groq_call(model, chunk)
-                        if isinstance(result, list):
-                            all_transactions.extend(result)
-                        if i < len(chunks) - 1:
-                            _time_groq.sleep(1)  # evita estourar limite de tokens/min
-                    except urllib.error.HTTPError as e:
-                        body = e.read().decode()[:200]
-                        if e.code == 413:
-                            # request ainda grande demais: pula este chunk em vez
-                            # de descartar o modelo inteiro
-                            errors.append(f"{model} chunk {i+1}:413 (chunk pulado)")
-                            continue
-                        errors.append(f"{model}:{e.code}:{body}")
-                        model_failed = True
-                        break
-                    except Exception as e:
-                        errors.append(f"{model} chunk {i+1}: {e}")
-                        model_failed = True
-                        break
-            else:
+            for i, chunk in enumerate(chunks):
                 try:
-                    img_msgs = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
-                    for fd in file_data:
-                        if "image" in fd["mime"]:
-                            img_msgs[0]["content"].append({"type": "image_url",
-                                "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
-                    payload = json.dumps({
-                        "model": model,
-                        "messages": img_msgs, "max_tokens": 3000, "temperature": 0,
-                    }).encode()
-                    req = urllib.request.Request(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        data=payload,
-                        headers={"Content-Type": "application/json",
-                                 "Authorization": f"Bearer {key}",
-                                 "User-Agent": "Mozilla/5.0"},
-                        method="POST")
-                    with urllib.request.urlopen(req, timeout=90) as resp:
-                        result = json.loads(resp.read())
-                    raw = result["choices"][0]["message"]["content"]
-                    all_transactions = _parse_json(raw)
+                    result = _groq_call(chunk)
+                    if isinstance(result, list):
+                        all_transactions.extend(result)
                 except urllib.error.HTTPError as e:
-                    errors.append(f"{model}:{e.code}:{e.read().decode()[:150]}")
-                    model_failed = True
+                    return None, f"Groq {e.code}: {e.read().decode()[:200]}"
                 except Exception as e:
-                    errors.append(f"{model}: {e}")
-                    model_failed = True
+                    return None, f"Groq chunk {i+1}: {e}"
+        else:
+            try:
+                img_msgs = [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]
+                for fd in file_data:
+                    if "image" in fd["mime"]:
+                        img_msgs[0]["content"].append({"type": "image_url",
+                            "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
+                payload = json.dumps({
+                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "messages": img_msgs, "max_tokens": 8192,
+                }).encode()
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json",
+                             "Authorization": f"Bearer {key}",
+                             "User-Agent": "Mozilla/5.0"},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    result = json.loads(resp.read())
+                raw = result["choices"][0]["message"]["content"]
+                all_transactions = _parse_json(raw)
+            except urllib.error.HTTPError as e:
+                return None, f"Groq {e.code}: {e.read().decode()[:200]}"
+            except Exception as e:
+                return None, f"Groq: {e}"
 
-            if model_failed:
-                continue  # tenta o próximo modelo da lista
+        seen = set()
+        unique = []
+        for t in all_transactions:
+            key2 = (str(t.get("description",""))[:40], str(t.get("amount","")), str(t.get("date","")))
+            if key2 not in seen:
+                seen.add(key2)
+                unique.append(t)
 
-            seen = set()
-            unique = []
-            for t in all_transactions:
-                key2 = (str(t.get("description",""))[:40], str(t.get("amount","")), str(t.get("date","")))
-                if key2 not in seen:
-                    seen.add(key2)
-                    unique.append(t)
-
-            if unique:
-                return unique, None
-            errors.append(f"{model}: nenhuma transação encontrada")
-
-        return None, f"Groq indisponível. Tentados: {', '.join(errors)}"
+        return unique if unique else None, None if unique else "Groq: nenhuma transação encontrada"
 
     def _try_cloudflare():
         acct = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -1356,12 +1293,8 @@ def _process_batch(card):
         if not acct or not key:
             return None, "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurados"
 
-        def _cf_call(model, messages, max_tokens=3000):
-            payload = json.dumps({
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0,
-            }).encode()
+        def _cf_call(model, messages):
+            payload = json.dumps({"messages": messages}).encode()
             url = f"https://api.cloudflare.com/client/v4/accounts/{acct}/ai/run/{model}"
             req = urllib.request.Request(url, data=payload,
                 headers={"Content-Type": "application/json",
@@ -1401,63 +1334,19 @@ def _process_batch(card):
             elif "image" in fd["mime"]:
                 has_img = True
 
-        # Modelo de texto atual: gpt-oss-120b é muito mais rigoroso que o antigo
-        # llama-3.1-8b-instruct, que estava trocando valores/parcelas/nomes.
-        CF_TEXT_MODEL = "@cf/openai/gpt-oss-120b"
-        CF_TEXT_MODEL_FALLBACK = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-
         try:
             if pdf_text.strip():
-                # Processa o extrato inteiro em chunks (antes truncava em 12000
-                # caracteres e perdia lançamentos / confundia parcelas por falta
-                # de contexto)
-                CHUNK = 6000
-                OVERLAP = 300
-                chunks = []
-                start = 0
-                while start < len(pdf_text):
-                    end = min(start + CHUNK, len(pdf_text))
-                    chunks.append(pdf_text[start:end])
-                    if end >= len(pdf_text):
-                        break
-                    start = end - OVERLAP
-
-                all_transactions = []
-                cf_errors = []
-                for i, chunk in enumerate(chunks):
-                    msgs = [{"role": "user", "content": PROMPT + "\n\nExtrato:\n" + chunk}]
-                    parsed_chunk = None
-                    for model in (CF_TEXT_MODEL, CF_TEXT_MODEL_FALLBACK):
-                        try:
-                            result = _cf_call(model, msgs, max_tokens=3000)
-                            raw = result.get("result", {}).get("response", "")
-                            parsed_chunk = _parse_json(raw)
-                            break
-                        except Exception as _e:
-                            cf_errors.append(f"{model} chunk {i+1}: {_e}")
-                            continue
-                    if isinstance(parsed_chunk, list):
-                        all_transactions.extend(parsed_chunk)
-
-                if not all_transactions:
-                    return None, "Cloudflare: " + " | ".join(cf_errors[-3:] or ["nenhuma transação extraída"])
-
-                # Dedup (chunks se sobrepõem propositalmente)
-                seen = set()
-                unique = []
-                for t in all_transactions:
-                    k = (str(t.get("description",""))[:40], str(t.get("amount","")),
-                         str(t.get("date","")), t.get("installment_no"), t.get("installments"))
-                    if k not in seen:
-                        seen.add(k)
-                        unique.append(t)
-                return unique, None
-
+                # PDF: usa modelo de texto (sem agreement)
+                msgs = [
+                    {"role": "user", "content": PROMPT + "\n\nExtrato:\n" + pdf_text[:12000]}
+                ]
+                result = _cf_call("@cf/meta/llama-3.1-8b-instruct", msgs)
+                raw = result.get("result", {}).get("response", "")
             elif has_img:
                 # Imagem: aceita agreement do modelo de visão, depois envia
                 agree_msgs = [{"role": "user", "content": "agree"}]
                 try:
-                    _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", agree_msgs, max_tokens=64)
+                    _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", agree_msgs)
                 except Exception:
                     pass
                 img_content = [{"type": "text", "text": PROMPT}]
@@ -1466,11 +1355,11 @@ def _process_batch(card):
                         img_content.append({"type": "image_url",
                             "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                 msgs = [{"role": "user", "content": img_content}]
-                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs, max_tokens=3000)
+                result = _cf_call("@cf/meta/llama-3.2-11b-vision-instruct", msgs)
                 raw = result.get("result", {}).get("response", "")
-                return _parse_json(raw), None
             else:
                 return None, "Cloudflare: sem conteúdo para processar"
+            return _parse_json(raw), None
         except urllib.error.HTTPError as e:
             return None, f"Cloudflare {e.code}: {e.read().decode()[:200]}"
         except Exception as e:
@@ -1478,9 +1367,9 @@ def _process_batch(card):
 
     transactions = None
     errors = []
-    # Chain: Gemini → Groq → Cloudflare
+    # Chain: Gemini → Groq (Cloudflare removido — resultados ruins)
     ia_usada = None
-    for _fn, _name in [(_try_gemini, "Gemini"), (_try_groq, "Groq"), (_try_cloudflare, "Cloudflare")]:
+    for _fn, _name in [(_try_gemini, "Gemini"), (_try_groq, "Groq")]:
         _result, _err = _fn()
         if _result is not None:
             ia_usada = _name
