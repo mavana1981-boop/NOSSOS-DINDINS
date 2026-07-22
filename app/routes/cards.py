@@ -1831,8 +1831,8 @@ def apagar_planejados_duplicados():
         except Exception:
             continue
     db.session.commit()
-    flash(f"{count} planejado(s) duplicado(s) removido(s) permanentemente.", "success")
-    return redirect(url_for("cards.duplicados"))
+    from flask import jsonify as _jp
+    return _jp({"ok": True, "count": count})
 
 
 @cards_bp.route("/<int:card_id>/fechar-mes", methods=["POST"])
@@ -2030,5 +2030,5 @@ def apagar_por_descricao():
         except Exception:
             continue
     db.session.commit()
-    flash(f"{count} duplicata(s) removida(s).", "success")
-    return redirect(url_for("cards.duplicados"))
+    from flask import jsonify as _jd
+    return _jd({"ok": True, "count": count})
