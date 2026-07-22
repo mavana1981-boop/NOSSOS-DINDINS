@@ -776,10 +776,11 @@ def new_entry(card_id):
     if card.user_id != current_user.id:
         abort(403)
     fixed_expenses = _get_user_fixed_expenses()
-    # Sempre usar primeiro mês aberto — evita lançar em mês fechado
+    # billing_month = mês atual, avança só se estiver fechado manualmente
+    # NÃO usa closing_day para calcular — só mês fechado força avanço
     from app.utils import get_open_billing_month as _gobm_ne
-    _mes_param = request.args.get("mes", date.today().strftime("%Y-%m"))
-    mes = _gobm_ne(current_user.id, _mes_param)
+    _today_ne = date.today()
+    mes = _gobm_ne(current_user.id, _today_ne.strftime("%Y-%m"))
     if request.method == "POST":
         return _save_entry(None, card)
     return render_template("cards/entry_form.html",
@@ -849,13 +850,14 @@ def _save_entry(entry, card):
         entry.installment_no = 1
     entry.notes = notes
     entry.entry_date = d
-    # billing_month: usa o do form se informado, senão calcula pelo closing_day
+    # billing_month: usa o do form se informado, senão usa mês atual aberto
+    # NÃO usa closing_day automaticamente — mês só muda quando fechado manualmente
     if billing_month_form:
         entry.billing_month = billing_month_form
     elif not entry.billing_month:
-        from app.utils import get_billing_month as _gbm_save
-        byr, bmo = _gbm_save(d, card.closing_day)
-        entry.billing_month = f"{byr}-{bmo:02d}"
+        from app.utils import get_open_billing_month as _gobm_sv
+        from datetime import date as _dt_sv
+        entry.billing_month = _gobm_sv(current_user.id, _dt_sv.today().strftime("%Y-%m"))
 
     # Garantir billing_month em mês aberto — avança automaticamente se fechado
     if entry.billing_month:
