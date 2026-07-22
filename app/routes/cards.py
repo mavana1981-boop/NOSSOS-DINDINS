@@ -886,14 +886,17 @@ def _save_entry(entry, card):
 
     # Atualizar planned_installments quando parcelado é salvo/editado
     # ATUALIZA valores existentes — não deleta/recria — conserva exclusões manuais
-    if entry.installments and entry.installments > 1 and entry.installment_no and entry.billing_month:
+    # Planned installments: APENAS para a primeira parcela (installment_no == 1)
+    # Parcelas 2, 3, 4... NUNCA tocam no planejado — vêm da projeção da 1ª
+    if (entry.installments and entry.installments > 1
+            and entry.installment_no == 1 and entry.billing_month):
         from app.models import PlannedInstallment, PlannedInstallmentDeletion
-        import re as _re_sv2
-        def _nsv(s):
+        import re as _re_sv3
+        def _nsv3(s):
             s = (s or "").upper().strip()
-            s = _re_sv2.sub(r"\s+\d{1,2}\s+DE\s+\d{1,2}", "", s)
-            s = _re_sv2.sub(r"\s+\d{1,2}/\d{1,2}", "", s)
-            s = _re_sv2.sub(r"\s+\d{1,2}\s+\d{1,2}(?=\s|$)", "", s)
+            s = _re_sv3.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', s)
+            s = _re_sv3.sub(r'\s+\d{1,2}/\d{1,2}', '', s)
+            s = _re_sv3.sub(r'\s+\d{1,2}\s+\d{1,2}(?=\s|$)', '', s)
             return s.strip()
         try:
             _byr = int(entry.billing_month[:4])
@@ -901,41 +904,54 @@ def _save_entry(entry, card):
         except Exception:
             _byr, _bmo = None, None
         if _byr:
-            # Atualizar PI atual vinculado a este entry
-            _pi_cur = PlannedInstallment.query.filter_by(
-                origin_entry_id=entry.id).first()
-            if _pi_cur:
-                _pi_cur.amount = entry.amount
-                _pi_cur.description = entry.description
-                _pi_cur.installments = entry.installments
-                _pi_cur.billing_month = entry.billing_month
-                _pi_cur.expense_id = entry.expense_id
-            else:
-                # Criar se não existe e não foi excluído
-                _dels = PlannedInstallmentDeletion.query.filter_by(
+            def _excluido_sv3(bm):
+                dels = PlannedInstallmentDeletion.query.filter_by(
+                    user_id=entry.user_id, card_id=entry.card_id, billing_month=bm).all()
+                return any(_nsv3(d.description) == _nsv3(entry.description) for d in dels)
+            # Atualizar ou criar PI para parcela 1
+            _pi1 = PlannedInstallment.query.filter_by(
+                user_id=entry.user_id, card_id=entry.card_id,
+                description=entry.description, installment_no=1).first()
+            if _pi1:
+                _pi1.amount = entry.amount
+                _pi1.installments = entry.installments
+                _pi1.billing_month = entry.billing_month
+                _pi1.expense_id = entry.expense_id
+                _pi1.origin_entry_id = entry.id
+            elif not _excluido_sv3(entry.billing_month):
+                db.session.add(PlannedInstallment(
                     user_id=entry.user_id, card_id=entry.card_id,
-                    billing_month=entry.billing_month).all()
-                if not any(_nsv(d.description) == _nsv(entry.description) for d in _dels):
+                    description=entry.description, amount=entry.amount,
+                    installment_no=1, installments=entry.installments,
+                    billing_month=entry.billing_month,
+                    expense_id=entry.expense_id, origin_entry_id=entry.id,
+                ))
+            # Projetar/atualizar parcelas 2..N
+            for _i in range(2, entry.installments + 1):
+                _steps = _i - 1
+                _pmo = _bmo + _steps - 1
+                _pyr = _byr + _pmo // 12
+                _pmo = (_pmo % 12) + 1
+                _proj_bm = f"{_pyr}-{_pmo:02d}"
+                if _excluido_sv3(_proj_bm):
+                    continue
+                _pi_fut = PlannedInstallment.query.filter_by(
+                    user_id=entry.user_id, card_id=entry.card_id,
+                    description=entry.description, installment_no=_i).first()
+                if _pi_fut:
+                    _pi_fut.amount = entry.amount
+                    _pi_fut.installments = entry.installments
+                    _pi_fut.billing_month = _proj_bm
+                else:
                     db.session.add(PlannedInstallment(
                         user_id=entry.user_id, card_id=entry.card_id,
                         description=entry.description, amount=entry.amount,
-                        installment_no=entry.installment_no,
-                        installments=entry.installments,
-                        billing_month=entry.billing_month,
-                        expense_id=entry.expense_id,
-                        origin_entry_id=entry.id,
+                        installment_no=_i, installments=entry.installments,
+                        billing_month=_proj_bm,
+                        expense_id=entry.expense_id, origin_entry_id=entry.id,
                     ))
-            # Atualizar projeções futuras desta série
-            for _pp in PlannedInstallment.query.filter(
-                PlannedInstallment.user_id == entry.user_id,
-                PlannedInstallment.card_id == entry.card_id,
-                PlannedInstallment.description == entry.description,
-                PlannedInstallment.installment_no > entry.installment_no,
-            ).all():
-                _pp.amount = entry.amount
-                _pp.installments = entry.installments
             db.session.commit()
-            flash(f"Projecao de '{entry.description}' sincronizada.", "info")
+            flash(f"Planejados criados para '{entry.description}'.", "info")
 
     flash("Lançamento salvo.", "success")
     mes_back = entry.billing_month or date.today().strftime("%Y-%m")
@@ -1559,12 +1575,29 @@ def _process_batch(card):
     if skipped:
         flash(f"⚠️ {skipped} parcela(s) ignorada(s) por já existirem no cartão.", "warning")
 
-    # Gerar planned_installments: parcela atual + futuras
-    from app.models import MerchantRule, PlannedInstallment
+    # Gerar planned_installments APENAS para a 1ª parcela — 2ª em diante NÃO toca
+    from app.models import MerchantRule, PlannedInstallment, PlannedInstallmentDeletion as _PID2
+    import re as _re_p2
+
+    def _np2(s):
+        s = (s or "").upper().strip()
+        s = _re_p2.sub(r"\s+\d{1,2}\s+DE\s+\d{1,2}", "", s)
+        s = _re_p2.sub(r"\s+\d{1,2}/\d{1,2}", "", s)
+        s = _re_p2.sub(r"\s+\d{1,2}\s+\d{1,2}(?=\s|$)", "", s)
+        return s.strip()
+
+    def _foi_excluido_p2(desc, bm):
+        dels = _PID2.query.filter_by(
+            user_id=current_user.id, card_id=card.id, billing_month=bm).all()
+        return any(_np2(d.description) == _np2(desc) for d in dels)
+
     _batch_entries = CardEntry.query.filter_by(batch_id=batch_id).all()
     for _e in _batch_entries:
+        # REGRA: só a PRIMEIRA parcela cria planejados
         if not _e.installments or _e.installments <= 1 or not _e.installment_no:
             continue
+        if _e.installment_no != 1:
+            continue  # 2ª parcela em diante: não toca em planned_installments
         if not _e.billing_month:
             continue
         try:
@@ -1572,70 +1605,41 @@ def _process_batch(card):
             _bmo = int(_e.billing_month[5:7])
         except Exception:
             continue
-        # Adicionar a parcela atual ao planned_installments
-        # Pular se foi excluído intencionalmente pelo usuário
-        from app.models import PlannedInstallmentDeletion as _PID2
-        import re as _re_pid
-        def _n_pid(s):
-            s = (s or "").upper().strip()
-            s = _re_pid.sub(r"\s+[0-9]{1,2}\s+DE\s+[0-9]{1,2}", "", s)
-            s = _re_pid.sub(r"\s+[0-9]{1,2}/[0-9]{1,2}", "", s)
-            s = _re_pid.sub(r"\s+[0-9]{1,2}\s+[0-9]{1,2}(?=\s|$)", "", s)
-            return s.strip()
-        # Verificar exclusão comparando descrição normalizada
-        _all_dels = _PID2.query.filter_by(
-            user_id=current_user.id, card_id=card.id,
-            billing_month=_e.billing_month,
-        ).all()
-        _was_deleted = any(_n_pid(d.description) == _n_pid(_e.description) for d in _all_dels)
-        _exists_cur = PlannedInstallment.query.filter_by(
-            user_id=current_user.id, card_id=card.id,
-            description=_e.description, installment_no=_e.installment_no,
-        ).first()
-        if not _exists_cur and not _was_deleted:  # _was_deleted já é bool
-            db.session.add(PlannedInstallment(
+
+        # PI para parcela 1
+        if not _foi_excluido_p2(_e.description, _e.billing_month):
+            _ex1 = PlannedInstallment.query.filter_by(
                 user_id=current_user.id, card_id=card.id,
-                description=_e.description, amount=_e.amount,
-                installment_no=_e.installment_no, installments=_e.installments,
-                billing_month=_e.billing_month,
-                expense_id=_e.expense_id, origin_entry_id=_e.id,
-            ))
-        for _i in range(_e.installment_no + 1, _e.installments + 1):
-            # Mês projetado: billing_month da parcela importada + N meses
-            _steps = _i - _e.installment_no
-            _pmo = _bmo + _steps - 1
-            _pyr = _byr + _pmo // 12
-            _pmo = (_pmo % 12) + 1
-            _proj_bm = f"{_pyr}-{_pmo:02d}"
-            # Pular se foi excluído intencionalmente ou já existe
-            # Checar se esta série foi excluída para o billing_month projetado
-            _all_dels_fut = _PID2.query.filter_by(
+                description=_e.description, installment_no=1).first()
+            if not _ex1:
+                db.session.add(PlannedInstallment(
+                    user_id=current_user.id, card_id=card.id,
+                    description=_e.description, amount=_e.amount,
+                    installment_no=1, installments=_e.installments,
+                    billing_month=_e.billing_month,
+                    expense_id=_e.expense_id, origin_entry_id=_e.id,
+                ))
+
+        # Projetar parcelas 2..N
+        for _i in range(2, _e.installments + 1):
+            _steps = _i - 1
+            _pmo2 = _bmo + _steps - 1
+            _pyr2 = _byr + _pmo2 // 12
+            _pmo2 = (_pmo2 % 12) + 1
+            _proj_bm = f"{_pyr2}-{_pmo2:02d}"
+            if _foi_excluido_p2(_e.description, _proj_bm):
+                continue
+            _ex_fut = PlannedInstallment.query.filter_by(
                 user_id=current_user.id, card_id=card.id,
-                billing_month=_proj_bm,
-            ).all()
-            _was_del_fut = any(_n_pid(d.description) == _n_pid(_e.description) for d in _all_dels_fut)
-            if _was_del_fut:
-                continue
-            _exists_plan = PlannedInstallment.query.filter_by(
-                user_id=current_user.id,
-                card_id=card.id,
-                description=_e.description,
-                installment_no=_i,
-            ).first()
-            if _exists_plan:
-                continue
-            _pi = PlannedInstallment(
-                user_id=current_user.id,
-                card_id=card.id,
-                description=_e.description,
-                amount=_e.amount,
-                installment_no=_i,
-                installments=_e.installments,
-                billing_month=_proj_bm,
-                expense_id=_e.expense_id,
-                origin_entry_id=_e.id,
-            )
-            db.session.add(_pi)
+                description=_e.description, installment_no=_i).first()
+            if not _ex_fut:
+                db.session.add(PlannedInstallment(
+                    user_id=current_user.id, card_id=card.id,
+                    description=_e.description, amount=_e.amount,
+                    installment_no=_i, installments=_e.installments,
+                    billing_month=_proj_bm,
+                    expense_id=_e.expense_id, origin_entry_id=_e.id,
+                ))
     db.session.commit()
 
     # Aplicar regras de categorização automática
