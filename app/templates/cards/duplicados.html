@@ -5,7 +5,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>🗑 Duplicatas</h1>
-    <p>Parcelados: mesmo número de parcela, valor e descrição. Avulsos: mesma data e valor.</p>
+    <p>Selecione individualmente quais lançamentos excluir. Ignore os alertas que não precisar tratar.</p>
   </div>
   <a href="{{ url_for('cards.list_cards') }}" class="btn btn-ghost">← Cartões</a>
 </div>
@@ -15,60 +15,165 @@
   ✅ Nenhuma duplicata encontrada.
 </div>
 {% else %}
-<div class="card mb-3" style="border-left:4px solid var(--red);">
+<div class="card mb-3" style="border-left:4px solid var(--red);padding:12px 16px;">
   <strong style="color:var(--red);">⚠️ {{ total_dup }} grupo(s) com duplicatas</strong>
+  <span class="text-dim text-small" style="margin-left:8px;">Clique em "Ignorar" para ocultar um grupo sem excluir nada.</span>
 </div>
 {% endif %}
 
-{% if dup_parcelados %}
-<h3 style="margin:16px 0 8px;">📋 Parcelados duplicados ({{ dup_parcelados|length }})</h3>
-{% for g in dup_parcelados %}
-<div class="card mb-2">
+{% macro render_grupo(g, tipo) %}
+{% set gid = (tipo + '_' + loop.index|string) %}
+<div class="card mb-2" id="grupo-{{ gid }}" style="display:none;" data-gid="{{ gid }}">
+  <!-- Header -->
   <div class="flex-between mb-2">
-    <strong style="color:var(--red);">{{ g.label }}</strong>
-    <span class="badge" style="background:var(--red);color:white;font-size:0.7rem;padding:2px 8px;border-radius:4px;">
-      {{ g.count }}x duplicado
-    </span>
+    <div>
+      <strong>
+        {% if tipo == 'parc' %}📋 {{ g.desc }} — parcela {{ g.installment_no }}/{{ g.entries[0].installments }}
+        {% elif tipo == 'pont' %}💳 {{ g.entries[0].entry_date.strftime('%d/%m/%Y') if g.entries[0].entry_date else '?' }} — {{ g.entries[0].amount|brl }}
+        {% else %}📋 Plan: {{ g.desc }} — parcela {{ g.installment_no }}
+        {% endif %}
+      </strong>
+      <span class="badge" style="margin-left:6px;background:var(--red);color:white;font-size:0.65rem;padding:2px 6px;border-radius:4px;">
+        {{ g.count }}x
+      </span>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm"
+            onclick="ignorarGrupo('{{ gid }}')"
+            style="color:var(--text-dim);font-size:0.75rem;">
+      ✕ Ignorar
+    </button>
   </div>
-  <table class="tbl" style="font-size:0.8rem;margin-bottom:10px;">
-    <thead><tr>
-      <th>ID</th><th>Data</th><th>Descrição</th><th>Parcela</th>
-      <th>Cartão</th><th>Billing</th><th class="text-right">Valor</th>
-    </tr></thead>
+
+  <!-- Tabela de entries para selecionar individualmente -->
+  <table class="tbl" style="font-size:0.8rem;">
+    <thead>
+      <tr>
+        <th style="width:32px;text-align:center;">Excluir</th>
+        <th>Descrição</th>
+        {% if tipo != 'plan' %}<th style="text-align:center;">Parcela</th>{% endif %}
+        <th>Cartão</th>
+        <th>Data</th>
+        <th>Billing</th>
+        <th class="text-right">Valor</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% if tipo == 'plan' %}
+      {% for p in g.entries %}
+      <tr id="row-plan-{{ p.id }}" style="{% if loop.first %}opacity:0.5;{% endif %}">
+        <td style="text-align:center;">
+          {% if not loop.first %}
+          <button type="button"
+                  onclick="excluirPlan({{ p.id }}, this)"
+                  style="background:var(--red);color:white;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.75rem;">
+            🗑
+          </button>
+          {% else %}
+          <span class="text-dim" style="font-size:0.7rem;">Manter</span>
+          {% endif %}
+        </td>
+        <td>{{ p.description }}</td>
+        <td>{% if p.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;"></span>{{ p.card.name }}</span>{% else %}—{% endif %}</td>
+        <td>—</td>
+        <td>{{ p.billing_month or '—' }}</td>
+        <td class="text-right mono">{{ p.amount|brl }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      {% for e in g.entries %}
+      <tr id="row-ce-{{ e.id }}" style="{% if loop.first %}opacity:0.5;{% endif %}">
+        <td style="text-align:center;">
+          {% if not loop.first %}
+          <button type="button"
+                  onclick="excluirEntry({{ e.id }}, this)"
+                  style="background:var(--red);color:white;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.75rem;">
+            🗑
+          </button>
+          {% else %}
+          <span class="text-dim" style="font-size:0.7rem;">Manter</span>
+          {% endif %}
+        </td>
+        <td>{{ e.description }}</td>
+        {% if tipo != 'plan' %}
+        <td style="text-align:center;">
+          {% if e.installments and e.installments > 1 %}{{ e.installment_no }}/{{ e.installments }}{% else %}—{% endif %}
+        </td>
+        {% endif %}
+        <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
+        <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
+        <td class="text-faint">{{ e.billing_month or '—' }}</td>
+        <td class="text-right mono">{{ e.amount|brl }}</td>
+      </tr>
+      {% endfor %}
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% if dup_planejados %}
+<h3 style="margin:16px 0 8px;">📋 Parcelados duplicados — Projeção ({{ dup_planejados|length }})</h3>
+{% for g in dup_planejados %}
+{% set gid = 'plan_' + loop.index|string %}
+<div class="card mb-2" id="grupo-{{ gid }}">
+  <div class="flex-between mb-2">
+    <div>
+      <strong>{{ g.desc }} — parcela {{ g.installment_no }}</strong>
+      <span class="badge" style="margin-left:6px;background:var(--red);color:white;font-size:0.65rem;padding:2px 6px;border-radius:4px;">{{ g.count }}x</span>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="ignorarGrupo('{{ gid }}')" style="color:var(--text-dim);font-size:0.75rem;">✕ Ignorar</button>
+  </div>
+  <table class="tbl" style="font-size:0.8rem;">
+    <thead><tr><th style="width:80px;">Ação</th><th>Descrição</th><th>Parcela</th><th>Cartão</th><th>Billing</th><th class="text-right">Valor</th></tr></thead>
+    <tbody>
+    {% for p in g.entries %}
+    <tr id="row-plan-{{ p.id }}" {% if loop.first %}style="opacity:0.5;"{% endif %}>
+      <td>{% if loop.first %}<span class="text-dim text-small">Manter</span>{% else %}
+        <button onclick="excluirPlan({{ p.id }}, this)" style="background:var(--red);color:white;border:none;border-radius:4px;padding:2px 10px;cursor:pointer;">🗑</button>
+      {% endif %}</td>
+      <td>{{ p.description }}</td>
+      <td style="text-align:center;">{{ p.installment_no }}/{{ p.installments }}</td>
+      <td>{% if p.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;"></span>{{ p.card.name }}</span>{% else %}—{% endif %}</td>
+      <td class="text-faint">{{ p.billing_month or '—' }}</td>
+      <td class="text-right mono">{{ p.amount|brl }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if dup_parcelados %}
+<h3 style="margin:16px 0 8px;">📋 CardEntries parcelados duplicados ({{ dup_parcelados|length }})</h3>
+{% for g in dup_parcelados %}
+{% set gid = 'parc_' + loop.index|string %}
+<div class="card mb-2" id="grupo-{{ gid }}">
+  <div class="flex-between mb-2">
+    <div>
+      <strong>{{ g.label }}</strong>
+      <span class="badge" style="margin-left:6px;background:var(--red);color:white;font-size:0.65rem;padding:2px 6px;border-radius:4px;">{{ g.count }}x</span>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="ignorarGrupo('{{ gid }}')" style="color:var(--text-dim);font-size:0.75rem;">✕ Ignorar</button>
+  </div>
+  <table class="tbl" style="font-size:0.8rem;">
+    <thead><tr><th style="width:80px;">Ação</th><th>Descrição</th><th>Parcela</th><th>Cartão</th><th>Data</th><th>Billing</th><th class="text-right">Valor</th></tr></thead>
     <tbody>
     {% for e in g.entries %}
-    <tr>
-      <td class="text-faint">#{{ e.id }}</td>
-      <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
+    <tr id="row-ce-{{ e.id }}" {% if loop.first %}style="opacity:0.5;"{% endif %}>
+      <td>{% if loop.first %}<span class="text-dim text-small">Manter</span>{% else %}
+        <button onclick="excluirEntry({{ e.id }}, this)" style="background:var(--red);color:white;border:none;border-radius:4px;padding:2px 10px;cursor:pointer;">🗑</button>
+      {% endif %}</td>
       <td>{{ e.description }}</td>
       <td style="text-align:center;">{{ e.installment_no }}/{{ e.installments }}</td>
       <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
+      <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
       <td class="text-faint">{{ e.billing_month or '—' }}</td>
       <td class="text-right mono">{{ e.amount|brl }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
-  <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}">
-    <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
-    <div class="flex flex-gap" style="gap:8px;align-items:center;flex-wrap:wrap;">
-      <span class="text-small text-dim">Manter:</span>
-      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;">
-        {% for e in g.entries %}
-        <option value="{{ e.id }}">#{{ e.id }} — {{ e.billing_month or e.entry_date.strftime('%d/%m') }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;"
-              onclick="return confirm('Apagar {{ g.count - 1 }} duplicata(s)?');">
-        🗑 Apagar duplicatas
-      </button>
-      <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}" style="margin:0;"
-            onsubmit="return confirm('Apagar TODOS os {{ g.count }} lançamentos?');">
-        <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
-        <button class="btn btn-ghost btn-sm" style="color:var(--red);">Apagar todos</button>
-      </form>
-    </div>
-  </form>
 </div>
 {% endfor %}
 {% endif %}
@@ -76,95 +181,93 @@
 {% if dup_pontuais %}
 <h3 style="margin:16px 0 8px;">💳 Avulsos duplicados — mesma data e valor ({{ dup_pontuais|length }})</h3>
 {% for g in dup_pontuais %}
-<div class="card mb-2">
+{% set gid = 'pont_' + loop.index|string %}
+<div class="card mb-2" id="grupo-{{ gid }}">
   <div class="flex-between mb-2">
-    <strong>{{ g.label }}</strong>
-    <span class="badge" style="background:var(--gold);color:black;font-size:0.7rem;padding:2px 8px;border-radius:4px;">
-      {{ g.count }}x
-    </span>
+    <div>
+      <strong>{{ g.label }}</strong>
+      <span class="badge" style="margin-left:6px;background:var(--gold);color:black;font-size:0.65rem;padding:2px 6px;border-radius:4px;">{{ g.count }}x</span>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="ignorarGrupo('{{ gid }}')" style="color:var(--text-dim);font-size:0.75rem;">✕ Ignorar</button>
   </div>
-  <table class="tbl" style="font-size:0.8rem;margin-bottom:10px;">
-    <thead><tr>
-      <th>ID</th><th>Data</th><th>Descrição</th>
-      <th>Cartão</th><th>Billing</th><th class="text-right">Valor</th>
-    </tr></thead>
+  <table class="tbl" style="font-size:0.8rem;">
+    <thead><tr><th style="width:80px;">Ação</th><th>Descrição</th><th>Cartão</th><th>Data</th><th>Billing</th><th class="text-right">Valor</th></tr></thead>
     <tbody>
     {% for e in g.entries %}
-    <tr>
-      <td class="text-faint">#{{ e.id }}</td>
-      <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
+    <tr id="row-ce-{{ e.id }}" {% if loop.first %}style="opacity:0.5;"{% endif %}>
+      <td>{% if loop.first %}<span class="text-dim text-small">Manter</span>{% else %}
+        <button onclick="excluirEntry({{ e.id }}, this)" style="background:var(--red);color:white;border:none;border-radius:4px;padding:2px 10px;cursor:pointer;">🗑</button>
+      {% endif %}</td>
       <td>{{ e.description }}</td>
       <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
+      <td>{{ e.entry_date.strftime('%d/%m/%Y') if e.entry_date else '—' }}</td>
       <td class="text-faint">{{ e.billing_month or '—' }}</td>
       <td class="text-right mono">{{ e.amount|brl }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
-  <form method="POST" action="{{ url_for('cards.apagar_por_descricao') }}">
-    <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
-    <div class="flex flex-gap" style="gap:8px;align-items:center;flex-wrap:wrap;">
-      <span class="text-small text-dim">Manter:</span>
-      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;">
-        {% for e in g.entries %}
-        <option value="{{ e.id }}">#{{ e.id }} — {{ e.description[:30] }} ({{ e.billing_month or '?' }})</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;"
-              onclick="return confirm('Apagar {{ g.count - 1 }} duplicata(s)?');">
-        🗑 Apagar duplicatas
-      </button>
-    </div>
-  </form>
 </div>
 {% endfor %}
 {% endif %}
 
-{% if dup_planejados %}
-<h3 style="margin:16px 0 8px;">📋 Parcelados duplicados — menu Parcelados ({{ dup_planejados|length }})</h3>
-{% for g in dup_planejados %}
-<div class="card mb-2">
-  <div class="flex-between mb-2">
-    <strong>{{ g.desc }} — parcela {{ g.installment_no }}</strong>
-    <span class="badge" style="background:var(--red);color:white;font-size:0.7rem;padding:2px 8px;border-radius:4px;">
-      {{ g.count }}x duplicado
-    </span>
-  </div>
-  <table class="tbl" style="font-size:0.8rem;margin-bottom:10px;">
-    <thead><tr>
-      <th>ID</th><th>Descrição</th><th>Parcela</th><th>Mês</th>
-      <th>Cartão</th><th class="text-right">Valor</th>
-    </tr></thead>
-    <tbody>
-    {% for p in g.entries %}
-    <tr>
-      <td class="text-faint">#{{ p.id }}</td>
-      <td>{{ p.description }}</td>
-      <td style="text-align:center;">{{ p.installment_no }}/{{ p.installments }}</td>
-      <td>{{ p.billing_month or '—' }}</td>
-      <td>{% if p.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;"></span>{{ p.card.name }}</span>{% else %}—{% endif %}</td>
-      <td class="text-right mono">{{ p.amount|brl }}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  <form method="POST" action="{{ url_for('cards.apagar_planejados_duplicados') }}">
-    <input type="hidden" name="ids" value="{{ g.entries|map(attribute='id')|join(',') }}">
-    <div class="flex flex-gap" style="gap:8px;align-items:center;flex-wrap:wrap;">
-      <span class="text-small text-dim">Manter:</span>
-      <select name="manter_id" class="form-control" style="display:inline-block;width:auto;font-size:0.78rem;">
-        {% for p in g.entries %}
-        <option value="{{ p.id }}">#{{ p.id }} — {{ p.billing_month }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-sm" style="background:var(--red);color:white;border:none;"
-              onclick="return confirm('Apagar {{ g.count - 1 }} planejado(s) duplicado(s)?');">
-        🗑 Apagar duplicatas
-      </button>
-    </div>
-  </form>
+<script>
+// Ignorar grupo (oculta sem excluir nada)
+var _ignorados = JSON.parse(localStorage.getItem('dup_ignorados') || '[]');
+
+function ignorarGrupo(gid) {
+  document.getElementById('grupo-' + gid).style.display = 'none';
+  if (!_ignorados.includes(gid)) { _ignorados.push(gid); }
+  localStorage.setItem('dup_ignorados', JSON.stringify(_ignorados));
+}
+
+function mostrarTodos() {
+  _ignorados = [];
+  localStorage.setItem('dup_ignorados', '[]');
+  document.querySelectorAll('[id^="grupo-"]').forEach(el => el.style.display = '');
+}
+
+// Ao carregar, ocultar grupos ignorados
+document.addEventListener('DOMContentLoaded', function() {
+  _ignorados.forEach(gid => {
+    var el = document.getElementById('grupo-' + gid);
+    if (el) el.style.display = 'none';
+  });
+});
+
+// Excluir CardEntry individual
+function excluirEntry(id, btn) {
+  if (!confirm('Excluir este lançamento?')) return;
+  btn.disabled = true;
+  btn.textContent = '...';
+  var fd = new FormData();
+  fd.append('ids', id);
+  fd.append('manter_id', '');
+  fetch('/cartoes/duplicados/apagar', {method:'POST', body:fd, credentials:'same-origin'})
+    .then(r => r.text()).then(() => {
+      var row = document.getElementById('row-ce-' + id);
+      if (row) { row.style.opacity='0.3'; row.style.textDecoration='line-through'; btn.textContent='✓'; }
+    }).catch(() => { btn.disabled=false; btn.textContent='🗑'; });
+}
+
+// Excluir PlannedInstallment individual
+function excluirPlan(id, btn) {
+  if (!confirm('Excluir este planejado?')) return;
+  btn.disabled = true;
+  btn.textContent = '...';
+  var fd = new FormData();
+  fd.append('ids', id);
+  fd.append('manter_id', '');
+  fetch('/cartoes/duplicados/apagar-planejados', {method:'POST', body:fd, credentials:'same-origin'})
+    .then(r => r.text()).then(() => {
+      var row = document.getElementById('row-plan-' + id);
+      if (row) { row.style.opacity='0.3'; row.style.textDecoration='line-through'; btn.textContent='✓'; }
+    }).catch(() => { btn.disabled=false; btn.textContent='🗑'; });
+}
+</script>
+
+<div style="margin-top:16px;text-align:center;">
+  <button onclick="mostrarTodos()" class="btn btn-ghost btn-sm">↺ Mostrar grupos ignorados</button>
 </div>
-{% endfor %}
-{% endif %}
 
 {% endblock %}
