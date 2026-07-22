@@ -1932,52 +1932,51 @@ def duplicados():
         CardEntry.status == "ativo",
     ).order_by(CardEntry.id).all()
 
-    # Parcelados: agrupar por (desc_norm, installment_no, installments, amount)
-    parc_grupos = defaultdict(list)
-    pont_grupos = defaultdict(list)
+    parc_grupos_mes  = defaultdict(list)  # mesmo mês — duplicata real
+    parc_grupos_cross = defaultdict(list) # meses diferentes — série duplicada
 
     for e in entries:
-        if e.installments and e.installments > 1:
-            k = (
-                _norm(e.description),
-                e.installment_no or 0,
-                e.installments or 0,
-                str(round(float(e.amount or 0), 2)),
-            )
-            parc_grupos[k].append(e)
-        else:
-            # Pontuais: duplicata = mesma data + mesmo valor
-            k = (
-                str(e.entry_date or ""),
-                str(round(float(e.amount or 0), 2)),
-            )
-            pont_grupos[k].append(e)
+        if not (e.installments and e.installments > 1):
+            continue
+        amt = str(round(float(e.amount or 0), 2))
+        bm  = e.billing_month or ""
 
-    # Parcelados duplicados
+        # Duplicata no MESMO mês: desc+parcela+valor+billing_month
+        parc_grupos_mes[(_norm(e.description), e.installment_no or 0,
+                         e.installments or 0, amt, bm)].append(e)
+
+        # Mesma parcela em meses DIFERENTES (cross-month)
+        parc_grupos_cross[(_norm(e.description), e.installment_no or 0,
+                           e.installments or 0, amt)].append(e)
+
     dup_parcelados = []
-    for k, itens in parc_grupos.items():
-        if len(itens) > 1:
-            dup_parcelados.append({
-                "tipo": "parcelado",
-                "label": f"{k[0]} {k[1]}/{k[2]} — R$ {float(k[3]):.2f}",
-                "chave": f"parc|{k[0]}|{k[1]}|{k[2]}|{k[3]}",
-                "entries": sorted(itens, key=lambda e: e.id),
-                "count": len(itens),
-            })
-    dup_parcelados.sort(key=lambda x: x["count"], reverse=True)
 
-    # Pontuais duplicados
-    dup_pontuais = []
-    for k, itens in pont_grupos.items():
+    # 1. Duplicatas no mesmo mês
+    for k, itens in parc_grupos_mes.items():
         if len(itens) > 1:
-            dup_pontuais.append({
-                "tipo": "pontual",
-                "label": f"{k[0]} — R$ {float(k[1]):.2f} ({len(itens)}x: {', '.join(e.description[:20] for e in itens[:3])})",
-                "chave": f"pont|{k[0]}|{k[1]}",
+            desc_n, inst_no, inst_tot, amt, bm = k
+            dup_parcelados.append({
+                "label": f"[{bm}] {itens[0].description[:35]} {inst_no}/{inst_tot} — R$ {float(amt):.2f}  ({len(itens)}x no mesmo mês)",
                 "entries": sorted(itens, key=lambda e: e.id),
                 "count": len(itens),
             })
-    dup_pontuais.sort(key=lambda x: x["count"], reverse=True)
+
+    # 2. Mesma parcela em meses diferentes (cross-month)
+    for k, itens in parc_grupos_cross.items():
+        if len(itens) > 1:
+            # Só mostrar se estão em billing_months diferentes
+            bms = set(e.billing_month for e in itens)
+            if len(bms) > 1:
+                desc_n, inst_no, inst_tot, amt = k
+                # Evitar duplicar grupos já capturados acima
+                dup_parcelados.append({
+                    "label": f"{itens[0].description[:35]} {inst_no}/{inst_tot} — R$ {float(amt):.2f}  ({len(itens)}x em {len(bms)} meses)",
+                    "entries": sorted(itens, key=lambda e: (e.billing_month or "", e.id)),
+                    "count": len(itens),
+                })
+
+    dup_parcelados.sort(key=lambda x: x["count"], reverse=True)
+    dup_pontuais = []  # não checa pontuais
 
     # Duplicatas no menu Parcelados (planned_installments)
     from app.models import PlannedInstallment as _PI
