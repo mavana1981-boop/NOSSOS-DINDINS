@@ -1095,6 +1095,72 @@ def _process_batch(card):
         raw = re.sub(r"\n?```$", "", raw)
         return json.loads(raw)
 
+    def _try_claude():
+        """Extrai transações usando a API do Claude — melhor suporte a PDFs."""
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            return None, "ANTHROPIC_API_KEY não configurada"
+
+        CLAUDE_PROMPT = (
+            "Analise este extrato de cartão de crédito brasileiro e extraia TODAS as transações. "
+            "Retorne SOMENTE JSON válido, sem markdown, sem explicações. "
+            'Formato: [{"description":"NOME","amount":99.90,"date":"2026-05-15","kind":"pontual"}] '
+            "REGRAS:\n"
+            "1. amount: número positivo em reais (1.234,56 → 1234.56)\n"
+            "2. date: YYYY-MM-DD\n"
+            "3. Extraia APENAS linhas com D (débito). Ignore C (crédito)\n"
+            "4. Ignore: TOTAL DA FATURA, PAGAMENTO, IOF, encargos, juros\n"
+            "5. PARCELADOS: quando houver XX DE YY ou XX/YY:\n"
+            '   kind=\"parcelado\", installment_no=XX, installments=YY\n'
+            "6. Extraia de TODOS os cartões do extrato"
+        )
+
+        content = [{"type": "text", "text": CLAUDE_PROMPT}]
+        for fd in file_data:
+            if "pdf" in fd["mime"]:
+                content.insert(0, {
+                    "type": "document",
+                    "source": {"type": "base64",
+                               "media_type": "application/pdf",
+                               "data": fd["b64"]}
+                })
+            elif "image" in fd["mime"]:
+                content.insert(0, {
+                    "type": "image",
+                    "source": {"type": "base64",
+                               "media_type": fd["mime"],
+                               "data": fd["b64"]}
+                })
+
+        if len(content) == 1:
+            return None, "Claude: sem PDF ou imagem para processar"
+
+        payload = json.dumps({
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": content}]
+        }).encode()
+
+        try:
+            req = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                result = json.loads(resp.read())
+            raw = result["content"][0]["text"]
+            return _parse_json(raw), None
+        except urllib.error.HTTPError as e:
+            return None, f"Claude {e.code}: {e.read().decode()[:200]}"
+        except Exception as e:
+            return None, f"Claude: {e}"
+
     def _try_gemini():
         key = os.environ.get("GEMINI_API_KEY", "")
         if not key:
@@ -1368,9 +1434,9 @@ def _process_batch(card):
 
     transactions = None
     errors = []
-    # Chain: Gemini → Groq (Cloudflare removido — resultados ruins)
+    # Chain: Claude → Gemini → Groq
     ia_usada = None
-    for _fn, _name in [(_try_gemini, "Gemini"), (_try_groq, "Groq")]:
+    for _fn, _name in [(_try_claude, "Claude"), (_try_gemini, "Gemini"), (_try_groq, "Groq")]:
         _result, _err = _fn()
         if _result is not None:
             ia_usada = _name
@@ -1386,6 +1452,8 @@ def _process_batch(card):
     if ia_usada == "Gemini":
         modelo = getattr(current_app, "_gemini_last_used", "Gemini")
         flash(f"✅ Extrato processado via {modelo}", "success")
+    elif ia_usada == "Claude":
+        flash("✅ Extrato processado via Claude (Anthropic)", "success")
     elif ia_usada:
         flash(f"✅ Extrato processado via {ia_usada}", "success")
 
