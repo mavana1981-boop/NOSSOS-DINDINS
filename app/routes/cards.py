@@ -1134,23 +1134,24 @@ def _process_batch(card):
         # Cache dinâmico: tenta o último modelo que funcionou primeiro
         # Tenta v1 e v1beta para cada modelo
         CANDIDATES = [
-            ("v1",    "gemini-2.0-flash-001"),
-            ("v1",    "gemini-2.0-flash"),
-            ("v1",    "gemini-1.5-flash-8b"),
-            ("v1",    "gemini-1.5-flash-001"),
-            ("v1",    "gemini-1.5-flash-002"),
-            ("v1",    "gemini-1.5-flash"),
-            ("v1",    "gemini-1.5-pro-001"),
             ("v1beta","gemini-2.5-flash"),
             ("v1beta","gemini-2.5-flash-preview-05-20"),
-            ("v1beta","gemini-2.0-flash-exp"),
+            ("v1beta","gemini-2.5-pro"),
+            ("v1",    "gemini-2.0-flash"),
+            ("v1",    "gemini-2.0-flash-001"),
             ("v1beta","gemini-2.0-flash-lite"),
-            ("v1beta","gemini-1.5-flash-002"),
-            ("v1beta","gemini-1.5-flash-001"),
-            ("v1beta","gemini-1.5-flash"),
-            ("v1beta","gemini-1.5-flash-8b-001"),
+            ("v1beta","gemini-2.0-flash-exp"),
+            ("v1",    "gemini-1.5-flash"),
+            ("v1",    "gemini-1.5-flash-002"),
+            ("v1",    "gemini-1.5-flash-001"),
+            ("v1",    "gemini-1.5-pro"),
+            ("v1",    "gemini-1.5-pro-001"),
             ("v1beta","gemini-1.5-pro-002"),
-            ("v1beta","gemini-1.5-pro"),
+            ("v1beta","gemini-1.5-flash"),
+            ("v1beta","gemini-1.5-flash-001"),
+            ("v1beta","gemini-1.5-flash-002"),
+            ("v1beta","gemini-1.5-flash-8b-001"),
+            ("v1",    "gemini-1.5-flash-8b"),
             ("v1beta","gemini-pro"),
         ]
         # Cache dinâmico: tenta o último que funcionou primeiro
@@ -1201,7 +1202,7 @@ def _process_batch(card):
                 {"type": "text", "text": "Extrato:\n" + text_chunk},
             ]}]
             payload = json.dumps({
-                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                "model": "llama-3.3-70b-versatile",
                 "messages": msgs,
                 "max_tokens": 8192,
             }).encode()
@@ -1258,7 +1259,7 @@ def _process_batch(card):
                         img_msgs[0]["content"].append({"type": "image_url",
                             "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                 payload = json.dumps({
-                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": img_msgs, "max_tokens": 8192,
                 }).encode()
                 req = urllib.request.Request(
