@@ -776,7 +776,10 @@ def new_entry(card_id):
     if card.user_id != current_user.id:
         abort(403)
     fixed_expenses = _get_user_fixed_expenses()
-    mes = request.args.get("mes", date.today().strftime("%Y-%m"))
+    # Sempre usar primeiro mês aberto — evita lançar em mês fechado
+    from app.utils import get_open_billing_month as _gobm_ne
+    _mes_param = request.args.get("mes", date.today().strftime("%Y-%m"))
+    mes = _gobm_ne(current_user.id, _mes_param)
     if request.method == "POST":
         return _save_entry(None, card)
     return render_template("cards/entry_form.html",
