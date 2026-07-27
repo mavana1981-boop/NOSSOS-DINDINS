@@ -149,7 +149,7 @@
           </td>
           <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
-              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}" title="Duplo clique para editar / Clique para ver cálculo"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}"{% if m.net_override is defined and m.net_override %} data-overridden="1"{% endif %} title="Duplo clique para editar / Clique para ver cálculo"
 
                onclick="mostrarMemoria(this)">
             {{ m.net|brl }}
@@ -297,6 +297,57 @@ function fmtBRL(v) {
   return 'R$ ' + (parseFloat(v) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 
+function getVal(row, col) {
+  var cell = row.querySelector('[data-col="' + col + '"]');
+  return cell ? (parseFloat(cell.getAttribute('data-value')) || 0) : 0;
+}
+
+function setVal(row, col, val) {
+  var cell = row.querySelector('[data-col="' + col + '"]');
+  if (!cell) return;
+  cell.setAttribute('data-value', val);
+  cell.textContent = (val >= 0 ? '' : '-') + 'R$ ' + Math.abs(val).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  cell.style.color = col === 'net' ? (val >= 0 ? 'var(--green)' : 'var(--red)') :
+                     col === 'cumulative' ? (val >= 0 ? 'var(--green)' : 'var(--red)') : '';
+}
+
+function recalcularTabela() {
+  var rows = document.querySelectorAll('tbody tr');
+  var cumAcc = 0;
+  rows.forEach(function(row) {
+    var netCell = row.querySelector('[data-field="net"]');
+    var cumCell = row.querySelector('[data-field="cumulative"]');
+    if (!netCell || !cumCell) return;
+
+    var rf = getVal(row, 'income_recurring');
+    var re = getVal(row, 'income_eventual');
+    var gf = getVal(row, 'fixed');
+    var ge = getVal(row, 'eventual');
+    var netCalc = Math.round((rf + re - gf - ge) * 100) / 100;
+
+    // Só sobrescreve saldo se não houver override (data-overridden)
+    if (!netCell.getAttribute('data-overridden')) {
+      var netOld = parseFloat(netCell.getAttribute('data-value') || '0');
+      if (Math.abs(netOld - netCalc) > 0.02) {
+        netCell.setAttribute('data-value', netCalc);
+        var color = netCalc >= 0 ? 'var(--green)' : 'var(--red)';
+        netCell.innerHTML = '<span style="color:' + color + ';font-weight:700;">' +
+          (netCalc < 0 ? '-' : '') + 'R$ ' + Math.abs(netCalc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+      }
+      cumAcc += netCalc;
+    } else {
+      cumAcc += parseFloat(netCell.getAttribute('data-value') || '0');
+    }
+
+    // Acumulado
+    cumAcc = Math.round(cumAcc * 100) / 100;
+    cumCell.setAttribute('data-value', cumAcc);
+    var cumColor = cumAcc >= 0 ? 'var(--green)' : 'var(--red)';
+    cumCell.innerHTML = '<span style="color:' + cumColor + ';">' +
+      (cumAcc < 0 ? '-' : '') + 'R$ ' + Math.abs(cumAcc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+  });
+}
+
 function abrirEdicao(td) {
   if (td.querySelector('input')) return;
   var val = td.getAttribute('data-value') || '0';
@@ -345,14 +396,21 @@ function abrirEdicao(td) {
       })
       .then(function(j) {
         if (!j) return;
-        if(j.ok) { window.location.reload(); }
-        else if(j.error === 'sessao_expirada') {
+        if (j.ok) {
+          // Atualizar data-value da célula editada
+          var numVal = parseFloat(v.replace(/[.]/g,'').replace(',','.')) || 0;
+          td.setAttribute('data-value', numVal);
+          td.innerHTML = fmtBRL(numVal);
+          // Recalcular Saldo e Acumulado inline
+          recalcularTabela();
+        }
+        else if (j.error === 'sessao_expirada') {
           alert('Sessão expirada. Faça login novamente.');
           window.location.href = '/auth/login';
         }
-        else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); window.location.reload(); }
+        else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); }
       })
-      .catch(function(err) { alert('Falha de rede: ' + err); window.location.reload(); });
+      .catch(function(err) { alert('Falha de rede: ' + err); });
   }
   input.addEventListener('blur', salvar);
   input.addEventListener('keydown', function(e) {
