@@ -151,13 +151,13 @@
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}"{% if m.net_override is defined and m.net_override %} data-overridden="1"{% endif %} title="Duplo clique para editar / Clique para ver cálculo"
 
-               onclick="mostrarMemoria(this)">
+               data-mem="saldo">
             {{ m.net|brl }}
           </td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
                data-cum-month="{{ m.month_name }}"
-               onclick="mostrarMemoriaCum(this)">
+               data-mem="cum">
             {{ m.cumulative|brl }}
           </td>
         </tr>
@@ -419,11 +419,26 @@ function abrirEdicao(td) {
   });
 }
 
+// Clique simples = memória (saldo/acumulado) ou detalhe (cf-cell)
+// Duplo clique = editar qualquer célula editável
 document.querySelectorAll('.editable-cell').forEach(function(td) {
+  var clickTimer = null;
+
+  td.addEventListener('click', function(e) {
+    if (td.querySelector('input')) return; // já em edição
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(function() {
+      // Clique simples: só abre memória (não edita)
+      if (td.getAttribute('data-mem') === 'saldo') mostrarMemoria(td);
+      else if (td.getAttribute('data-mem') === 'cum') mostrarMemoriaCum(td);
+      // cf-cell: abre modal de itens — tratado pelo listener da .cf-cell abaixo
+    }, 220);
+  });
+
   td.addEventListener('dblclick', function(e) {
     e.stopPropagation();
-    // Duplo clique sempre abre edição, independente do onclick
-    abrirEdicao(td);
+    clearTimeout(clickTimer); // cancelar clique simples
+    abrirEdicao(td);          // editar
   });
 });
 // Fechar modal de memória clicando fora
@@ -449,7 +464,9 @@ var COL_LABELS = {
 
 document.querySelectorAll('.cf-cell').forEach(function(td) {
   td.addEventListener('click', function() {
-    if (td.querySelector('input')) return; // em edição, ignora
+    if (td.querySelector('input')) return;
+    // cf-cell single click: só abre modal se NÃO for duplo clique (timer)
+    // O timer de 220ms no editable-cell acima já garante isso // em edição, ignora
     var col = td.getAttribute('data-col');
     var idx = parseInt(td.getAttribute('data-idx') || '0');
     var meta = COL_LABELS[col] || {title: col, color: 'inherit'};
