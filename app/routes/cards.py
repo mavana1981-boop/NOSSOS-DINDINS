@@ -217,8 +217,13 @@ def list_cards():
     from datetime import date as _dt
     today = _dt.today()
     from app.utils import get_open_billing_month as _gobm_list
-    _mes_param = request.args.get("mes", today.strftime("%Y-%m"))
-    mes_filter = _gobm_list(current_user.id, _mes_param)
+    _mes_param = request.args.get("mes")
+    if _mes_param:
+        # Usuário navegou explicitamente — respeitar mesmo se fechado
+        mes_filter = _mes_param
+    else:
+        # Sem parâmetro: ir para primeiro mês aberto
+        mes_filter = _gobm_list(current_user.id, today.strftime("%Y-%m"))
     try:
         filter_year2  = int(mes_filter[:4])
         filter_month2 = int(mes_filter[5:7])
@@ -711,11 +716,18 @@ def detail_card(card_id):
     card = Card.query.get_or_404(card_id)
     if card.user_id != current_user.id:
         abort(403)
-    # Detalhe filtrado pelo billing_month — usa primeiro mês aberto se não especificado
+    # Detalhe filtrado pelo billing_month
+    # Se ?mes= foi fornecido explicitamente: respeitar (permite ver mês fechado)
+    # Se não: usar primeiro mês aberto
     from datetime import date as _dt_d
     from app.utils import get_open_billing_month as _gobm_det
-    _mes_param_d = request.args.get("mes", _dt_d.today().strftime("%Y-%m"))
-    mes_filter_d = _gobm_det(current_user.id, _mes_param_d)
+    _mes_param_d = request.args.get("mes")
+    if _mes_param_d:
+        # Usuário navegou para este mês — mostrar mesmo se fechado
+        mes_filter_d = _mes_param_d
+    else:
+        # Sem parâmetro: ir para o primeiro mês aberto
+        mes_filter_d = _gobm_det(current_user.id, _dt_d.today().strftime("%Y-%m"))
     entries = CardEntry.query.filter(
         CardEntry.card_id == card_id,
         CardEntry.status == "ativo",
