@@ -7,6 +7,7 @@
     <h1>📋 Parcelados Projetados</h1>
     <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
   </div>
+  <a href="{{ url_for('cashflow.comparativo_parcelados') }}" class="btn btn-ghost btn-sm">🔍 Diagnóstico</a>
 </div>
 
 {% if not por_mes %}
@@ -54,7 +55,7 @@
         <span class="text-dim text-small">({{ items|length }} parcela(s)
           {%- if ultima_count.v %} · <span style="color:var(--red);">{{ ultima_count.v }} última(s)</span>{% endif %})</span>
       </div>
-      <span class="mono" style="color:var(--red);font-weight:700;">{{ total_mes|brl }}</span>
+      <span class="mono" style="color:var(--red);font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
     </div>
 
     <!-- Conteúdo colapsável -->
@@ -95,7 +96,7 @@
           <td class="text-right mono">{{ p.amount|brl }}</td>
           <td>
             <button type="button" class="btn btn-ghost btn-sm" style="color:var(--red);"
-                    onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}')">×</button>
+                    onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}', this)">×</button>
           </td>
         </tr>
         {% endfor %}
@@ -104,10 +105,6 @@
     </div>
   </div>
   {% endfor %}
-</form>
-
-<form id="form-one" method="POST" style="display:none;">
-  <input type="hidden" name="ids" id="one-id">
 </form>
 
 <style>
@@ -148,12 +145,53 @@ function atualizarContador(){
 function confirmarExclusao(){
   return confirm('Excluir '+document.querySelectorAll('.item-check:checked').length+' item(s) da projeção?');
 }
-function excluirUm(id,desc){
-  if(!confirm('Excluir "'+desc+'" da projeção?'))return;
-  const f=document.getElementById('form-one');
-  f.action='/fluxo/planejados/'+id+'/delete';
-  document.getElementById('one-id').value=id;
-  f.submit();
+function excluirUm(id, desc, btn) {
+  if (!confirm('Excluir "' + desc + '" da projeção?')) return;
+  btn.disabled = true;
+  btn.textContent = '...';
+  var fd = new FormData();
+  fetch('/fluxo/planejados/' + id + '/delete', {
+    method: 'POST', body: fd, credentials: 'same-origin'
+  }).then(function(r) {
+    if (r.ok || r.redirected) {
+      // Remover a linha da tabela sem recarregar
+      var row = btn.closest('tr');
+      var tbody = row ? row.closest('tbody') : null;
+      if (row) row.remove();
+      // Se tbody ficou vazio, ocultar o card do mês
+      if (tbody && tbody.querySelectorAll('tr').length === 0) {
+        var card = tbody.closest('.card');
+        if (card) card.style.display = 'none';
+      }
+      // Atualizar total do mês
+      atualizarTotalMes(btn);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '×';
+    }
+  }).catch(function() {
+    btn.disabled = false;
+    btn.textContent = '×';
+  });
+}
+
+function atualizarTotalMes(el) {
+  // Recalcular total do mês após exclusão
+  var card = el ? el.closest('.card') : null;
+  if (!card) return;
+  var rows = card.querySelectorAll('tbody tr');
+  var total = 0;
+  rows.forEach(function(r) {
+    var amtCell = r.querySelector('.mono');
+    if (amtCell) {
+      var txt = amtCell.textContent.replace(/[^0-9,]/g,'').replace(',','.');
+      total += parseFloat(txt) || 0;
+    }
+  });
+  var totalEl = card.querySelector('[data-total-mes]');
+  if (totalEl) {
+    totalEl.textContent = 'R$ ' + total.toLocaleString('pt-BR',{minimumFractionDigits:2});
+  }
 }
 function sortTable(tblId,col,th){
   const tbl=document.getElementById(tblId);
