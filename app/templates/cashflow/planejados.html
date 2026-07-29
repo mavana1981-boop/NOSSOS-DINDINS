@@ -40,12 +40,24 @@
     </div>
   </div>
 
+  {% set prev_year = namespace(v='') %}
   {% for bm, items in por_mes.items() %}
+  {% set bm_year = bm[:4] %}
   {% set total_mes = items | sum(attribute='amount') | float %}
   {% set mes_id = bm | replace('-','') %}
+
+  {# Separador de ano #}
+  {% if bm_year != prev_year.v %}
+  {% set prev_year.v = bm_year %}
+  <div style="display:flex;align-items:center;gap:12px;margin:{% if loop.index > 1 %}28px{% else %}8px{% endif %} 0 10px;">
+    <div style="flex:1;height:2px;background:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};opacity:0.5;"></div>
+    <span style="font-size:1.1rem;font-weight:800;letter-spacing:2px;color:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};">{{ bm_year }}</span>
+    <div style="flex:1;height:2px;background:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};opacity:0.5;"></div>
+  </div>
+  {% endif %}
   {% set ultima_count = namespace(v=0) %}
   {% for p in items %}{% if p.installment_no == p.installments %}{% set ultima_count.v = ultima_count.v + 1 %}{% endif %}{% endfor %}
-  <div class="card mb-2">
+  <div class="card mb-2" style="border-left:3px solid {% if bm[:4] == '2026' %}var(--accent){% elif bm[:4] == '2027' %}var(--gold){% elif bm[:4] == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};">
     <!-- Header colapsável -->
     <div class="flex-between" style="cursor:pointer;padding:4px 0;"
          onclick="toggleMes('{{ mes_id }}')">
