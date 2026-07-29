@@ -507,6 +507,9 @@ def delete_planejado(planned_id):
         pass
     db.session.delete(p)
     db.session.commit()
+    from flask import request as _req_del, jsonify as _jdel
+    if _req_del.method == "POST" and "XMLHttpRequest" not in _req_del.headers.get("X-Requested-With",""):
+        return _jdel({"ok": True})
     flash("Lançamento removido da projeção.", "success")
     return redirect(url_for("cashflow.planejados"))
 
