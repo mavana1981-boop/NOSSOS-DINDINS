@@ -900,7 +900,7 @@ def _save_entry(entry, card):
     # ATUALIZA valores existentes — não deleta/recria — conserva exclusões manuais
     # Planned installments: atualizar SOMENTE quando editada a 1ª parcela
     # Parcelas 2, 3... nunca tocam no planejado — evita exclusão acidental
-    if (entry.installments and entry.installments > 1
+    if (entry.installments and entry.installments >= 1
             and entry.installment_no == 1 and entry.billing_month):
         from app.models import PlannedInstallment, PlannedInstallmentDeletion
         import re as _re_sv3
@@ -1599,7 +1599,7 @@ def _process_batch(card):
     _batch_entries = CardEntry.query.filter_by(batch_id=batch_id).all()
     for _e in _batch_entries:
         # REGRA: só a PRIMEIRA parcela cria planejados
-        if not _e.installments or _e.installments <= 1 or not _e.installment_no:
+        if not _e.installments or _e.installments < 1 or not _e.installment_no:
             continue
         if _e.installment_no != 1:
             continue  # 2ª parcela em diante: não toca em planned_installments
