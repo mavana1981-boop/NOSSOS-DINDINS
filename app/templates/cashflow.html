@@ -314,37 +314,42 @@ function setVal(row, col, val) {
 function recalcularTabela() {
   var rows = document.querySelectorAll('tbody tr');
   var cumAcc = 0;
+
   rows.forEach(function(row) {
     var netCell = row.querySelector('[data-field="net"]');
     var cumCell = row.querySelector('[data-field="cumulative"]');
     if (!netCell || !cumCell) return;
 
-    var rf = getVal(row, 'income_recurring');
-    var re = getVal(row, 'income_eventual');
-    var gf = getVal(row, 'fixed');
-    var ge = getVal(row, 'eventual');
-    var netCalc = Math.round((rf + re - gf - ge) * 100) / 100;
-
-    // Só sobrescreve saldo se não houver override (data-overridden)
-    if (!netCell.getAttribute('data-overridden')) {
-      var netOld = parseFloat(netCell.getAttribute('data-value') || '0');
-      if (Math.abs(netOld - netCalc) > 0.02) {
-        netCell.setAttribute('data-value', netCalc);
-        var color = netCalc >= 0 ? 'var(--green)' : 'var(--red)';
-        netCell.innerHTML = '<span style="color:' + color + ';font-weight:700;">' +
-          (netCalc < 0 ? '-' : '') + 'R$ ' + Math.abs(netCalc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
-      }
-      cumAcc += netCalc;
+    // Calcular saldo da linha (salvo ou calculado)
+    var netVal;
+    if (netCell.getAttribute('data-overridden')) {
+      netVal = parseFloat(netCell.getAttribute('data-value') || '0');
     } else {
-      cumAcc += parseFloat(netCell.getAttribute('data-value') || '0');
+      var rf = getVal(row, 'income_recurring');
+      var re = getVal(row, 'income_eventual');
+      var gf = getVal(row, 'fixed');
+      var ge = getVal(row, 'eventual');
+      netVal = Math.round((rf + re - gf - ge) * 100) / 100;
+      // Atualizar display do saldo se mudou
+      if (Math.abs(netVal - parseFloat(netCell.getAttribute('data-value')||'0')) > 0.01) {
+        netCell.setAttribute('data-value', netVal);
+        var nc = netVal >= 0 ? 'var(--green)' : 'var(--red)';
+        netCell.innerHTML = '<span style="color:' + nc + ';font-weight:700;">' +
+          (netVal < 0 ? '-' : '') + 'R$ ' + Math.abs(netVal).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+      }
     }
 
-    // Acumulado
-    cumAcc = Math.round(cumAcc * 100) / 100;
-    cumCell.setAttribute('data-value', cumAcc);
-    var cumColor = cumAcc >= 0 ? 'var(--green)' : 'var(--red)';
-    cumCell.innerHTML = '<span style="color:' + cumColor + ';">' +
-      (cumAcc < 0 ? '-' : '') + 'R$ ' + Math.abs(cumAcc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+    // Acumulado: se override, usar esse valor E redefinir o cumAcc
+    if (cumCell.getAttribute('data-overridden')) {
+      cumAcc = parseFloat(cumCell.getAttribute('data-value') || '0');
+      // não altera o display — o valor override é o que vale
+    } else {
+      cumAcc = Math.round((cumAcc + netVal) * 100) / 100;
+      cumCell.setAttribute('data-value', cumAcc);
+      var cc = cumAcc >= 0 ? 'var(--green)' : 'var(--red)';
+      cumCell.innerHTML = '<span style="color:' + cc + ';">' +
+        (cumAcc < 0 ? '-' : '') + 'R$ ' + Math.abs(cumAcc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+    }
   });
 }
 
@@ -397,9 +402,10 @@ function abrirEdicao(td) {
       .then(function(j) {
         if (!j) return;
         if (j.ok) {
-          // Atualizar data-value da célula editada
+          // Atualizar data-value da célula editada e marcar como override
           var numVal = parseFloat(v.replace(/[.]/g,'').replace(',','.')) || 0;
           td.setAttribute('data-value', numVal);
+          td.setAttribute('data-overridden', '1');
           td.innerHTML = fmtBRL(numVal);
           // Recalcular Saldo e Acumulado inline
           recalcularTabela();
