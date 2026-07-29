@@ -898,8 +898,10 @@ def _save_entry(entry, card):
 
     # Atualizar planned_installments quando parcelado é salvo/editado
     # ATUALIZA valores existentes — não deleta/recria — conserva exclusões manuais
-    # Planned installments: sincronizar ao editar qualquer parcela
-    if entry.installments and entry.installments > 1 and entry.installment_no and entry.billing_month:
+    # Planned installments: atualizar SOMENTE quando editada a 1ª parcela
+    # Parcelas 2, 3... nunca tocam no planejado — evita exclusão acidental
+    if (entry.installments and entry.installments > 1
+            and entry.installment_no == 1 and entry.billing_month):
         from app.models import PlannedInstallment, PlannedInstallmentDeletion
         import re as _re_sv3
         def _nsv3(s):
@@ -919,47 +921,43 @@ def _save_entry(entry, card):
                     user_id=entry.user_id, card_id=entry.card_id, billing_month=bm).all()
                 return any(_nsv3(d.description) == _nsv3(entry.description) for d in dels)
 
-            # SEMPRE limpar PIs antigos vinculados a este entry
-            # Garante que mudança de 1→2 ou 2→1 seja refletida
+            # Limpar PIs antigos deste entry (só para parcela 1)
             for _old_pi in PlannedInstallment.query.filter_by(origin_entry_id=entry.id).all():
                 db.session.delete(_old_pi)
             db.session.flush()
 
-            # Recriar APENAS se for a 1ª parcela
-            if entry.installment_no == 1:
-                if not _excluido_sv3(entry.billing_month):
+            # Criar PI para parcela 1
+            if not _excluido_sv3(entry.billing_month):
+                db.session.add(PlannedInstallment(
+                    user_id=entry.user_id, card_id=entry.card_id,
+                    description=entry.description, amount=entry.amount,
+                    installment_no=1, installments=entry.installments,
+                    billing_month=entry.billing_month,
+                    expense_id=entry.expense_id, origin_entry_id=entry.id,
+                ))
+
+            # Projetar parcelas 2..N
+            for _i in range(2, entry.installments + 1):
+                _steps = _i - 1
+                _pmo = _bmo + _steps - 1
+                _pyr = _byr + _pmo // 12
+                _pmo = (_pmo % 12) + 1
+                _proj_bm = f"{_pyr}-{_pmo:02d}"
+                if _excluido_sv3(_proj_bm):
+                    continue
+                _pi_ex = PlannedInstallment.query.filter_by(
+                    user_id=entry.user_id, card_id=entry.card_id,
+                    description=entry.description, installment_no=_i).first()
+                if not _pi_ex:
                     db.session.add(PlannedInstallment(
                         user_id=entry.user_id, card_id=entry.card_id,
                         description=entry.description, amount=entry.amount,
-                        installment_no=1, installments=entry.installments,
-                        billing_month=entry.billing_month,
+                        installment_no=_i, installments=entry.installments,
+                        billing_month=_proj_bm,
                         expense_id=entry.expense_id, origin_entry_id=entry.id,
                     ))
-                for _i in range(2, entry.installments + 1):
-                    _steps = _i - 1
-                    _pmo = _bmo + _steps - 1
-                    _pyr = _byr + _pmo // 12
-                    _pmo = (_pmo % 12) + 1
-                    _proj_bm = f"{_pyr}-{_pmo:02d}"
-                    if _excluido_sv3(_proj_bm):
-                        continue
-                    _pi_ex = PlannedInstallment.query.filter_by(
-                        user_id=entry.user_id, card_id=entry.card_id,
-                        description=entry.description, installment_no=_i).first()
-                    if not _pi_ex:
-                        db.session.add(PlannedInstallment(
-                            user_id=entry.user_id, card_id=entry.card_id,
-                            description=entry.description, amount=entry.amount,
-                            installment_no=_i, installments=entry.installments,
-                            billing_month=_proj_bm,
-                            expense_id=entry.expense_id, origin_entry_id=entry.id,
-                        ))
-                flash(f"Planejados atualizados para '{ entry.description }'.", "info")
-            else:
-                # Parcela 2+ : PIs limpos. Nenhum novo criado por esta entrada.
-                flash(f"Parcela { entry.installment_no }/{ entry.installments } — sem projeção gerada (use a 1ª parcela).", "info")
             db.session.commit()
-
+            flash(f"Planejados atualizados para '{ entry.description }'.", "info")
     flash("Lançamento salvo.", "success")
     mes_back = entry.billing_month or date.today().strftime("%Y-%m")
     return redirect(url_for("cards.detail_card", card_id=card.id, mes=mes_back))
