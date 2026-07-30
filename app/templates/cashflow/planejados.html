@@ -72,6 +72,25 @@
 
     <!-- Conteúdo colapsável -->
     <div id="mes-{{ mes_id }}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+      <!-- Filtro por cartão -->
+      {% set cartoes_mes = items | map(attribute='card') | select | unique | list %}
+      {% if cartoes_mes | length > 1 %}
+      <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="text-small text-dim">Filtrar:</span>
+        <button class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;"
+                onclick="filtrarCartao('tbl-{{ mes_id }}', '', this)">Todos</button>
+        {% for card in cartoes_mes %}
+        {% if card %}
+        <button class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:4px;"
+                onclick="filtrarCartao('tbl-{{ mes_id }}', '{{ card.name }}', this)">
+          <span style="width:8px;height:8px;border-radius:50%;background:{{ card.color or '#6b8db5' }};display:inline-block;"></span>
+          {{ card.name }}
+        </button>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
       <table class="tbl" id="tbl-{{ mes_id }}">
         <thead>
           <tr>
@@ -86,7 +105,8 @@
         <tbody>
         {% for p in items %}
         {% set is_ultima = p.installment_no == p.installments %}
-        <tr {% if is_ultima %}style="background:rgba(255,80,80,0.08);color:var(--red);font-weight:600;"{% endif %}>
+        <tr data-card="{{ p.card.name if p.card else '' }}"
+            {% if is_ultima %}style="background:rgba(255,80,80,0.08);color:var(--red);font-weight:600;"{% endif %}>
           <td>
             <input type="checkbox" name="ids" value="{{ p.id }}"
                    class="item-check" onchange="atualizarContador()"
@@ -205,6 +225,29 @@ function atualizarTotalMes(el) {
     totalEl.textContent = 'R$ ' + total.toLocaleString('pt-BR',{minimumFractionDigits:2});
   }
 }
+function filtrarCartao(tblId, cardName, btn) {
+  // Destacar botão ativo
+  var container = btn.parentElement;
+  container.querySelectorAll('.filtro-card').forEach(function(b) {
+    b.style.borderColor = '';
+    b.style.color = '';
+  });
+  if (cardName) {
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+  }
+  // Filtrar linhas
+  var tbl = document.getElementById(tblId);
+  if (!tbl) return;
+  tbl.querySelectorAll('tbody tr').forEach(function(row) {
+    if (!cardName || row.getAttribute('data-card') === cardName) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+}
+
 function sortTable(tblId,col,th){
   const tbl=document.getElementById(tblId);
   if(!tbl)return;
