@@ -77,11 +77,11 @@
       {% if cartoes_mes | length > 1 %}
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span class="text-small text-dim">Filtrar:</span>
-        <button class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;"
+        <button type="button" class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;"
                 onclick="filtrarCartao('tbl-{{ mes_id }}', '', this)">Todos</button>
         {% for card in cartoes_mes %}
         {% if card %}
-        <button class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:4px;"
+        <button type="button" class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:4px;"
                 onclick="filtrarCartao('tbl-{{ mes_id }}', '{{ card.name }}', this)">
           <span style="width:8px;height:8px;border-radius:50%;background:{{ card.color or '#6b8db5' }};display:inline-block;"></span>
           {{ card.name }}
