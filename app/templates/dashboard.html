@@ -111,6 +111,12 @@
   {% endif %}
 </div>
 
+<!-- Botão relatório membros -->
+<div style="text-align:right;margin-bottom:8px;">
+  <a href="{{ url_for('dashboard.relatorio_membros') }}" target="_blank"
+     class="btn btn-ghost btn-sm">📄 Relatório PDF — Contas entre membros</a>
+</div>
+
 <!-- Gastos da Casa -->
 <div class="card mb-3" style="border-left:4px solid var(--gold);">
   <div class="card-title">
@@ -337,4 +343,3 @@ function toggleEntries(id) {
 }
 </script>
 {% endblock %}
- 
