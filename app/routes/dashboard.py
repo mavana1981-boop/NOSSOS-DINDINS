@@ -233,3 +233,137 @@ def index():
         next_mes=next_mes,
         mes_atual=today.strftime("%B/%Y").capitalize(),
     )
+
+
+@dashboard_bp.route("/relatorio-membros")
+@login_required
+def relatorio_membros():
+    """Gera PDF do relatório de contas entre membros."""
+    from flask import make_response
+    from app.utils import get_user_balance_with as _gubw
+    from app.models import User as _User, Expense, ExpenseShare, CardEntry
+    from datetime import date as _dt
+    import io
+
+    today = _dt.today()
+    from app.utils import get_open_billing_month as _gobm_rel
+    _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
+    try:
+        filter_year  = int(_mes[:4])
+        filter_month = int(_mes[5:7])
+    except Exception:
+        filter_year, filter_month = today.year, today.month
+
+    import calendar as _cal
+    MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label = f"{MESES[filter_month-1]}/{filter_year}"
+
+    # Calcular saldos
+    others = _User.query.filter(_User.id != current_user.id).all()
+    membros = []
+    for o in others:
+        bal = _gubw(current_user.id, o.id, filter_year, filter_month)
+        membros.append({"user": o, "balance": bal})
+    membros = [m for m in membros if abs(m["balance"]) > 0.005]
+
+    # Gastos da casa no mês
+    from app.models import HouseholdExpense
+    hh_links = HouseholdExpense.query.filter_by(owner_id=current_user.id).all()
+    gastos_casa = []
+    for hh in hh_links:
+        exp = hh.expense
+        if not exp or not exp.is_active_on(filter_year, filter_month):
+            continue
+        entries = CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            CardEntry.billing_month == _mes,
+            CardEntry.status == "ativo",
+        ).all()
+        total = sum(float(e.amount) for e in entries)
+        gastos_casa.append({"desc": exp.description, "planned": float(exp.amount), "spent": total, "entries": entries})
+
+    # Gerar PDF com reportlab
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.units import cm
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Título
+    title_style = ParagraphStyle('Title', parent=styles['Title'],
+                                  fontSize=18, spaceAfter=6, textColor=colors.HexColor('#6b8db5'))
+    story.append(Paragraph("Relatório — Contas entre Membros", title_style))
+    sub_style = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=11,
+                                textColor=colors.grey, spaceAfter=16)
+    story.append(Paragraph(f"Período: {mes_label}  |  Gerado em: {today.strftime('%d/%m/%Y')}", sub_style))
+
+    # Saldos
+    h2 = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=13, spaceBefore=12, spaceAfter=6)
+    story.append(Paragraph("Saldo entre membros", h2))
+
+    if membros:
+        data = [["Membro", "Saldo"]]
+        for m in membros:
+            bal = m["balance"]
+            saldo_txt = f"R$ {bal:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            data.append([m["user"].full_name, saldo_txt])
+        t = Table(data, colWidths=[12*cm, 5*cm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#6b8db5')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 11),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+            ('ALIGN', (1,0), (1,-1), 'RIGHT'),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ]))
+        story.append(t)
+    else:
+        story.append(Paragraph("Nenhum saldo pendente entre membros.", styles['Normal']))
+
+    # Gastos da casa
+    story.append(Spacer(1, 16))
+    story.append(Paragraph("Gastos da Casa", h2))
+
+    if gastos_casa:
+        data2 = [["Descrição", "Planejado", "Realizado", "Diferença"]]
+        for g in gastos_casa:
+            dif = g["spent"] - g["planned"]
+            def brl(v):
+                return f"R$ {v:,.2f}".replace(",","X").replace(".",",").replace("X",".")
+            data2.append([g["desc"], brl(g["planned"]), brl(g["spent"]), brl(dif)])
+        t2 = Table(data2, colWidths=[9*cm, 4*cm, 4*cm, 4*cm])
+        t2.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#6b8db5')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+            ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ]))
+        story.append(t2)
+    else:
+        story.append(Paragraph("Nenhum gasto da casa registrado.", styles['Normal']))
+
+    doc.build(story)
+    buffer.seek(0)
+    resp = make_response(buffer.read())
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f"attachment; filename=contas_membros_{_mes}.pdf"
+    return resp
