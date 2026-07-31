@@ -238,12 +238,10 @@ def index():
 @dashboard_bp.route("/relatorio-membros")
 @login_required
 def relatorio_membros():
-    """Gera PDF do relatorio de contas entre membros."""
-    from flask import make_response
+    """Relatório HTML de contas entre membros — imprimível como PDF."""
     from app.utils import get_user_balance_with as _gubw, get_open_billing_month as _gobm_rel
     from app.models import User as _User, CardEntry, HouseholdExpense
     from datetime import date as _dt
-    import io, traceback as _tb
 
     today = _dt.today()
     _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
@@ -281,90 +279,13 @@ def relatorio_membros():
             "planned": float(exp.amount),
             "spent": total,
             "diff": total - float(exp.amount),
+            "entries": entries,
         })
 
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-        from reportlab.lib.units import cm
-
-        def brl(v):
-            return f"R$ {abs(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
-
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4,
-                                leftMargin=2*cm, rightMargin=2*cm,
-                                topMargin=2*cm, bottomMargin=2*cm)
-        styles = getSampleStyleSheet()
-        story = []
-
-        accent = colors.HexColor("#6b8db5")
-        h1 = ParagraphStyle("h1", parent=styles["Title"], fontSize=16, textColor=accent, spaceAfter=4)
-        h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontSize=12, spaceBefore=14, spaceAfter=6)
-        sub = ParagraphStyle("sub", parent=styles["Normal"], fontSize=10, textColor=colors.grey, spaceAfter=14)
-
-        story.append(Paragraph("Relatorio — Contas entre Membros", h1))
-        story.append(Paragraph(f"Periodo: {mes_label}  |  Gerado: {today.strftime('%d/%m/%Y')}", sub))
-
-        # Saldos
-        story.append(Paragraph("Saldos entre membros", h2))
-        if membros:
-            tdata = [["Membro", "Situacao", "Valor"]]
-            for m in membros:
-                sit = "A receber" if m["balance"] > 0 else "A pagar"
-                tdata.append([m["name"], sit, brl(m["balance"])])
-            t = Table(tdata, colWidths=[9*cm, 4*cm, 4*cm])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), accent),
-                ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f5f7fa")]),
-                ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#cccccc")),
-                ("ALIGN", (1,0), (-1,-1), "CENTER"),
-                ("LEFTPADDING", (0,0), (-1,-1), 8),
-                ("RIGHTPADDING", (0,0), (-1,-1), 8),
-                ("TOPPADDING", (0,0), (-1,-1), 5),
-                ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-            ]))
-            story.append(t)
-        else:
-            story.append(Paragraph("Nenhum saldo pendente.", styles["Normal"]))
-
-        # Gastos da casa
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("Gastos da Casa", h2))
-        if gastos_casa:
-            tdata2 = [["Descricao", "Planejado", "Realizado", "Diferenca"]]
-            for g in gastos_casa:
-                tdata2.append([g["desc"], brl(g["planned"]), brl(g["spent"]), brl(g["diff"])])
-            t2 = Table(tdata2, colWidths=[9*cm, 3.5*cm, 3.5*cm, 3.5*cm])
-            t2.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), accent),
-                ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f5f7fa")]),
-                ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#cccccc")),
-                ("ALIGN", (1,0), (-1,-1), "RIGHT"),
-                ("LEFTPADDING", (0,0), (-1,-1), 8),
-                ("RIGHTPADDING", (0,0), (-1,-1), 8),
-                ("TOPPADDING", (0,0), (-1,-1), 5),
-                ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-            ]))
-            story.append(t2)
-        else:
-            story.append(Paragraph("Nenhum gasto da casa.", styles["Normal"]))
-
-        doc.build(story)
-        buffer.seek(0)
-        resp = make_response(buffer.read())
-        resp.headers["Content-Type"] = "application/pdf"
-        resp.headers["Content-Disposition"] = f"attachment; filename=contas_{_mes}.pdf"
-        return resp
-
-    except ImportError:
-        return ("<h2>Erro: reportlab nao instalado</h2>"
-                "<p>Adicione <code>reportlab&gt;=4.0</code> ao requirements.txt</p>"), 500
-    except Exception:
-        return f"<h2>Erro ao gerar PDF</h2><pre>{_tb.format_exc()}</pre>", 500
+    return render_template("dashboard/relatorio_membros.html",
+                           mes_label=mes_label,
+                           mes=_mes,
+                           membros=membros,
+                           gastos_casa=gastos_casa,
+                           hoje=today.strftime("%d/%m/%Y"),
+                           user=current_user)
