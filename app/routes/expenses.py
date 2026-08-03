@@ -83,11 +83,14 @@ def list_expenses():
     val_min      = request.args.get("val_min", "")
     val_max      = request.args.get("val_max", "")
     # Mês padrão = mês atual
-    # Usar primeiro mês aberto a partir do atual (igual ao dashboard e cartões)
+    # Mês: se ?mes= fornecido explicitamente, respeitar mesmo fechado.
+    # Sem parâmetro: usar primeiro mês aberto.
     from app.utils import get_open_billing_month as _gobm_exp
-    _mes_default = request.args.get("mes", _gobm_exp(current_user.id, today.strftime("%Y-%m")))
-    # Se o mês passado via ?mes= estiver fechado, avançar também
-    mes_filter = _gobm_exp(current_user.id, _mes_default) if request.args.get("mes") else _mes_default
+    _mes_param_exp = request.args.get("mes")
+    if _mes_param_exp:
+        mes_filter = _mes_param_exp  # navegação manual — respeitar mesmo fechado
+    else:
+        mes_filter = _gobm_exp(current_user.id, today.strftime("%Y-%m"))
 
     def _add_months(dt, n):
         month = dt.month - 1 + n
