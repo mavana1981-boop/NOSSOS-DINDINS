@@ -1,345 +1,294 @@
-{% extends "base.html" %}
-{% block title %}Painel{% endblock %}
-{% block content %}
+from datetime import date
+from flask import Blueprint, render_template, request
+from flask_login import login_required, current_user
+from sqlalchemy import or_
+from app import db
+from app.models import (Income, Expense, ExpenseShare, Project,
+                        ProjectMember, User, HouseholdExpense, CardEntry)
+from app.utils import get_user_monthly_summary, get_credits_debits, get_yearly_cashflow, get_user_balance_with
 
-<div class="page-header">
-  <div class="page-title-wrap">
-    <h1>Olá, <em style="font-style:italic;color:var(--accent);">{{ current_user.full_name.split()[0] }}</em></h1>
-    <p>Resumo financeiro de <strong>{{ mes_nome }}/{{ filter_year }}</strong></p>
-  </div>
-  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
-    <a href="{{ url_for('dashboard.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
-    <a href="{{ url_for('dashboard.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
-    <a href="{{ url_for('income.new_income') }}" class="btn btn-ghost btn-sm">+ Renda</a>
-    <a href="{{ url_for('expenses.new_expense') }}" class="btn btn-primary btn-sm">+ Gasto</a>
-  </div>
-</div>
+dashboard_bp = Blueprint("dashboard", __name__)
 
-<!-- Stats — mesmo cálculo do Fluxo de Caixa -->
-<div class="grid grid-4 mb-3">
-  <div class="stat">
-    <div class="stat-label">Renda fixa — {{ cf_current.month_name }}</div>
-    <div class="stat-value positive">{{ cf_current.income_recurring|brl }}</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Renda eventual — {{ cf_current.month_name }}</div>
-    <div class="stat-value" style="color:var(--blue);">{{ cf_current.income_eventual|brl }}</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Saldo — {{ cf_current.month_name }}</div>
-    <div class="stat-value {{ 'positive' if cf_current.net >= 0 else 'negative' }}">{{ cf_current.net|brl }}</div>
-    <div class="stat-foot text-faint" style="font-size:0.7rem;">igual ao fluxo de caixa</div>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Saldo do ano</div>
-    <div class="stat-value {{ 'positive' if cf_dec.cumulative >= 0 else 'negative' }}">{{ cf_dec.cumulative|brl }}</div>
-    <div class="stat-foot text-faint" style="font-size:0.7rem;">acumulado dez/{{ cf_current.month_name[-4:] if cf_current else '' }}</div>
-  </div>
-</div>
 
-<!-- Créditos/Débitos -->
-<div class="card mb-3">
-  <div class="card-title">
-    <h3>Contas entre membros — {{ mes_nome }}/{{ filter_year }}</h3>
-    <form method="GET" action="/dashboard" style="display:inline-flex;gap:6px;align-items:center;">
-      <input type="month" name="mes" value="{{ mes_filter }}"
-             class="form-control" style="width:145px;font-size:0.8rem;padding:3px 6px;"
-             onchange="this.form.submit()">
-    </form>
-    <span class="text-faint text-small">acertos pendentes · clique para ordenar</span>
-  </div>
-  {% if credits_debits %}
-    {% for cd in credits_debits %}
-    <div style="margin-bottom:12px;background:var(--bg);border-radius:var(--radius);overflow:hidden;">
-      <!-- Cabeçalho do membro com saldo total -->
-      <div class="flex-between" style="padding:12px 14px;border-bottom:1px solid var(--border);">
-        <div class="flex flex-gap">
-          {% if cd.user.photo %}<img src="{{ cd.user.photo_url }}" class="avatar">
-          {% else %}<div class="avatar-fallback">{{ cd.user.full_name[0]|upper }}</div>{% endif %}
-          <strong>{{ cd.user.full_name }}</strong>
-        </div>
-        <div class="flex flex-gap" style="align-items:center;gap:10px;">
-          {% if cd.balance > 0 %}
-            <span class="badge badge-credit">A receber</span>
-            <span class="mono" style="color:var(--green);font-size:1.1rem;font-weight:700;">{{ cd.balance|brl }}</span>
-          {% else %}
-            <span class="badge badge-debit">A pagar</span>
-            <span class="mono" style="color:var(--red);font-size:1.1rem;font-weight:700;">{{ (cd.balance * -1)|brl }}</span>
-          {% endif %}
-          <button type="button" class="btn btn-ghost btn-sm"
-                  onclick="toggleMemberEntries(this)">▼ listar gastos</button>
-        </div>
-      </div>
-      <!-- Gastos individuais — ocultos por padrão -->
-      <div class="member-entries" style="display:none;max-height:240px;overflow-y:auto;">
-        {% for entry in cd.entries %}
-        <div class="flex-between" style="padding:8px 14px;border-bottom:1px solid var(--border);">
-          <div>
-            <div class="text-small" style="font-weight:500;">
-              {{ entry.description }}
-              {% if entry.parcela %}
-                <span class="badge badge-shared" style="font-size:0.62rem;margin-left:4px;">
-                  {{ entry.parcela }}×
-                </span>
-              {% elif entry.kind == 'recorrente' %}
-                <span class="badge badge-shared" style="font-size:0.62rem;margin-left:4px;">fixo</span>
-              {% endif %}
-            </div>
-            <div class="text-faint" style="font-size:0.72rem;">
-              {{ entry.date|data_br }} · {{ entry.category }}
-            </div>
-          </div>
-          <div class="text-right">
-            <div class="mono text-small"
-                 style="color:{{ 'var(--green)' if entry.direction == 'receber' else 'var(--red)' }};">
-              {{ entry.amount|brl }}
-            </div>
-            <div style="font-size:0.68rem;color:{{ 'var(--green)' if entry.direction == 'receber' else 'var(--red)' }};">
-              {% if entry.direction == 'receber' %}↑ a receber{% else %}↓ a pagar{% endif %}
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-        {% if not cd.entries %}
-        <div style="padding:10px 14px;color:var(--text-faint);font-size:0.82rem;">Sem lançamentos detalhados.</div>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty-state"><h4>Tudo em dia</h4><p>Nenhum acerto pendente com outros membros.</p></div>
-  {% endif %}
-</div>
+@dashboard_bp.route("/dashboard")
+@login_required
+def index():
+    today = date.today()
+    # Filtro de mês: se ?mes= fornecido (navegação manual), respeitar sempre.
+    # Sem parâmetro: usar primeiro mês aberto.
+    from app.utils import get_open_billing_month as _gobm_dash
+    _mes_param = request.args.get("mes")
+    if _mes_param:
+        mes_filter = _mes_param   # usuário escolheu — respeitar mesmo fechado
+    else:
+        mes_filter = _gobm_dash(current_user.id, today.strftime("%Y-%m"))
+    try:
+        filter_year  = int(mes_filter[:4])
+        filter_month = int(mes_filter[5:7])
+    except Exception:
+        filter_year  = today.year
+        filter_month = today.month
+    mes_filter = f"{filter_year}-{filter_month:02d}"
+    # Prev/next para navegação
+    _prev_mo = filter_month - 1 if filter_month > 1 else 12
+    _prev_yr = filter_year if filter_month > 1 else filter_year - 1
+    _next_mo = filter_month + 1 if filter_month < 12 else 1
+    _next_yr = filter_year if filter_month < 12 else filter_year + 1
+    prev_mes = f"{_prev_yr}-{_prev_mo:02d}"
+    next_mes = f"{_next_yr}-{_next_mo:02d}"
+    import calendar as _cal
+    mes_nome = _cal.month_name[filter_month]
 
-<!-- Botão relatório membros -->
-<div style="text-align:right;margin-bottom:8px;">
-  <a href="{{ url_for('dashboard.relatorio_membros') }}" target="_blank"
-     class="btn btn-ghost btn-sm">📄 Relatório PDF — Contas entre membros</a>
-</div>
+    summary = get_user_monthly_summary(current_user.id, filter_year, filter_month)
 
-<!-- Gastos da Casa -->
-<div class="card mb-3" style="border-left:4px solid var(--gold);">
-  <div class="card-title">
-    <div>
-      <div style="font-size:0.72rem;color:var(--text-faint);margin-bottom:4px;">
-        {{ today.strftime('%d/%m/%Y') }} &nbsp;·&nbsp;
-        <span style="color:{{ 'var(--green)' if household_pct <= desired_pct else 'var(--red)' }};">
-          percentual desejável: {{ desired_pct }}%
-        </span>
-      </div>
-      <h3>
-        <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-        Gastos da Casa
-      </h3>
-    </div>
-    <span class="text-faint text-small">ciclo 16→16 · clique para ordenar</span>
-  </div>
+    # Dados do fluxo de caixa para os cards do dashboard
+    cf_months = get_yearly_cashflow(current_user.id, filter_year)
+    cf_current = next(
+        (m for m in cf_months if m["month"] == filter_month),
+        cf_months[0] if cf_months else {}
+    )
+    cf_dec = next((m for m in cf_months if m["month"] == 12), cf_months[-1] if cf_months else {})
+    # Usar filter_year/filter_month para calcular saldos entre membros
+    from app.utils import get_user_balance_with as _gubw
+    from app.models import User as _User
+    _others = _User.query.filter(_User.id != current_user.id).all()
+    credits_debits = []
+    for _o in _others:
+        _bal = _gubw(current_user.id, _o.id, filter_year, filter_month)
+        if abs(_bal) > 0.005:
+            credits_debits.append({"user": _o, "balance": _bal})
 
-  {% if household_expenses %}
-  <div class="mb-3">
-    <div class="progress-info">
-      <span class="text-dim">{{ household_total_spent|brl }} de {{ household_total_planned|brl }} planejados</span>
-      <span class="pct">{{ household_pct }}%</span>
-    </div>
-    <div class="progress">
-      <div class="progress-bar {{ 'complete' if household_pct >= 100 }}"
-           style="width:{{ household_pct }}%;background:linear-gradient(90deg,var(--gold),var(--accent));"></div>
-    </div>
-  </div>
-  <div class="mt-2">
-    {% for item in household_expenses %}
-    {% set exp = item.expense %}
-    {% set hh = item.household %}
-    <div style="padding:12px;background:var(--bg);border-radius:var(--radius);margin-bottom:8px;">
-      <div class="flex-between mb-1">
-        <div>
-          <strong>{{ exp.description }}</strong>
-          <span class="badge badge-solo" style="margin-left:6px;">{{ exp.category }}</span>
-          {% if exp.kind == 'recorrente' %}<span class="badge badge-shared" style="margin-left:4px;">Fixo</span>{% endif %}
-        </div>
-        <div class="flex flex-gap" style="align-items:center;gap:8px;">
-          {% if hh.owner_id == current_user.id %}
-            {% if hh.shared_with.photo %}<img src="{{ hh.shared_with.photo_url }}" class="avatar" style="width:20px;height:20px;">
-            {% else %}<div class="avatar-fallback" style="width:20px;height:20px;font-size:0.65rem;">{{ hh.shared_with.full_name[0]|upper }}</div>{% endif %}
-            <span class="text-faint text-small">{{ hh.shared_with.full_name.split()[0] }}</span>
-          {% else %}
-            {% if hh.owner.photo %}<img src="{{ hh.owner.photo_url }}" class="avatar" style="width:20px;height:20px;">
-            {% else %}<div class="avatar-fallback" style="width:20px;height:20px;font-size:0.65rem;">{{ hh.owner.full_name[0]|upper }}</div>{% endif %}
-            <span class="text-faint text-small">{{ hh.owner.full_name.split()[0] }}</span>
-          {% endif %}
-          <span class="mono" style="color:var(--gold);font-weight:600;">{{ exp.amount|brl }}</span>
-        </div>
-      </div>
-      <div class="progress-info" style="margin-bottom:4px;">
-        <span class="text-faint" style="font-size:0.72rem;">{{ item.spent|brl }} de {{ exp.amount|brl }}</span>
-        <span style="font-size:0.72rem;font-weight:700;color:{{ 'var(--green)' if item.pct >= 100 else 'var(--gold)' }};">{{ item.pct }}%</span>
-      </div>
-      <div class="progress" style="height:6px;">
-        <div class="progress-bar {{ 'complete' if item.pct >= 100 }}"
-             style="width:{{ item.pct }}%;background:{{ 'var(--green)' if item.pct >= 100 else 'linear-gradient(90deg,var(--gold),var(--accent))' }};"></div>
-      </div>
-      <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;">
-        {% if item.excedente_atual > 0 %}
-        <span style="font-size:0.72rem;color:var(--red);">
-          ▲ excedente: {{ item.excedente_atual|brl }}
-          <span class="text-faint">(esperado {{ item.esperado_ate_hoje|brl }})</span>
-        </span>
-        {% elif item.excedente_atual < 0 %}
-        <span style="font-size:0.72rem;color:var(--green);">
-          ▼ abaixo do esperado: {{ (item.excedente_atual * -1)|brl }}
-        </span>
-        {% else %}
-        <span style="font-size:0.72rem;color:var(--text-faint);">no ritmo esperado</span>
-        {% endif %}
-        {% if item.gasto_dia_disponivel > 0 %}
-        <span style="font-size:0.72rem;color:var(--text-faint);">
-          {{ item.gasto_dia_disponivel|brl }}/dia disponível · {{ item.dias_ate_fechamento }} dias até fechamento
-        </span>
-        {% elif item.gasto_dia_disponivel <= 0 %}
-        <span style="font-size:0.72rem;color:var(--red);">sem saldo disponível</span>
-        {% endif %}
-      </div>
+    # Projetos do usuário
+    member_project_ids = [m.project_id for m in
+                          ProjectMember.query.filter_by(user_id=current_user.id).all()]
+    projects = Project.query.filter(
+        (Project.owner_id == current_user.id) | (Project.id.in_(member_project_ids))
+    ).order_by(Project.is_completed, Project.created_at.desc()).all()
 
-      {% set eid = loop.index %}
-      {% if True %}
-      <div style="margin-top:8px;">
-        <button type="button" onclick="toggleEntries({{ eid }})"
-                style="background:none;border:none;color:var(--accent);font-size:0.75rem;
-                       cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;">
-          <span id="ic-{{ eid }}">▶</span>
-          {% if item.entries %}▶ Ver {{ item.entries|length }} lançamento(s){% else %}⚠️ Nenhum lançamento vinculado — classifique via Regras{% endif %}
-        </button>
-        <div id="entries-{{ eid }}" style="display:none;margin-top:6px;">
-          <table style="width:100%;font-size:0.78rem;border-collapse:collapse;">
-            <thead>
-              <tr style="color:var(--text-dim);border-bottom:1px solid var(--border);">
-                <th style="text-align:left;padding:3px 4px;">Data</th>
-                <th style="text-align:left;padding:3px 4px;">Descrição</th>
-                <th style="text-align:left;padding:3px 4px;">Cartão</th>
-                <th style="text-align:right;padding:3px 4px;">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-            {% for e in item.entries %}
-            <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:4px;white-space:nowrap;color:var(--text-dim);">{{ e.entry_date.strftime('%d/%m') }}</td>
-              <td style="padding:4px;">{{ e.description }}</td>
-              <td style="padding:4px;">
-                {% if e.card %}
-                <span style="display:inline-flex;align-items:center;gap:4px;">
-                  <span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>
-                  {{ e.card.name }}
-                </span>
-                {% else %}<span class="text-faint">—</span>{% endif %}
-              </td>
-              <td style="text-align:right;padding:4px;color:var(--red);" class="mono">{{ e.amount|brl }}</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {% endif %}
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty-state" style="padding:20px;">
-    <p class="text-dim">Nenhum gasto da casa configurado. Vá em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a> e marque um como "da casa".</p>
-  </div>
-  {% endif %}
-</div>
+    # Últimos gastos
+    recent_expenses = []
 
-<!-- Projetos em destaque -->
-<div class="card mb-3">
-  <div class="card-title">
-    <h3>Projetos & metas</h3>
-    <a href="{{ url_for('projects.list_projects') }}" class="small-link">ver todos ({{ all_projects_count }}) →</a>
-  </div>
-  {% if projects %}
-    <div class="grid grid-2">
-      {% for p in projects %}
-        <a href="{{ url_for('projects.detail_project', project_id=p.id) }}"
-           style="text-decoration:none;color:inherit;display:block;padding:18px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);">
-          <div class="flex-between mb-2">
-            <strong style="font-family:'Fraunces',serif;font-size:1.1rem;">{{ p.name }}</strong>
-            {% if p.is_completed %}<span class="badge badge-done">✓ Concluído</span>{% endif %}
-          </div>
-          <div class="progress-info">
-            <span class="text-dim">{{ p.total_raised|brl }} / {{ p.computed_target|brl }}</span>
-            <span class="pct">{{ p.progress_percent }}%</span>
-          </div>
-          <div class="progress">
-            <div class="progress-bar {{ 'complete' if p.is_completed }}" style="width: {{ p.progress_percent }}%;"></div>
-          </div>
-          {% if p.deadline %}
-            <div class="text-faint text-small mt-1">prazo: {{ p.deadline|data_br }}</div>
-          {% endif %}
-        </a>
-      {% endfor %}
-    </div>
-  {% else %}
-    <div class="empty-state">
-      <h4>Sem projetos ainda</h4>
-      <p>Crie metas para juntar dinheiro junto com outros membros.</p>
-      <a href="{{ url_for('projects.new_project') }}" class="btn btn-primary btn-sm mt-2">Criar primeiro projeto</a>
-    </div>
-  {% endif %}
-</div>
+    # Últimas rendas
+    recent_incomes = []
 
-<!-- Movimentações recentes -->
-<div class="grid grid-2">
-  <div class="card">
-    
+    # Detalhes de gastos entre membros
+    credits_debits_detail = []
+    for cd in credits_debits:
+        other = cd["user"]
+        eu_paguei = db.session.query(Expense, ExpenseShare)\
+            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+            .filter(Expense.payer_id == current_user.id,
+                    ExpenseShare.user_id == other.id).all()
+        outro_pagou = db.session.query(Expense, ExpenseShare)\
+            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
+            .filter(Expense.payer_id == other.id,
+                    ExpenseShare.user_id == current_user.id).all()
+        entries = []
+        from datetime import date as _d
+        def _parc(exp):
+            if exp.kind != "recorrente" or not exp.recurrence_months:
+                return ""
+            md = (filter_year - exp.spent_at.year) * 12 + (filter_month - exp.spent_at.month) + 1
+            md = max(1, min(md, exp.recurrence_months))
+            return f"{md}/{exp.recurrence_months}"
 
-<script>
-function toggleMemberEntries(btn) {
-  const list = btn.closest('div[style*="border-radius"]').querySelector('.member-entries');
-  const open = list.style.display !== 'none';
-  list.style.display = open ? 'none' : 'block';
-  btn.textContent = open ? '▼ listar gastos' : '▲ ocultar gastos';
-}
+        for exp, share in eu_paguei:
+            if not exp.is_active_on(filter_year, filter_month):
+                continue
+            entries.append({
+                "description": exp.description,
+                "date": exp.spent_at,
+                "amount": float(share.share_amount),
+                "direction": "receber",
+                "category": exp.category,
+                "kind": exp.kind,
+                "recurrence_months": exp.recurrence_months,
+                "parcela": _parc(exp),
+            })
+        for exp, share in outro_pagou:
+            if not exp.is_active_on(filter_year, filter_month):
+                continue
+            entries.append({
+                "description": exp.description,
+                "date": exp.spent_at,
+                "amount": float(share.share_amount),
+                "direction": "pagar",
+                "category": exp.category,
+                "kind": exp.kind,
+                "recurrence_months": exp.recurrence_months,
+                "parcela": _parc(exp),
+            })
+        entries.sort(key=lambda x: x["date"], reverse=True)
+        credits_debits_detail.append({
+            "user": other,
+            "balance": get_user_balance_with(current_user.id, cd["user"].id, filter_year, filter_month),
+            "entries": entries,
+        })
 
-(function() {
-  function initSort(table) {
-    if (!table) return;
-    let sortCol = -1, sortAsc = true;
-    table.querySelectorAll('th.th-sort').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = parseInt(th.dataset.col);
-        if (sortCol === col) sortAsc = !sortAsc;
-        else { sortCol = col; sortAsc = true; }
-        table.querySelectorAll('th.th-sort').forEach(t => {
-          t.textContent = t.textContent.replace(' ↑','').replace(' ↓','').replace(' ↕','') + ' ↕';
-        });
-        th.textContent = th.textContent.replace(' ↕','') + (sortAsc ? ' ↑' : ' ↓');
-        const tbody = table.querySelector('tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        rows.sort((a, b) => {
-          const aCell = a.querySelectorAll('td')[col];
-          const bCell = b.querySelectorAll('td')[col];
-          const aVal = (aCell.dataset.val || aCell.textContent).trim().toLowerCase();
-          const bVal = (bCell.dataset.val || bCell.textContent).trim().toLowerCase();
-          const aNum = parseFloat(aVal);
-          const bNum = parseFloat(bVal);
-          if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
-          return sortAsc ? aVal.localeCompare(bVal,'pt-BR') : bVal.localeCompare(aVal,'pt-BR');
-        });
-        rows.forEach(r => tbody.appendChild(r));
-      });
-    });
-  }
-  document.querySelectorAll('.sortable-table').forEach(initSort);
-})();
-</script>
+    # Gastos da Casa
+    household_links = HouseholdExpense.query.filter(
+        or_(
+            HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id
+        )
+    ).all()
+    # Filtra: se shared_with_id for None, só o owner vê; se preenchido, ambos veem
+    household_links = [
+        hh for hh in household_links
+        if hh.owner_id == current_user.id or (hh.shared_with_id == current_user.id)
+    ]
 
-<script>
-function toggleEntries(id) {
-  var el = document.getElementById('entries-' + id);
-  var ic = document.getElementById('ic-' + id);
-  var open = el.style.display === 'none';
-  el.style.display = open ? 'block' : 'none';
-  ic.textContent = open ? '▼' : '▶';
-}
-</script>
-{% endblock %}
+    # Percentual desejável — ciclo do dia 16 ao próximo dia 16
+    from datetime import timedelta
+    if today.day >= 16:
+        cycle_start = today.replace(day=16)
+        if today.month == 12:
+            cycle_end = today.replace(year=today.year+1, month=1, day=16)
+        else:
+            cycle_end = today.replace(month=today.month+1, day=16)
+    else:
+        if today.month == 1:
+            cycle_start = today.replace(year=today.year-1, month=12, day=16)
+        else:
+            cycle_start = today.replace(month=today.month-1, day=16)
+        cycle_end = today.replace(day=16)
+    total_days = (cycle_end - cycle_start).days
+    elapsed_days = (today - cycle_start).days
+    desired_pct = min(round(elapsed_days / total_days * 100, 1) if total_days > 0 else 0, 100)
+
+    household_expenses = []
+    household_total_planned = 0.0
+    household_total_spent = 0.0
+
+    for hh in household_links:
+        exp = hh.expense
+        if not exp:
+            continue
+        if exp.kind == 'recorrente':
+            visible = exp.is_active_on(filter_year, filter_month)
+        else:
+            visible = True
+        if not visible:
+            continue
+
+        # Apenas entries explicitamente vinculados a este gasto via expense_id
+        # Garante que os lançamentos batem exatamente com o que aparece no detalhe do cartão
+        entries_card = CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            CardEntry.billing_month == mes_filter,
+            CardEntry.status == "ativo",   # igual ao detalhe do cartão
+        ).order_by(CardEntry.entry_date.desc()).all()
+
+        spent_this_month = sum(float(e.amount) for e in entries_card)
+
+        planned = float(exp.amount)
+        pct = min(round(spent_this_month / planned * 100, 1) if planned > 0 else 0, 100)
+
+        # Excedente atual: gasto efetuado vs esperado até agora (planejado * desired_pct)
+        esperado_ate_hoje = round(planned * desired_pct / 100, 2)
+        excedente_atual = round(spent_this_month - esperado_ate_hoje, 2)
+
+        # Gasto por dia disponível: (planejado - gasto) / dias até dia 16
+        dias_ate_fechamento = (cycle_end - today).days
+        saldo_disponivel = round(planned - spent_this_month, 2)
+        gasto_dia_disponivel = round(saldo_disponivel / dias_ate_fechamento, 2) if dias_ate_fechamento > 0 else 0.0
+
+        household_expenses.append({
+            "expense": exp,
+            "household": hh,
+            "spent": spent_this_month,
+            "pct": pct,
+            "excedente_atual": excedente_atual,
+            "esperado_ate_hoje": esperado_ate_hoje,
+            "gasto_dia_disponivel": gasto_dia_disponivel,
+            "dias_ate_fechamento": dias_ate_fechamento,
+            "entries": entries_card,   # lançamentos individuais com cartão
+        })
+        household_total_planned += planned
+        household_total_spent += spent_this_month
+
+    household_pct = min(
+        round(household_total_spent / household_total_planned * 100, 1)
+        if household_total_planned > 0 else 0, 100
+    )
+
+    return render_template(
+        "dashboard.html",
+        summary=summary,
+        cf_current=cf_current,
+        cf_dec=cf_dec,
+        credits_debits=credits_debits_detail,
+        projects=projects[:4],
+        all_projects_count=len(projects),
+        recent_expenses=recent_expenses,
+        recent_incomes=recent_incomes,
+        household_expenses=household_expenses,
+        household_total_planned=household_total_planned,
+        household_total_spent=household_total_spent,
+        household_pct=household_pct,
+        desired_pct=desired_pct,
+        today=today,
+        mes_filter=mes_filter,
+        filter_year=filter_year,
+        filter_month=filter_month,
+        mes_nome=mes_nome,
+        prev_mes=prev_mes,
+        next_mes=next_mes,
+        mes_atual=today.strftime("%B/%Y").capitalize(),
+    )
+
+
+@dashboard_bp.route("/relatorio-membros")
+@login_required
+def relatorio_membros():
+    """Relatório HTML de contas entre membros — imprimível como PDF."""
+    from app.utils import get_user_balance_with as _gubw, get_open_billing_month as _gobm_rel
+    from app.models import User as _User, CardEntry, HouseholdExpense
+    from datetime import date as _dt
+
+    today = _dt.today()
+    _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
+    try:
+        filter_year  = int(_mes[:4])
+        filter_month = int(_mes[5:7])
+    except Exception:
+        filter_year, filter_month = today.year, today.month
+
+    MESES = ["Janeiro","Fevereiro","Marco","Abril","Maio","Junho",
+             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label = f"{MESES[filter_month-1]}/{filter_year}"
+
+    others = _User.query.filter(_User.id != current_user.id).all()
+    membros = []
+    for o in others:
+        bal = _gubw(current_user.id, o.id, filter_year, filter_month)
+        membros.append({"name": o.full_name, "balance": float(bal)})
+    membros = [m for m in membros if abs(m["balance"]) > 0.005]
+
+    hh_links = HouseholdExpense.query.filter_by(owner_id=current_user.id).all()
+    gastos_casa = []
+    for hh in hh_links:
+        exp = hh.expense
+        if not exp or not exp.is_active_on(filter_year, filter_month):
+            continue
+        entries = CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            CardEntry.billing_month == _mes,
+            CardEntry.status == "ativo",
+        ).all()
+        total = sum(float(e.amount) for e in entries)
+        gastos_casa.append({
+            "desc": exp.description,
+            "planned": float(exp.amount),
+            "spent": total,
+            "diff": total - float(exp.amount),
+            "entries": entries,
+        })
+
+    return render_template("dashboard/relatorio_membros.html",
+                           mes_label=mes_label,
+                           mes=_mes,
+                           membros=membros,
+                           gastos_casa=gastos_casa,
+                           hoje=today.strftime("%d/%m/%Y"),
+                           user=current_user)
