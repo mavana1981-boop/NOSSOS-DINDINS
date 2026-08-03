@@ -14,14 +14,17 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @login_required
 def index():
     today = date.today()
-    # Filtro de mês para contas entre membros
-    # Dashboard: aceita ?mes= mas nunca permite mês fechado
+    # Filtro de mês: se ?mes= fornecido (navegação manual), respeitar sempre.
+    # Sem parâmetro: usar primeiro mês aberto.
     from app.utils import get_open_billing_month as _gobm_dash
-    _mes_param = request.args.get("mes", today.strftime("%Y-%m"))
-    _mes_aberto = _gobm_dash(current_user.id, _mes_param)
+    _mes_param = request.args.get("mes")
+    if _mes_param:
+        mes_filter = _mes_param   # usuário escolheu — respeitar mesmo fechado
+    else:
+        mes_filter = _gobm_dash(current_user.id, today.strftime("%Y-%m"))
     try:
-        filter_year  = int(_mes_aberto[:4])
-        filter_month = int(_mes_aberto[5:7])
+        filter_year  = int(mes_filter[:4])
+        filter_month = int(mes_filter[5:7])
     except Exception:
         filter_year  = today.year
         filter_month = today.month
