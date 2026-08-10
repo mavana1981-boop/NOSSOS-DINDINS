@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Configurar Padrões — Pagamentos{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>⚙️ Gastos Padrão — Pagamentos</h1>
+    <p>Selecione os gastos que devem aparecer automaticamente todo mês no menu Pagamentos.</p>
+  </div>
+  <a href="{{ url_for('payments.index') }}" class="btn btn-ghost">← Pagamentos</a>
+</div>
+
+<form method="POST" action="{{ url_for('payments.salvar_padroes') }}">
+  <div class="card mb-3" style="padding:16px;">
+    <div class="flex-between mb-3">
+      <div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+          <input type="checkbox" id="sel-all" onchange="toggleAll(this)" style="width:16px;height:16px;">
+          Selecionar todos
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">💾 Salvar configuração</button>
+    </div>
+
+    {% set fixos = all_exps | selectattr('kind', 'equalto', 'recorrente') | list %}
+    {% set pontuais = all_exps | rejectattr('kind', 'equalto', 'recorrente') | list %}
+
+    {% if fixos %}
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.75rem;font-weight:700;color:var(--text-dim);letter-spacing:1px;
+                  text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;
+                  border-bottom:1px solid var(--border);">Gastos Fixos / Recorrentes</div>
+      {% for exp in fixos %}
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 4px;cursor:pointer;
+                    border-bottom:1px solid var(--border);"
+             class="hover-row">
+        <input type="checkbox" name="expense_ids" value="{{ exp.id }}"
+               class="item-check" style="width:16px;height:16px;"
+               {% if exp.id in defaults_ids %}checked{% endif %}>
+        <div style="flex:1;">
+          <span style="font-weight:600;">{{ exp.description }}</span>
+          <span class="badge" style="margin-left:6px;font-size:0.65rem;
+                background:var(--surface2);color:var(--text-dim);padding:1px 5px;border-radius:3px;">
+            {{ exp.category }}
+          </span>
+        </div>
+        <span class="mono" style="color:var(--red);">{{ exp.amount|brl }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if pontuais %}
+    <div>
+      <div style="font-size:0.75rem;font-weight:700;color:var(--text-dim);letter-spacing:1px;
+                  text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;
+                  border-bottom:1px solid var(--border);">Eventuais / Pontuais</div>
+      {% for exp in pontuais %}
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 4px;cursor:pointer;
+                    border-bottom:1px solid var(--border);"
+             class="hover-row">
+        <input type="checkbox" name="expense_ids" value="{{ exp.id }}"
+               class="item-check" style="width:16px;height:16px;"
+               {% if exp.id in defaults_ids %}checked{% endif %}>
+        <div style="flex:1;">
+          <span style="font-weight:600;">{{ exp.description }}</span>
+          <span class="badge" style="margin-left:6px;font-size:0.65rem;
+                background:var(--surface2);color:var(--text-dim);padding:1px 5px;border-radius:3px;">
+            {{ exp.category }}
+          </span>
+        </div>
+        <span class="mono" style="color:var(--red);">{{ exp.amount|brl }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div style="margin-top:16px;text-align:right;">
+      <button type="submit" class="btn btn-primary">💾 Salvar configuração</button>
+    </div>
+  </div>
+</form>
+
+<script>
+function toggleAll(cb) {
+  document.querySelectorAll('.item-check').forEach(c => c.checked = cb.checked);
+}
+</script>
+{% endblock %}
