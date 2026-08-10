@@ -10,6 +10,7 @@
     <p>Acompanhe pagamentos de <strong>{{ mes_label }}</strong></p>
   </div>
   <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <a href="{{ url_for('payments.configurar_padroes') }}" class="btn btn-ghost btn-sm">⚙️ Padrões</a>
     <a href="{{ url_for('payments.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
     <strong style="min-width:130px;text-align:center;">{{ mes_label }}</strong>
     <a href="{{ url_for('payments.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
@@ -66,9 +67,20 @@
         <strong>{{ card.name }}</strong>
       </td>
       <td class="text-right mono">
-        <span {% if is_paid %}style="text-decoration:line-through;opacity:0.6;"{% endif %}>
-          {{ card_totals[card.id]|brl }}
-        </span>
+        <form method="POST" action="{{ url_for('payments.override_card_amount', card_id=card.id, mes=mes_filter) }}"
+              class="inline-edit-form" onsubmit="return validarValor(this)">
+          {% set valor_exibido = cs.amount_override if cs.amount_override else card_totals[card.id] %}
+          <input type="text" name="amount_override"
+                 value="{{ valor_exibido|brl }}"
+                 class="form-control mono text-right inline-edit-input"
+                 {% if is_paid %}style="text-decoration:line-through;opacity:0.6;color:var(--green);"{% else %}style="color:var(--red);"{% endif %}
+                 onblur="this.form.submit()"
+                 title="Clique para editar o valor">
+          {% if cs.amount_override %}
+          <button type="submit" name="amount_override" value=""
+                  class="btn-reset-override" title="Restaurar valor calculado ({{ card_totals[card.id]|brl }})">↺</button>
+          {% endif %}
+        </form>
       </td>
       <td>
         <form method="POST" action="{{ url_for('payments.set_card_due', card_id=card.id, mes=mes_filter) }}"
@@ -153,15 +165,25 @@
     {% set is_paid = item.is_paid %}
     <tr style="color:{% if is_paid %}var(--green){% else %}var(--red){% endif %};">
       <td>
-        <span {% if is_paid %}style="text-decoration:line-through;opacity:0.6;"{% endif %}>
-          {{ item.description }}
-        </span>
+        <form method="POST" action="{{ url_for('payments.edit_item', item_id=item.id) }}"
+              class="inline-edit-form">
+          <input type="text" name="description" value="{{ item.description }}"
+                 class="form-control inline-edit-input"
+                 {% if is_paid %}style="text-decoration:line-through;opacity:0.6;color:var(--green);"{% else %}style="color:var(--red);"{% endif %}
+                 onblur="this.form.submit()">
+          <input type="hidden" name="amount" value="{{ item.amount|brl }}">
+        </form>
         {% if item.expense %}<span class="badge badge-solo" style="font-size:0.6rem;">fixo</span>{% endif %}
       </td>
       <td class="text-right mono">
-        <span {% if is_paid %}style="text-decoration:line-through;opacity:0.6;"{% endif %}>
-          {{ item.amount|brl }}
-        </span>
+        <form method="POST" action="{{ url_for('payments.edit_item', item_id=item.id) }}"
+              class="inline-edit-form">
+          <input type="hidden" name="description" value="{{ item.description }}">
+          <input type="text" name="amount" value="{{ item.amount|brl }}"
+                 class="form-control mono text-right inline-edit-input"
+                 {% if is_paid %}style="text-decoration:line-through;opacity:0.6;color:var(--green);"{% else %}style="color:var(--red);"{% endif %}
+                 onblur="this.form.submit()">
+        </form>
       </td>
       <td>
         <form method="POST" action="{{ url_for('payments.set_item_due', item_id=item.id) }}">
@@ -246,7 +268,31 @@
           class="btn btn-primary btn-sm" style="margin-top:12px;width:100%;">OK, entendi</button>
 </div>
 
+<style>
+.inline-edit-form { display:flex; align-items:center; gap:4px; }
+.inline-edit-input {
+  border:none; background:transparent; padding:2px 4px;
+  font-size:inherit; font-family:inherit; font-weight:inherit;
+  cursor:pointer; min-width:60px;
+  border-bottom:1px dashed var(--border);
+  transition:border-color 0.2s;
+}
+.inline-edit-input:focus {
+  outline:none; background:var(--surface2);
+  border-bottom:2px solid var(--accent);
+  border-radius:4px 4px 0 0; cursor:text;
+}
+.btn-reset-override {
+  background:none; border:none; cursor:pointer;
+  color:var(--accent); font-size:0.8rem; padding:0 4px;
+}
+</style>
 <script>
+function validarValor(form) {
+  const inp = form.querySelector('input[name="amount_override"]');
+  if (inp && inp.value.trim() === '') return true; // reset
+  return true;
+}
 function preencherGasto(sel) {
   const opt = sel.options[sel.selectedIndex];
   if (opt.dataset.desc) document.getElementById('desc-input').value = opt.dataset.desc;
