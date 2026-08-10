@@ -436,3 +436,15 @@ class PlannedInstallmentDeletion(db.Model):
     deleted_at    = db.Column(db.DateTime, default=db.func.now())
     __table_args__ = (db.UniqueConstraint("user_id", "card_id", "description", "billing_month"),)
     user = db.relationship("User", backref="planned_deletions")
+
+
+class PaymentDefault(db.Model):
+    """Gastos selecionados pelo usuário para aparecer todo mês nos Pagamentos."""
+    __tablename__ = "payment_defaults"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    __table_args__ = (db.UniqueConstraint("user_id", "expense_id"),)
+    user    = db.relationship("User", backref="payment_defaults")
+    expense = db.relationship("Expense", backref="payment_defaults")
