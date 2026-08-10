@@ -49,7 +49,9 @@ def index():
     plan = PaymentPlan.query.filter_by(
         user_id=current_user.id, mes_ref=mes_filter
     ).first()
+    _plano_novo = False
     if not plan:
+        _plano_novo = True
         try:
             plan = PaymentPlan(user_id=current_user.id, saldo_inicial=0, mes_ref=mes_filter)
             db.session.add(plan)
@@ -63,6 +65,40 @@ def index():
                 plan = PaymentPlan(user_id=current_user.id, saldo_inicial=0, mes_ref=mes_filter)
                 db.session.add(plan)
                 db.session.commit()
+                _plano_novo = True
+
+    # Auto-popular plano novo com gastos marcados como padrão pelo usuário
+    if _plano_novo:
+        from app.models import PaymentDefault
+        _defaults = PaymentDefault.query.filter_by(user_id=current_user.id).all()
+        _default_ids = {d.expense_id for d in _defaults}
+
+        if _default_ids:
+            # Usar os gastos configurados como padrão
+            _ativos = Expense.query.filter(
+                Expense.id.in_(_default_ids),
+            ).order_by(Expense.description).all()
+        else:
+            # Sem configuração: usar todos os recorrentes (comportamento anterior)
+            _ativos = Expense.query.filter(
+                Expense.payer_id == current_user.id,
+                Expense.kind == "recorrente",
+            ).order_by(Expense.description).all()
+
+        for _exp in _ativos:
+            if _exp.is_active_on(filter_year, filter_month):
+                _ja_tem = PaymentItem.query.filter_by(
+                    plan_id=plan.id, expense_id=_exp.id
+                ).first()
+                if not _ja_tem:
+                    db.session.add(PaymentItem(
+                        plan_id=plan.id,
+                        description=_exp.description,
+                        amount=_exp.amount,
+                        expense_id=_exp.id,
+                        is_paid=False,
+                    ))
+        db.session.commit()
 
     # Cartões ativos — total filtrado pelo mês da fatura (billing_month)
     cards = Card.query.filter_by(user_id=current_user.id, is_active=True).order_by(Card.name).all()
@@ -309,3 +345,38 @@ def override_card_amount(card_id):
             cs.amount_override = None
         db.session.commit()
     return redirect(url_for("payments.index", mes=mes))
+
+
+@payments_bp.route("/configurar-padroes")
+@login_required
+def configurar_padroes():
+    from app.models import PaymentDefault
+    all_exps = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+    ).order_by(Expense.kind.desc(), Expense.description).all()
+    defaults_ids = {d.expense_id for d in
+                    PaymentDefault.query.filter_by(user_id=current_user.id).all()}
+    return render_template("payments/configurar_padroes.html",
+                           all_exps=all_exps,
+                           defaults_ids=defaults_ids)
+
+
+@payments_bp.route("/configurar-padroes/salvar", methods=["POST"])
+@login_required
+def salvar_padroes():
+    from app.models import PaymentDefault
+    selected = request.form.getlist("expense_ids")
+    selected_set = {int(x) for x in selected if x.isdigit()}
+
+    # Remover todos os defaults atuais e recriar
+    PaymentDefault.query.filter_by(user_id=current_user.id).delete()
+    for eid in selected_set:
+        exp = Expense.query.get(eid)
+        if exp and exp.payer_id == current_user.id:
+            db.session.add(PaymentDefault(
+                user_id=current_user.id,
+                expense_id=eid,
+            ))
+    db.session.commit()
+    flash(f"{len(selected_set)} gasto(s) configurado(s) como padrão.", "success")
+    return redirect(url_for("payments.configurar_padroes"))
