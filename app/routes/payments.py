@@ -350,10 +350,10 @@ def override_card_amount(card_id):
 @payments_bp.route("/configurar-padroes")
 @login_required
 def configurar_padroes():
-    from app.models import PaymentDefault
-    all_exps = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-    ).order_by(Expense.kind.desc(), Expense.description).all()
+    from app.models import PaymentDefault, Expense as _Exp
+    all_exps = _Exp.query.filter(
+        _Exp.payer_id == current_user.id,
+    ).order_by(_Exp.kind.desc(), _Exp.description).all()
     defaults_ids = {d.expense_id for d in
                     PaymentDefault.query.filter_by(user_id=current_user.id).all()}
     return render_template("payments/configurar_padroes.html",
@@ -364,14 +364,12 @@ def configurar_padroes():
 @payments_bp.route("/configurar-padroes/salvar", methods=["POST"])
 @login_required
 def salvar_padroes():
-    from app.models import PaymentDefault
+    from app.models import PaymentDefault, Expense as _Exp
     selected = request.form.getlist("expense_ids")
     selected_set = {int(x) for x in selected if x.isdigit()}
-
-    # Remover todos os defaults atuais e recriar
     PaymentDefault.query.filter_by(user_id=current_user.id).delete()
     for eid in selected_set:
-        exp = Expense.query.get(eid)
+        exp = _Exp.query.get(eid)
         if exp and exp.payer_id == current_user.id:
             db.session.add(PaymentDefault(
                 user_id=current_user.id,
