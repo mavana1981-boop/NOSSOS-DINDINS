@@ -1163,7 +1163,7 @@ def _process_batch(card):
 
         payload = json.dumps({
             "model": "claude-sonnet-4-6",
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             "messages": [{"role": "user", "content": content}]
         }).encode()
 
@@ -1181,7 +1181,21 @@ def _process_batch(card):
             with urllib.request.urlopen(req, timeout=120) as resp:
                 result = json.loads(resp.read())
             raw = result["content"][0]["text"]
-            return _parse_json(raw), None
+            # Tentar parse; se truncado, reparar fechando o JSON
+            try:
+                return _parse_json(raw), None
+            except Exception:
+                # JSON truncado — tentar reparar fechando array
+                raw_rep = raw.rstrip()
+                if not raw_rep.endswith("]"):
+                    # Remover último objeto incompleto e fechar array
+                    last_brace = raw_rep.rfind("}")
+                    if last_brace > 0:
+                        raw_rep = raw_rep[:last_brace+1] + "]"
+                try:
+                    return _parse_json(raw_rep), None
+                except Exception as _ejson:
+                    return None, f"Claude: JSON truncado mesmo após reparo: {_ejson}"
         except urllib.error.HTTPError as e:
             return None, f"Claude {e.code}: {e.read().decode()[:200]}"
         except Exception as e:
@@ -1227,24 +1241,16 @@ def _process_batch(card):
         # Tenta v1 e v1beta para cada modelo
         CANDIDATES = [
             ("v1beta","gemini-2.5-flash"),
-            ("v1beta","gemini-2.5-flash-preview-05-20"),
-            ("v1beta","gemini-2.5-pro"),
-            ("v1",    "gemini-2.0-flash"),
-            ("v1",    "gemini-2.0-flash-001"),
+            ("v1beta","gemini-2.5-flash-lite-preview-06-17"),
+            ("v1beta","gemini-2.0-flash"),
             ("v1beta","gemini-2.0-flash-lite"),
-            ("v1beta","gemini-2.0-flash-exp"),
+            ("v1",    "gemini-2.0-flash"),
+            ("v1beta","gemini-2.5-pro"),
+            ("v1beta","gemini-2.5-flash-preview-05-20"),
             ("v1",    "gemini-1.5-flash"),
-            ("v1",    "gemini-1.5-flash-002"),
-            ("v1",    "gemini-1.5-flash-001"),
             ("v1",    "gemini-1.5-pro"),
-            ("v1",    "gemini-1.5-pro-001"),
-            ("v1beta","gemini-1.5-pro-002"),
             ("v1beta","gemini-1.5-flash"),
-            ("v1beta","gemini-1.5-flash-001"),
-            ("v1beta","gemini-1.5-flash-002"),
-            ("v1beta","gemini-1.5-flash-8b-001"),
-            ("v1",    "gemini-1.5-flash-8b"),
-            ("v1beta","gemini-pro"),
+            ("v1beta","gemini-1.5-pro"),
         ]
         # Cache dinâmico: tenta o último que funcionou primeiro
         cached = getattr(current_app, "_gemini_batch_model", None)
@@ -1294,7 +1300,7 @@ def _process_batch(card):
                 {"type": "text", "text": "Extrato:\n" + text_chunk},
             ]}]
             payload = json.dumps({
-                "model": "llama-3.3-70b-versatile",
+                "model": "llama3-70b-8192",
                 "messages": msgs,
                 "max_tokens": 8192,
             }).encode()
@@ -1351,7 +1357,7 @@ def _process_batch(card):
                         img_msgs[0]["content"].append({"type": "image_url",
                             "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                 payload = json.dumps({
-                    "model": "llama-3.3-70b-versatile",
+                    "model": "llama3-70b-8192",
                     "messages": img_msgs, "max_tokens": 8192,
                 }).encode()
                 req = urllib.request.Request(
