@@ -104,6 +104,8 @@ def index():
                            max_value=max_value,
                            current_year=today.year,
                            current_month=current_month,
+                           current_month_num=_aberto_mo,
+                           current_month_year=_aberto_yr,
                            saldo_ano=dec.get("cumulative", 0))
 
 
