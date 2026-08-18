@@ -67,7 +67,10 @@
         <span class="text-dim text-small">({{ items|length }} parcela(s)
           {%- if ultima_count.v %} · <span style="color:var(--red);">{{ ultima_count.v }} última(s)</span>{% endif %})</span>
       </div>
-      <span class="mono" style="color:var(--red);font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
+      {% if total_mes > 5000 %}{% set cor_total = "#e07a30" %}
+      {% elif total_mes > 2000 %}{% set cor_total = "#c9a800" %}
+      {% else %}{% set cor_total = "#5a9e6f" %}{% endif %}
+      <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
     </div>
 
     <!-- Conteúdo colapsável -->
