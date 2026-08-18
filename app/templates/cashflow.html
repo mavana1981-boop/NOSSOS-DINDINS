@@ -109,19 +109,25 @@
           <th>Mês</th>
           <th class="text-right">Renda fixa</th>
           <th class="text-right">Renda eventual</th>
-          <th class="text-right">Total renda</th>
+          <th class="text-right" style="background:rgba(100,200,100,0.12);font-weight:800;border-bottom:2px solid var(--green);">Total renda</th>
           <th class="text-right">Fixos</th>
           <th class="text-right">Eventuais</th>
-          <th class="text-right">Total gasto</th>
+          <th class="text-right" style="background:rgba(200,100,100,0.12);font-weight:800;border-bottom:2px solid var(--red);">Total gasto</th>
           <th class="text-right">Saldo</th>
           <th class="text-right">Acumulado</th>
         </tr>
       </thead>
       <tbody>
         {% for m in months %}
+        {% set is_current_mo = (m.month == current_month_num and year == current_month_year and not m.get('is_next_year')) %}
         {% if m.is_next_year is defined and m.is_next_year %}
         <tr style="border-top:2px dashed var(--border-strong);opacity:0.8;">
           <td><strong>{{ m.month_name }}/{{ year + 1 }}</strong> <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
+        {% elif is_current_mo %}
+        <tr style="background:rgba(107,141,181,0.12);border-left:3px solid var(--accent);position:relative;">
+          <td><strong style="color:var(--accent);">{{ m.month_name }}/{{ year }}</strong>
+            <span style="font-size:0.6rem;background:var(--accent);color:white;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;">ATUAL</span>
+          </td>
         {% else %}
         <tr>
           <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
@@ -136,7 +142,7 @@
               style="color:var(--blue);cursor:pointer;" title="Clique para editar">
             <span style="text-decoration:underline dotted;">{{ m.income_eventual|brl }}</span>
           </td>
-          <td class="text-right amount" style="color:var(--green);font-weight:700;">{{ m.income|brl }}</td>
+          <td class="text-right amount" style="color:var(--green);font-weight:800;background:rgba(100,200,100,0.08);padding:4px 8px;border-radius:4px;font-size:1.05em;">{{ m.income|brl }}</td>
           <td class="text-right amount cf-cell editable-cell" data-col="fixed" data-idx="{{ loop.index0 }}"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="fixed" data-value="{{ m.fixed_expense }}"
               style="color:var(--gold);cursor:pointer;" title="Clique para editar">
@@ -147,7 +153,7 @@
               style="color:var(--red);cursor:pointer;" title="Clique para editar">
             <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
           </td>
-          <td class="text-right amount text-dim">{{ m.total_expense|brl }}</td>
+          <td class="text-right amount" style="color:var(--red);font-weight:800;background:rgba(200,100,100,0.08);padding:4px 8px;border-radius:4px;font-size:1.05em;">{{ m.total_expense|brl }}</td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}"{% if m.net_override is defined and m.net_override %} data-overridden="1"{% endif %} title="Duplo clique para editar / Clique para ver cálculo"
 
