@@ -494,6 +494,30 @@ def _dedup_card_entries():
 
 bootstrap()
 _dedup_card_entries()
+
+
+def _limpar_planejados_invalidos():
+    """Remove planned_installments com installments <= 1 (não são parcelados reais)."""
+    with app.app_context():
+        try:
+            from app.models import PlannedInstallment as _PI
+            invalidos = _PI.query.filter(_PI.installments <= 1).all()
+            n = len(invalidos)
+            for p in invalidos:
+                db.session.delete(p)
+            if n:
+                db.session.commit()
+                print(f"[limpar_planejados] {n} planned(s) 1/1 removido(s).")
+            else:
+                print("[limpar_planejados] Nenhum 1/1 encontrado.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[limpar_planejados] Erro: {_ex}")
+
+
+bootstrap()
+_limpar_planejados_invalidos()
+_dedup_card_entries()
 _fix_parcelados_duplicados()
 _backfill_planned_installments()
 
