@@ -162,12 +162,14 @@ def index():
     total_cartoes_pend = round(total_cartoes_pend, 2)
     total_cartoes      = round(total_cartoes_pago + total_cartoes_pend, 2)
 
-    saldo_inicial    = round(float(plan.saldo_inicial), 2)
-    total_pago       = round(total_debitos_pago + total_cartoes_pago, 2)
-    total_pendente   = round(total_debitos_pend + total_cartoes_pend, 2)
-    saldo_atual_real = round(saldo_inicial - total_pago, 2)        # já descontou o que foi pago
-    saldo_projetado  = round(saldo_inicial - total_pago - total_pendente, 2)  # desconta tudo
-    saldo_atualizado = saldo_projetado  # manter compatibilidade com template
+    saldo_inicial  = round(float(plan.saldo_inicial), 2)
+    total_pago     = round(total_debitos_pago + total_cartoes_pago, 2)
+    total_pendente = round(total_debitos_pend + total_cartoes_pend, 2)
+    # Saldo Agora = o que o usuário informou (já é o saldo atual da conta)
+    # Saldo Final = Saldo Agora - Pendente
+    saldo_atual_real = saldo_inicial
+    saldo_projetado  = round(saldo_inicial - total_pendente, 2)
+    saldo_atualizado = saldo_projetado
 
     return render_template("payments/index.html",
                            plan=plan,
