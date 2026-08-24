@@ -33,22 +33,51 @@
   <form method="POST" action="{{ url_for('payments.update_saldo', mes=mes_filter) }}"
         class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:16px;">
     <div class="form-group mb-0" style="flex:1;min-width:180px;">
-      <label class="form-label">💰 Saldo inicial conta corrente</label>
+      <label class="form-label">💰 Saldo atual conta corrente</label>
       <input type="text" name="saldo_inicial" class="form-control mono"
-             value="{{ plan.saldo_inicial|brl }}" placeholder="0,00">
+             value="{{ plan.saldo_inicial|brl }}" placeholder="0,00"
+             style="font-size:1.1rem;">
     </div>
     <button class="btn btn-primary btn-sm">✓ Salvar</button>
-    <div style="flex:1;min-width:180px;">
-      <div class="text-dim text-small">SALDO DISPONÍVEL</div>
-      <div class="mono" style="font-size:1.6rem;font-weight:700;
-           color:{% if saldo_atualizado >= 0 %}var(--green){% else %}var(--red){% endif %};">
-        {{ saldo_atualizado|brl }}
+  </form>
+
+  <!-- Projeção de saldo -->
+  <div class="grid grid-3 mt-3" style="gap:12px;">
+    <!-- Saldo atual real -->
+    <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px;">
+      <div class="text-dim text-small" style="margin-bottom:4px;">SALDO AGORA</div>
+      <div class="mono" style="font-size:1.3rem;font-weight:700;
+           color:{% if saldo_atual_real >= 0 %}var(--green){% else %}var(--red){% endif %};">
+        {{ saldo_atual_real|brl }}
       </div>
-      <div class="text-faint text-small">
-        {{ plan.saldo_inicial|brl }} − cartões {{ total_cartoes|brl }} − gastos {{ total_debitos|brl }}
+      <div class="text-faint" style="font-size:0.7rem;margin-top:2px;">
+        − R$ {{ total_pago|brl }} já pago
       </div>
     </div>
-  </form>
+    <!-- Pendentes -->
+    <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px;">
+      <div class="text-dim text-small" style="margin-bottom:4px;">⏳ PENDENTE</div>
+      <div class="mono" style="font-size:1.3rem;font-weight:700;color:var(--gold);">
+        {{ total_pendente|brl }}
+      </div>
+      <div class="text-faint" style="font-size:0.7rem;margin-top:2px;">
+        cartões + gastos a pagar
+      </div>
+    </div>
+    <!-- Saldo projetado -->
+    <div style="text-align:center;padding:10px;border:2px solid
+         {% if saldo_projetado >= 0 %}var(--green){% else %}var(--red){% endif %};
+         border-radius:8px;">
+      <div class="text-dim text-small" style="margin-bottom:4px;">📊 SALDO FINAL PROJ.</div>
+      <div class="mono" style="font-size:1.4rem;font-weight:800;
+           color:{% if saldo_projetado >= 0 %}var(--green){% else %}var(--red){% endif %};">
+        {{ saldo_projetado|brl }}
+      </div>
+      <div class="text-faint" style="font-size:0.7rem;margin-top:2px;">
+        após pagar tudo
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Faturas dos Cartões -->
