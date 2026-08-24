@@ -11,6 +11,13 @@
   </div>
   <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
     <a href="{{ url_for('payments.configurar_padroes') }}" class="btn btn-ghost btn-sm">⚙️ Padrões</a>
+    <form method="POST" action="{{ url_for('payments.aplicar_padroes') }}" style="display:inline;">
+      <input type="hidden" name="mes" value="{{ mes_filter }}">
+      <button type="submit" class="btn btn-ghost btn-sm"
+              onclick="return confirm('Aplicar gastos padrão ao plano de {{ mes_label }}?');">
+        ▶ Aplicar padrões
+      </button>
+    </form>
     <a href="{{ url_for('payments.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
     <strong style="min-width:130px;text-align:center;">{{ mes_label }}</strong>
     <a href="{{ url_for('payments.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
