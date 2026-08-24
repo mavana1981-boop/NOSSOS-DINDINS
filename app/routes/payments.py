@@ -144,14 +144,30 @@ def index():
     # Itens do plano do mês
     plan_items = PaymentItem.query.filter_by(plan_id=plan.id).order_by(PaymentItem.id).all()
 
-    total_debitos = round(sum(float(item.amount) for item in plan_items), 2)
-    # Usa amount_override se definido, senão valor calculado
-    total_cartoes = round(sum(
-        float(card_status[c.id].amount_override) if (c.id in card_status and card_status[c.id].amount_override)
-        else card_totals.get(c.id, 0.0)
-        for c in cards
-    ), 2)
-    saldo_atualizado = round(float(plan.saldo_inicial) - total_debitos - total_cartoes, 2)
+    # Total de débitos: separar pagos e pendentes
+    total_debitos_pago    = round(sum(float(i.amount) for i in plan_items if i.is_paid), 2)
+    total_debitos_pend    = round(sum(float(i.amount) for i in plan_items if not i.is_paid), 2)
+    total_debitos         = round(total_debitos_pago + total_debitos_pend, 2)
+
+    # Cartões: separar pagos e pendentes
+    total_cartoes_pago = 0.0
+    total_cartoes_pend = 0.0
+    for c in cards:
+        val = float(card_status[c.id].amount_override) if (c.id in card_status and card_status[c.id].amount_override) else card_totals.get(c.id, 0.0)
+        if c.id in card_status and card_status[c.id].is_paid:
+            total_cartoes_pago += val
+        else:
+            total_cartoes_pend += val
+    total_cartoes_pago = round(total_cartoes_pago, 2)
+    total_cartoes_pend = round(total_cartoes_pend, 2)
+    total_cartoes      = round(total_cartoes_pago + total_cartoes_pend, 2)
+
+    saldo_inicial    = round(float(plan.saldo_inicial), 2)
+    total_pago       = round(total_debitos_pago + total_cartoes_pago, 2)
+    total_pendente   = round(total_debitos_pend + total_cartoes_pend, 2)
+    saldo_atual_real = round(saldo_inicial - total_pago, 2)        # já descontou o que foi pago
+    saldo_projetado  = round(saldo_inicial - total_pago - total_pendente, 2)  # desconta tudo
+    saldo_atualizado = saldo_projetado  # manter compatibilidade com template
 
     return render_template("payments/index.html",
                            plan=plan,
@@ -162,6 +178,11 @@ def index():
                            total_debitos=total_debitos,
                            total_cartoes=total_cartoes,
                            saldo_atualizado=saldo_atualizado,
+                           saldo_inicial=saldo_inicial,
+                           saldo_atual_real=saldo_atual_real,
+                           saldo_projetado=saldo_projetado,
+                           total_pago=total_pago,
+                           total_pendente=total_pendente,
                            card_status=card_status,
                            mes_filter=mes_filter,
                            mes_label=mes_label,
