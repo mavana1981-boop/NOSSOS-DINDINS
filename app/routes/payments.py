@@ -378,3 +378,52 @@ def salvar_padroes():
     db.session.commit()
     flash(f"{len(selected_set)} gasto(s) configurado(s) como padrão.", "success")
     return redirect(url_for("payments.configurar_padroes"))
+
+
+@payments_bp.route("/aplicar-padroes", methods=["POST"])
+@login_required
+def aplicar_padroes():
+    """Aplica os gastos padrão ao plano do mês indicado (sem duplicar)."""
+    from app.models import PaymentDefault, Expense as _Exp, PaymentPlan, PaymentItem
+    from datetime import date as _dt
+
+    mes = request.form.get("mes", "")
+    if not mes:
+        flash("Mês não informado.", "danger")
+        return redirect(url_for("payments.index"))
+
+    try:
+        yr = int(mes[:4])
+        mo = int(mes[5:7])
+    except Exception:
+        flash("Mês inválido.", "danger")
+        return redirect(url_for("payments.index"))
+
+    # Buscar ou criar plano
+    plan = PaymentPlan.query.filter_by(user_id=current_user.id, mes_ref=mes).first()
+    if not plan:
+        plan = PaymentPlan(user_id=current_user.id, saldo_inicial=0, mes_ref=mes)
+        db.session.add(plan)
+        db.session.flush()
+
+    defaults = PaymentDefault.query.filter_by(user_id=current_user.id).all()
+    adicionados = 0
+    for d in defaults:
+        exp = _Exp.query.get(d.expense_id)
+        if not exp or not exp.is_active_on(yr, mo):
+            continue
+        # Não duplicar
+        ja = PaymentItem.query.filter_by(plan_id=plan.id, expense_id=exp.id).first()
+        if not ja:
+            db.session.add(PaymentItem(
+                plan_id=plan.id,
+                description=exp.description,
+                amount=exp.amount,
+                expense_id=exp.id,
+                is_paid=False,
+            ))
+            adicionados += 1
+
+    db.session.commit()
+    flash(f"{adicionados} gasto(s) padrão adicionado(s) ao plano de {mes}.", "success")
+    return redirect(url_for("payments.index", mes=mes))
