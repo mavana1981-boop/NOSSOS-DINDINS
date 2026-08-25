@@ -1,325 +1,528 @@
-from datetime import date
-from flask import Blueprint, render_template, request
-from flask_login import login_required, current_user
-from sqlalchemy import or_
-from app import db
-from app.models import (Income, Expense, ExpenseShare, Project,
-                        ProjectMember, User, HouseholdExpense, CardEntry)
-from app.utils import get_user_monthly_summary, get_credits_debits, get_yearly_cashflow, get_user_balance_with
+import sys, traceback
+try:
+    from app import create_app, db
+    from app.models import User, SubProject, Investment, Card, CardEntry, HouseholdExpense
+except Exception as _boot_err:
+    print(f"[BOOT ERROR] Import falhou: {_boot_err}", file=sys.stderr)
+    traceback.print_exc()
+    raise
+from werkzeug.security import generate_password_hash
+from sqlalchemy import text, inspect
+import os
 
-dashboard_bp = Blueprint("dashboard", __name__)
+try:
+    app = create_app()
+except Exception as _app_err:
+    import sys, traceback
+    print(f"[BOOT ERROR] create_app() falhou: {_app_err}", file=sys.stderr)
+    traceback.print_exc()
+    raise
 
 
-@dashboard_bp.route("/dashboard")
-@login_required
-def index():
-    today = date.today()
-    # Filtro de mês: se ?mes= fornecido (navegação manual), respeitar sempre.
-    # Sem parâmetro: usar primeiro mês aberto.
-    from app.utils import get_open_billing_month as _gobm_dash
-    _mes_param = request.args.get("mes")
-    if _mes_param:
-        mes_filter = _mes_param   # usuário escolheu — respeitar mesmo fechado
-    else:
-        mes_filter = _gobm_dash(current_user.id, today.strftime("%Y-%m"))
+def _ensure_column(table, column, ddl):
     try:
-        filter_year  = int(mes_filter[:4])
-        filter_month = int(mes_filter[5:7])
-    except Exception:
-        filter_year  = today.year
-        filter_month = today.month
-    mes_filter = f"{filter_year}-{filter_month:02d}"
-    # Prev/next para navegação
-    _prev_mo = filter_month - 1 if filter_month > 1 else 12
-    _prev_yr = filter_year if filter_month > 1 else filter_year - 1
-    _next_mo = filter_month + 1 if filter_month < 12 else 1
-    _next_yr = filter_year if filter_month < 12 else filter_year + 1
-    prev_mes = f"{_prev_yr}-{_prev_mo:02d}"
-    next_mes = f"{_next_yr}-{_next_mo:02d}"
-    import calendar as _cal
-    mes_nome = _cal.month_name[filter_month]
-
-    summary = get_user_monthly_summary(current_user.id, filter_year, filter_month)
-
-    # Dados do fluxo de caixa para os cards do dashboard
-    cf_months = get_yearly_cashflow(current_user.id, filter_year)
-    cf_current = next(
-        (m for m in cf_months if m["month"] == filter_month),
-        cf_months[0] if cf_months else {}
-    )
-    cf_dec = next((m for m in cf_months if m["month"] == 12), cf_months[-1] if cf_months else {})
-    # Usar filter_year/filter_month para calcular saldos entre membros
-    from app.utils import get_user_balance_with as _gubw
-    from app.models import User as _User
-    _others = _User.query.filter(_User.id != current_user.id).all()
-    credits_debits = []
-    for _o in _others:
-        _bal = _gubw(current_user.id, _o.id, filter_year, filter_month)
-        if abs(_bal) > 0.005:
-            credits_debits.append({"user": _o, "balance": _bal})
-
-    # Projetos do usuário
-    member_project_ids = [m.project_id for m in
-                          ProjectMember.query.filter_by(user_id=current_user.id).all()]
-    projects = Project.query.filter(
-        (Project.owner_id == current_user.id) | (Project.id.in_(member_project_ids))
-    ).order_by(Project.is_completed, Project.created_at.desc()).all()
-
-    # Últimos gastos
-    recent_expenses = []
-
-    # Últimas rendas
-    recent_incomes = []
-
-    # Detalhes de gastos entre membros
-    credits_debits_detail = []
-    for cd in credits_debits:
-        other = cd["user"]
-        eu_paguei = db.session.query(Expense, ExpenseShare)\
-            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-            .filter(Expense.payer_id == current_user.id,
-                    ExpenseShare.user_id == other.id).all()
-        outro_pagou = db.session.query(Expense, ExpenseShare)\
-            .join(ExpenseShare, ExpenseShare.expense_id == Expense.id)\
-            .filter(Expense.payer_id == other.id,
-                    ExpenseShare.user_id == current_user.id).all()
-        entries = []
-        from datetime import date as _d
-        def _parc(exp):
-            if exp.kind != "recorrente" or not exp.recurrence_months:
-                return ""
-            md = (filter_year - exp.spent_at.year) * 12 + (filter_month - exp.spent_at.month) + 1
-            md = max(1, min(md, exp.recurrence_months))
-            return f"{md}/{exp.recurrence_months}"
-
-        for exp, share in eu_paguei:
-            if not exp.is_active_on(filter_year, filter_month):
-                continue
-            entries.append({
-                "description": exp.description,
-                "date": exp.spent_at,
-                "amount": float(share.share_amount),
-                "direction": "receber",
-                "category": exp.category,
-                "kind": exp.kind,
-                "recurrence_months": exp.recurrence_months,
-                "parcela": _parc(exp),
-            })
-        for exp, share in outro_pagou:
-            if not exp.is_active_on(filter_year, filter_month):
-                continue
-            entries.append({
-                "description": exp.description,
-                "date": exp.spent_at,
-                "amount": float(share.share_amount),
-                "direction": "pagar",
-                "category": exp.category,
-                "kind": exp.kind,
-                "recurrence_months": exp.recurrence_months,
-                "parcela": _parc(exp),
-            })
-        entries.sort(key=lambda x: x["date"], reverse=True)
-        credits_debits_detail.append({
-            "user": other,
-            "balance": get_user_balance_with(current_user.id, cd["user"].id, filter_year, filter_month),
-            "entries": entries,
-        })
-
-    # Gastos da Casa
-    household_links = HouseholdExpense.query.filter(
-        or_(
-            HouseholdExpense.owner_id == current_user.id,
-            HouseholdExpense.shared_with_id == current_user.id
-        )
-    ).all()
-    # Filtra: se shared_with_id for None, só o owner vê; se preenchido, ambos veem
-    household_links = [
-        hh for hh in household_links
-        if hh.owner_id == current_user.id or (hh.shared_with_id == current_user.id)
-    ]
-
-    # Percentual desejável — ciclo do dia 16 ao próximo dia 16
-    from datetime import timedelta
-    if today.day >= 16:
-        cycle_start = today.replace(day=16)
-        if today.month == 12:
-            cycle_end = today.replace(year=today.year+1, month=1, day=16)
-        else:
-            cycle_end = today.replace(month=today.month+1, day=16)
-    else:
-        if today.month == 1:
-            cycle_start = today.replace(year=today.year-1, month=12, day=16)
-        else:
-            cycle_start = today.replace(month=today.month-1, day=16)
-        cycle_end = today.replace(day=16)
-    total_days = (cycle_end - cycle_start).days
-    elapsed_days = (today - cycle_start).days
-    desired_pct = min(round(elapsed_days / total_days * 100, 1) if total_days > 0 else 0, 100)
-
-    household_expenses = []
-    household_total_planned = 0.0
-    household_total_spent = 0.0
-
-    for hh in household_links:
-        exp = hh.expense
-        if not exp:
-            continue
-        if exp.kind == 'recorrente':
-            visible = exp.is_active_on(filter_year, filter_month)
-        else:
-            visible = True
-        if not visible:
-            continue
-
-        # Apenas entries explicitamente vinculados a este gasto via expense_id
-        # Garante que os lançamentos batem exatamente com o que aparece no detalhe do cartão
-        entries_card = CardEntry.query.filter(
-            CardEntry.expense_id == exp.id,
-            CardEntry.billing_month == mes_filter,
-            CardEntry.status == "ativo",   # igual ao detalhe do cartão
-        ).order_by(CardEntry.entry_date.desc()).all()
-
-        spent_this_month = sum(float(e.amount) for e in entries_card)
-
-        planned = float(exp.amount)
-        pct = min(round(spent_this_month / planned * 100, 1) if planned > 0 else 0, 100)
-
-        # Excedente atual: gasto efetuado vs esperado até agora (planejado * desired_pct)
-        esperado_ate_hoje = round(planned * desired_pct / 100, 2)
-        excedente_atual = round(spent_this_month - esperado_ate_hoje, 2)
-
-        # Gasto por dia disponível: (planejado - gasto) / dias até dia 16
-        dias_ate_fechamento = (cycle_end - today).days
-        saldo_disponivel = round(planned - spent_this_month, 2)
-        gasto_dia_disponivel = round(saldo_disponivel / dias_ate_fechamento, 2) if dias_ate_fechamento > 0 else 0.0
-
-        household_expenses.append({
-            "expense": exp,
-            "household": hh,
-            "spent": spent_this_month,
-            "pct": pct,
-            "excedente_atual": excedente_atual,
-            "esperado_ate_hoje": esperado_ate_hoje,
-            "gasto_dia_disponivel": gasto_dia_disponivel,
-            "dias_ate_fechamento": dias_ate_fechamento,
-            "entries": entries_card,   # lançamentos individuais com cartão
-        })
-        household_total_planned += planned
-        household_total_spent += spent_this_month
-
-    household_pct = min(
-        round(household_total_spent / household_total_planned * 100, 1)
-        if household_total_planned > 0 else 0, 100
-    )
-
-    return render_template(
-        "dashboard.html",
-        summary=summary,
-        cf_current=cf_current,
-        cf_dec=cf_dec,
-        credits_debits=credits_debits_detail,
-        projects=projects[:4],
-        all_projects_count=len(projects),
-        recent_expenses=recent_expenses,
-        recent_incomes=recent_incomes,
-        household_expenses=household_expenses,
-        avulsos=_avulsos,
-        avulso_total=avulso_total,
-        household_total_planned=household_total_planned,
-        household_total_spent=household_total_spent,
-        household_pct=household_pct,
-        desired_pct=desired_pct,
-        today=today,
-        mes_filter=mes_filter,
-        filter_year=filter_year,
-        filter_month=filter_month,
-        mes_nome=mes_nome,
-        prev_mes=prev_mes,
-        next_mes=next_mes,
-        mes_atual=today.strftime("%B/%Y").capitalize(),
-    )
+        with db.engine.connect() as conn:
+            insp = inspect(db.engine)
+            if not insp.has_table(table):
+                return
+            cols = [c["name"] for c in insp.get_columns(table)]
+            if column not in cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                conn.commit()
+                print(f"[migrate] coluna adicionada: {table}.{column}")
+    except Exception as e:
+        print(f"[migrate] erro em {table}.{column}: {e}")
 
 
-@dashboard_bp.route("/relatorio-membros")
-@login_required
-def relatorio_membros():
-    """Relatório HTML de contas entre membros — imprimível como PDF."""
-    from app.utils import get_user_balance_with as _gubw, get_open_billing_month as _gobm_rel
-    from app.models import User as _User, CardEntry, HouseholdExpense
-    from datetime import date as _dt
+def bootstrap():
+    with app.app_context():
+        # 1. Cria TODAS as tabelas de uma vez (ordem resolvida pelo SQLAlchemy)
+        try:
+            db.create_all()
+            print("[bootstrap] tabelas verificadas/criadas.")
+        except Exception as e:
+            print(f"[bootstrap] erro no create_all: {e}")
+            return
 
-    today = _dt.today()
-    _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
-    try:
-        filter_year  = int(_mes[:4])
-        filter_month = int(_mes[5:7])
-    except Exception:
-        filter_year, filter_month = today.year, today.month
+        # 2. Colunas novas em tabelas existentes — APÓS create_all
+        _ensure_column("expenses", "kind",              "VARCHAR(20) DEFAULT 'pontual'")
+        _ensure_column("expenses", "recurrence_months", "INTEGER")
+        _ensure_column("expenses", "card_id",           "INTEGER REFERENCES cards(id) ON DELETE SET NULL")
+        _ensure_column("card_entries", "kind", "VARCHAR(20) DEFAULT 'pontual'")
+        _ensure_column("card_entries", "status", "VARCHAR(20) DEFAULT 'ativo'")
+        _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
+        _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
+        _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
+        _ensure_column("card_month_history", "card_id", "INTEGER REFERENCES cards(id)")
+        _ensure_column("card_month_history", "snapshot", "TEXT")
+        _ensure_column("card_month_history", "entry_count", "INTEGER DEFAULT 0")
+        # Corrigir constraint: de UNIQUE(user_id) para UNIQUE(user_id, mes_ref)
+        try:
+            with db.engine.connect() as _conn_fix:
+                _conn_fix.execute(text(
+                    "ALTER TABLE payment_plans DROP CONSTRAINT IF EXISTS payment_plans_user_id_key"
+                ))
+                _conn_fix.execute(text(
+                    "DO $$ BEGIN "
+                    "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_plans_user_id_mes_ref_key') "
+                    "THEN ALTER TABLE payment_plans ADD CONSTRAINT payment_plans_user_id_mes_ref_key UNIQUE(user_id, mes_ref); "
+                    "END IF; END $$"
+                ))
+                _conn_fix.commit()
+        except Exception as _e_fix:
+            print(f"[migrate] payment_plans constraint: {_e_fix}")
+        _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
+        _ensure_column("payment_plans", "valor_recebido", "NUMERIC(12,2) DEFAULT 0")
+        _ensure_column("household_expenses", "show_on_dashboard", "BOOLEAN DEFAULT TRUE")
+        try:
+            with db.engine.connect() as _cc_pd:
+                _cc_pd.execute(text("""
+                    CREATE TABLE IF NOT EXISTS payment_defaults (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        expense_id INTEGER REFERENCES expenses(id),
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(user_id, expense_id)
+                    )
+                """))
+                _cc_pd.commit()
+        except Exception as _epd:
+            print(f"[migrate] payment_defaults: {_epd}")
+        try:
+            with db.engine.connect() as _cc_del:
+                # Recriar tabela com billing_month (em vez de installment_no)
+                _cc_del.execute(text(
+                    "DROP TABLE IF EXISTS planned_installment_deletions"
+                ))
+                _cc_del.execute(text("""
+                    CREATE TABLE IF NOT EXISTS planned_installment_deletions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        card_id INTEGER,
+                        description VARCHAR(200) NOT NULL,
+                        billing_month VARCHAR(7) NOT NULL,
+                        deleted_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(user_id, card_id, description, billing_month)
+                    )
+                """))
+                _cc_del.commit()
+                print("[migrate] planned_installment_deletions recriada com billing_month")
+        except Exception as _edel:
+            print(f"[migrate] planned_installment_deletions: {_edel}")
+        # Corrigir FK de origin_entry_id para ON DELETE SET NULL
+        try:
+            with db.engine.connect() as _cc_fk:
+                _cc_fk.execute(text(
+                    "ALTER TABLE planned_installments "
+                    "DROP CONSTRAINT IF EXISTS planned_installments_origin_entry_id_fkey"
+                ))
+                _cc_fk.execute(text(
+                    "ALTER TABLE planned_installments "
+                    "ADD CONSTRAINT planned_installments_origin_entry_id_fkey "
+                    "FOREIGN KEY (origin_entry_id) REFERENCES card_entries(id) ON DELETE SET NULL"
+                ))
+                _cc_fk.commit()
+                print("[migrate] planned_installments FK corrigida para ON DELETE SET NULL")
+        except Exception as _efk:
+            print(f"[migrate] FK planned_installments: {_efk}")
+        # Tabela de parcelas planejadas (projeção persistente)
+        try:
+            with db.engine.connect() as _ccpi:
+                _ccpi.execute(text("""
+                    CREATE TABLE IF NOT EXISTS planned_installments (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        card_id INTEGER REFERENCES cards(id),
+                        description VARCHAR(200) NOT NULL,
+                        amount NUMERIC(12,2) NOT NULL,
+                        installment_no INTEGER NOT NULL,
+                        installments INTEGER NOT NULL,
+                        billing_month VARCHAR(7) NOT NULL,
+                        expense_id INTEGER REFERENCES expenses(id),
+                        origin_entry_id INTEGER REFERENCES card_entries(id),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                _ccpi.commit()
+        except Exception as _epi:
+            print(f"[migrate] planned_installments: {_epi}")
+        _ensure_column("payment_items", "due_date", "DATE")
+        _ensure_column("payment_card_status", "amount_override", "NUMERIC(12,2)")
+        # Tabela de regras de categorização por estabelecimento
+        with db.engine.connect() as _conn2:
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS merchant_rules (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    keyword VARCHAR(120) NOT NULL,
+                    category VARCHAR(80) NOT NULL,
+                    expense_id INTEGER REFERENCES expenses(id),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, keyword)
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS payment_plans (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    mes_ref VARCHAR(7) NOT NULL DEFAULT '',
+                    saldo_inicial NUMERIC(12,2) DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, mes_ref)
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS payment_items (
+                    id SERIAL PRIMARY KEY,
+                    plan_id INTEGER REFERENCES payment_plans(id) ON DELETE CASCADE,
+                    description VARCHAR(200) NOT NULL,
+                    amount NUMERIC(12,2) NOT NULL,
+                    expense_id INTEGER REFERENCES expenses(id),
+                    is_paid BOOLEAN DEFAULT FALSE,
+                    due_date DATE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS payment_card_status (
+                    id SERIAL PRIMARY KEY,
+                    plan_id INTEGER REFERENCES payment_plans(id) ON DELETE CASCADE,
+                    card_id INTEGER REFERENCES cards(id),
+                    is_paid BOOLEAN DEFAULT FALSE,
+                    due_date DATE,
+                    UNIQUE(plan_id, card_id)
+                )
+            """))
+            _conn2.execute(text("""
+                CREATE TABLE IF NOT EXISTS closed_months (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    billing_month VARCHAR(7) NOT NULL,
+                    closed_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, billing_month)
+                )
+            """))
+            _conn2.commit()
+        # Tabela de histórico mensal — criada via SQLAlchemy
+        try:
+            from app.models import CardMonthHistory as _CMH
+            with app.app_context():
+                db.create_all()
+        except Exception as _e:
+            print(f"[migrate] card_month_history: {_e}")
 
-    MESES = ["Janeiro","Fevereiro","Marco","Abril","Maio","Junho",
-             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-    mes_label = f"{MESES[filter_month-1]}/{filter_year}"
+        # 3. Migra coluna photo para TEXT
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ALTER COLUMN photo TYPE TEXT"))
+                conn.commit()
+                print("[migrate] users.photo migrada para TEXT")
+        except Exception:
+            pass
 
-    others = _User.query.filter(_User.id != current_user.id).all()
-    membros = []
-    for o in others:
-        bal = _gubw(current_user.id, o.id, filter_year, filter_month)
-        membros.append({"name": o.full_name, "balance": float(bal)})
-    membros = [m for m in membros if abs(m["balance"]) > 0.005]
+        # 3b1. DEBUG: mostra card_entries de Assinaturas
+        try:
+            from app.models import Expense, CardEntry
+            assinaturas = Expense.query.filter(
+                Expense.description.ilike("%assinatura%")
+            ).all()
+            for exp in assinaturas:
+                entries = CardEntry.query.filter_by(expense_id=exp.id).all()
+                print(f"[debug] Expense '{exp.description}' id={exp.id} card_id={exp.card_id} kind={exp.kind}")
+                print(f"[debug]   -> {len(entries)} CardEntry(s) vinculados")
+                for e in entries:
+                    print(f"[debug]      entry id={e.id} status={e.status} amount={e.amount} card_id={e.card_id}")
+            # Também mostra entries sem expense_id que mencionam assinatura
+            orphans = CardEntry.query.filter(
+                CardEntry.expense_id == None,
+                CardEntry.description.ilike("%assinatura%")
+            ).all()
+            print(f"[debug] CardEntries órfãos com 'assinatura': {len(orphans)}")
+            for e in orphans:
+                print(f"[debug]   orphan id={e.id} desc='{e.description}' status={e.status} card_id={e.card_id}")
+        except Exception as ex:
+            print(f"[debug] erro: {ex}")
 
-    hh_links = HouseholdExpense.query.filter_by(owner_id=current_user.id).all()
-    gastos_casa = []
-    for hh in hh_links:
-        exp = hh.expense
-        if not exp or not exp.is_active_on(filter_year, filter_month):
-            continue
-        entries = CardEntry.query.filter(
-            CardEntry.expense_id == exp.id,
-            CardEntry.billing_month == _mes,
-            CardEntry.status == "ativo",
-        ).all()
-        total = sum(float(e.amount) for e in entries)
-        gastos_casa.append({
-            "desc": exp.description,
-            "planned": float(exp.amount),
-            "spent": total,
-            "diff": total - float(exp.amount),
-            "entries": entries,
-        })
+        # 3b2. Corrige card_entries com status NULL para ativo
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text(
+                    "UPDATE card_entries SET status = 'ativo' WHERE status IS NULL"
+                ))
+                conn.commit()
+                print("[migrate] card_entries sem status corrigidos para ativo")
+        except Exception as e:
+            print(f"[migrate] erro ao corrigir status: {e}")
 
-    return render_template("dashboard/relatorio_membros.html",
-                           mes_label=mes_label,
-                           mes=_mes,
-                           membros=membros,
-                           gastos_casa=gastos_casa,
-                           hoje=today.strftime("%d/%m/%Y"),
-                           user=current_user)
+        # 3b-3c. Limpa excedentes duplicados e órfãos
+        try:
+            from app.models import Expense, ExpenseShare
+
+            todos = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).order_by(Expense.id).all()
+
+            # 1. Remove duplicatas
+            seen = {}
+            removed = 0
+            for exp in todos:
+                key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
+                if key in seen:
+                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                    db.session.delete(exp)
+                    removed += 1
+                else:
+                    seen[key] = exp.id
+            if removed:
+                db.session.commit()
+                print(f"[migrate] {removed} excedente(s) duplicado(s) removido(s)")
+
+            # 2. Remove órfãos — excedentes cujo gasto original foi excluído
+            todos2 = Expense.query.filter(
+                Expense.description.like("% - excedente %"),
+                Expense.kind == "pontual"
+            ).all()
+            orphans = 0
+            for exp in todos2:
+                parts = exp.description.split(" - excedente ")
+                if len(parts) < 2:
+                    continue
+                nome_base = parts[0].strip()
+                original = Expense.query.filter(
+                    Expense.payer_id == exp.payer_id,
+                    Expense.description == nome_base,
+                    Expense.id != exp.id
+                ).first()
+                if not original:
+                    ExpenseShare.query.filter_by(expense_id=exp.id).delete()
+                    db.session.delete(exp)
+                    orphans += 1
+            if orphans:
+                db.session.commit()
+                print(f"[migrate] {orphans} excedente(s) órfão(s) removido(s)")
+
+        except Exception as e:
+            db.session.rollback()
+            print(f"[migrate] erro limpeza excedentes: {e}")
+
+                # 4. Admin
+        admin_username = os.environ.get("ADMIN_USERNAME", "admin")
+        admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+        try:
+            existing = User.query.filter_by(username=admin_username).first()
+            if not existing:
+                db.session.add(User(
+                    username=admin_username,
+                    full_name="Administrador",
+                    email=f"{admin_username}@local",
+                    password_hash=generate_password_hash(admin_password),
+                    is_admin=True,
+                ))
+                db.session.commit()
+                print(f"[bootstrap] admin '{admin_username}' criado.")
+            else:
+                reset_pw = os.environ.get("RESET_ADMIN_PASSWORD", "").strip()
+                if reset_pw:
+                    existing.password_hash = generate_password_hash(reset_pw)
+                    db.session.commit()
+                    print(f"[bootstrap] senha do admin '{admin_username}' resetada.")
+                else:
+                    print(f"[bootstrap] admin '{admin_username}' já existe — dados preservados.")
+        except Exception as e:
+            print(f"[bootstrap] erro ao criar admin: {e}")
+
+
+def _fix_parcelados_duplicados():
+    pass
+
+
+def _backfill_planned_installments():
+    pass
+
+
+def _add_current_installments():  # DESATIVADO — não chame no boot
+    pass
+
+
+def _sync_missing_planned_installments():  # DESATIVADO — não chame no boot
+    """Sincroniza CardEntries parcelados que não têm planned_installments.
+    Usa descrição NORMALIZADA em todas as comparações para evitar
+    falsos negativos por espaços/capitalização."""
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE, PlannedInstallment as _PI
+            from app.models import PlannedInstallmentDeletion as _PID
+            import re as _re_s
+
+            def _n(s):
+                """Normaliza descrição: uppercase, sem espaços extras,
+                sem sufixos de parcela como '04 DE 10' ou '04/10'."""
+                s = (s or "").upper().strip()
+                s = _re_s.sub(r"\s+[0-9]{1,2}\s+DE\s+[0-9]{1,2}", "", s)
+                s = _re_s.sub(r"\s+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_s.sub(r"\s+[0-9]{1,2}\s+[0-9]{1,2}(?=\s|$)", "", s)
+                return s.strip()
+
+            parcs = _CE.query.filter(
+                _CE.installments > 1,
+                _CE.installment_no != None,
+                _CE.billing_month != None,
+                _CE.status == "ativo",
+            ).all()
+
+            # Chaves normalizadas dos planned já existentes
+            # (card_id, desc_norm, installment_no)
+            _existing = set(
+                (p.card_id, _n(p.description), p.installment_no)
+                for p in _PI.query.all()
+            )
+
+            # Exclusões normalizadas: (card_id, desc_norm, billing_month)
+            _deleted = set(
+                (d.card_id, _n(d.description), d.billing_month)
+                for d in _PID.query.all()
+            )
+
+            count = 0
+            for e in parcs:
+                try:
+                    _byr = int(e.billing_month[:4])
+                    _bmo = int(e.billing_month[5:7])
+                except Exception:
+                    continue
+
+                _dn = _n(e.description)
+
+                # Parcela atual
+                if (e.card_id, _dn, e.installment_no) not in _existing:
+                    if (e.card_id, _dn, e.billing_month) not in _deleted:
+                        db.session.add(_PI(
+                            user_id=e.user_id, card_id=e.card_id,
+                            description=e.description, amount=e.amount,
+                            installment_no=e.installment_no,
+                            installments=e.installments,
+                            billing_month=e.billing_month,
+                            expense_id=e.expense_id,
+                            origin_entry_id=e.id,
+                        ))
+                        _existing.add((e.card_id, _dn, e.installment_no))
+                        count += 1
+
+                # Parcelas futuras
+                for _i in range(e.installment_no + 1, e.installments + 1):
+                    if (e.card_id, _dn, _i) in _existing:
+                        continue
+                    _steps = _i - e.installment_no
+                    _pmo = _bmo + _steps - 1
+                    _pyr = _byr + _pmo // 12
+                    _pmo = (_pmo % 12) + 1
+                    _proj_bm = f"{_pyr}-{_pmo:02d}"
+                    if (e.card_id, _dn, _proj_bm) in _deleted:
+                        continue
+                    db.session.add(_PI(
+                        user_id=e.user_id, card_id=e.card_id,
+                        description=e.description, amount=e.amount,
+                        installment_no=_i, installments=e.installments,
+                        billing_month=_proj_bm,
+                        expense_id=e.expense_id,
+                        origin_entry_id=e.id,
+                    ))
+                    _existing.add((e.card_id, _dn, _i))
+                    count += 1
+
+            db.session.commit()
+            if count:
+                print(f"[sync_planned] {count} planned(s) criado(s).")
+            else:
+                print("[sync_planned] Tudo sincronizado.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[sync_planned] Erro: {_ex}")
 
 
 
 
-@dashboard_bp.route("/configurar-gastos-casa")
-@login_required
-def configurar_gastos_casa():
-    from sqlalchemy import or_
-    links = HouseholdExpense.query.filter(
-        or_(HouseholdExpense.owner_id == current_user.id,
-            HouseholdExpense.shared_with_id == current_user.id)
-    ).all()
-    return render_template("dashboard/configurar_gastos_casa.html", links=links)
+def _dedup_card_entries():
+    """Remove CardEntries duplicados. Roda em todo boot.
+    Parcelados: mesmo (card_id, desc_norm, installment_no) em qualquer billing_month.
+    Pontuais: mesmo (card_id, description, amount, entry_date)."""
+    with app.app_context():
+        try:
+            from app.models import CardEntry as _CE
+            import re as _re_dd
+
+            def _norm_dd(s):
+                s = (s or "").upper().strip()
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}[ ]+DE[ ]+[0-9]{1,2}", "", s)
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}/[0-9]{1,2}", "", s)
+                s = _re_dd.sub(r"[ ]+[0-9]{1,2}[ ]+[0-9]{1,2}(?=[ ]|$)", "", s)
+                return s[:30].strip()
+
+            entries = _CE.query.filter(
+                _CE.status != "excluido"
+            ).order_by(_CE.id).all()
+
+            grupos = {}
+            for e in entries:
+                if e.installments and e.installments > 1:
+                    k = ("parc", e.card_id, _norm_dd(e.description), e.installment_no or 0)
+                else:
+                    k = ("pont", e.card_id,
+                         (e.description or "")[:50].upper().strip(),
+                         str(round(float(e.amount or 0), 2)),
+                         str(e.entry_date or ""))
+                if k not in grupos:
+                    grupos[k] = []
+                grupos[k].append(e)
+
+            removidos = 0
+            for k, itens in grupos.items():
+                if len(itens) <= 1:
+                    continue
+                for dup in itens[1:]:
+                    dup.status = "excluido"
+                    removidos += 1
+
+            if removidos:
+                db.session.commit()
+                print(f"[dedup_entries] {removidos} duplicata(s) marcada(s) como excluida.")
+            else:
+                print("[dedup_entries] Nenhum duplicado encontrado.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[dedup_entries] Erro: {_ex}")
 
 
-@dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
-@login_required
-def salvar_config_gastos_casa():
-    from sqlalchemy import or_
-    links = HouseholdExpense.query.filter(
-        or_(HouseholdExpense.owner_id == current_user.id,
-            HouseholdExpense.shared_with_id == current_user.id)
-    ).all()
-    selecionados = set(request.form.getlist("hh_ids"))
-    for hh in links:
-        hh.show_on_dashboard = (str(hh.id) in selecionados)
-    db.session.commit()
-    flash("Configuração salva.", "success")
-    return redirect(url_for("dashboard.index"))
+bootstrap()
+_dedup_card_entries()
+
+
+def _limpar_planejados_invalidos():
+    """Remove planned_installments com installments <= 1 (não são parcelados reais)."""
+    with app.app_context():
+        try:
+            from app.models import PlannedInstallment as _PI
+            invalidos = _PI.query.filter(_PI.installments <= 1).all()
+            n = len(invalidos)
+            for p in invalidos:
+                db.session.delete(p)
+            if n:
+                db.session.commit()
+                print(f"[limpar_planejados] {n} planned(s) 1/1 removido(s).")
+            else:
+                print("[limpar_planejados] Nenhum 1/1 encontrado.")
+        except Exception as _ex:
+            db.session.rollback()
+            print(f"[limpar_planejados] Erro: {_ex}")
+
+
+bootstrap()
+_limpar_planejados_invalidos()
+_dedup_card_entries()
+_fix_parcelados_duplicados()
+_backfill_planned_installments()
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
