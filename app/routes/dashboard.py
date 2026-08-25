@@ -1,5 +1,5 @@
 from datetime import date
-from flask import Blueprint, render_template, request, flash, redirect, url_for
+from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
@@ -70,10 +70,6 @@ def index():
 
     # Últimas rendas
     recent_incomes = []
-
-    # Avulsos (stub — feature não implementada/removida)
-    _avulsos = []
-    avulso_total = 0.0
 
     # Detalhes de gastos entre membros
     credits_debits_detail = []
