@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Configurar Gastos da Casa{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>⚙️ Gastos da Casa — Painel</h1>
+    <p>Selecione quais gastos aparecem no painel. Desmarcados ficam ocultos.</p>
+  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="btn btn-ghost">← Painel</a>
+</div>
+
+<form method="POST" action="{{ url_for('dashboard.salvar_config_gastos_casa') }}">
+  <div class="card">
+    <div class="flex-between mb-3">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+        <input type="checkbox" id="sel-all" onchange="toggleAll(this)" style="width:16px;height:16px;">
+        Selecionar todos
+      </label>
+      <button type="submit" class="btn btn-primary btn-sm">💾 Salvar</button>
+    </div>
+
+    {% for hh in links %}
+    {% set exp = hh.expense %}
+    <label style="display:flex;align-items:center;gap:10px;padding:10px 4px;
+                  border-bottom:1px solid var(--border);cursor:pointer;">
+      <input type="checkbox" name="hh_ids" value="{{ hh.id }}"
+             class="item-check" style="width:16px;height:16px;"
+             {% if hh.show_on_dashboard %}checked{% endif %}>
+      <div style="flex:1;">
+        <span style="font-weight:600;">{{ exp.description if exp else '—' }}</span>
+        {% if exp %}
+        <span class="badge" style="margin-left:6px;font-size:0.65rem;
+              background:var(--surface2);color:var(--text-dim);padding:1px 5px;border-radius:3px;">
+          {{ exp.category }}
+        </span>
+        <span class="badge" style="margin-left:4px;font-size:0.65rem;
+              background:var(--surface2);color:var(--text-dim);padding:1px 5px;border-radius:3px;">
+          {{ exp.kind }}
+        </span>
+        {% endif %}
+      </div>
+      <span class="mono text-small" style="color:var(--red);">
+        {{ exp.amount|brl if exp else '' }}
+      </span>
+    </label>
+    {% else %}
+    <p class="text-faint text-center" style="padding:24px;">Nenhum gasto da casa configurado.</p>
+    {% endfor %}
+
+    <div style="margin-top:16px;text-align:right;">
+      <button type="submit" class="btn btn-primary">💾 Salvar configuração</button>
+    </div>
+  </div>
+</form>
+
+<script>
+function toggleAll(cb) {
+  document.querySelectorAll('.item-check').forEach(c => c.checked = cb.checked);
+}
+</script>
+{% endblock %}
