@@ -223,6 +223,8 @@ def index():
         recent_expenses=recent_expenses,
         recent_incomes=recent_incomes,
         household_expenses=household_expenses,
+        avulsos=_avulsos,
+        avulso_total=avulso_total,
         household_total_planned=household_total_planned,
         household_total_spent=household_total_spent,
         household_pct=household_pct,
@@ -292,3 +294,32 @@ def relatorio_membros():
                            gastos_casa=gastos_casa,
                            hoje=today.strftime("%d/%m/%Y"),
                            user=current_user)
+
+
+
+
+@dashboard_bp.route("/configurar-gastos-casa")
+@login_required
+def configurar_gastos_casa():
+    from sqlalchemy import or_
+    links = HouseholdExpense.query.filter(
+        or_(HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id)
+    ).all()
+    return render_template("dashboard/configurar_gastos_casa.html", links=links)
+
+
+@dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
+@login_required
+def salvar_config_gastos_casa():
+    from sqlalchemy import or_
+    links = HouseholdExpense.query.filter(
+        or_(HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id)
+    ).all()
+    selecionados = set(request.form.getlist("hh_ids"))
+    for hh in links:
+        hh.show_on_dashboard = (str(hh.id) in selecionados)
+    db.session.commit()
+    flash("Configuração salva.", "success")
+    return redirect(url_for("dashboard.index"))
