@@ -72,6 +72,8 @@ def bootstrap():
         except Exception as _e_fix:
             print(f"[migrate] payment_plans constraint: {_e_fix}")
         _ensure_column("payment_items", "is_paid", "BOOLEAN DEFAULT FALSE")
+        _ensure_column("payment_plans", "valor_recebido", "NUMERIC(12,2) DEFAULT 0")
+        _ensure_column("household_expenses", "show_on_dashboard", "BOOLEAN DEFAULT TRUE")
         try:
             with db.engine.connect() as _cc_pd:
                 _cc_pd.execute(text("""
