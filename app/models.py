@@ -305,6 +305,7 @@ class HouseholdExpense(db.Model):
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False, unique=True)
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     shared_with_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    show_on_dashboard = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     expense = db.relationship("Expense", backref=db.backref("household", uselist=False))
@@ -364,7 +365,8 @@ class PaymentPlan(db.Model):
     id            = db.Column(db.Integer, primary_key=True)
     user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     mes_ref       = db.Column(db.String(7), nullable=False, default="")
-    saldo_inicial = db.Column(db.Numeric(12, 2), default=0)
+    saldo_inicial   = db.Column(db.Numeric(12, 2), default=0)
+    valor_recebido  = db.Column(db.Numeric(12, 2), default=0)  # ex: valor recebido de outro membro
     updated_at    = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
     user  = db.relationship("User", backref="payment_plans")
     items = db.relationship("PaymentItem", backref="plan", cascade="all, delete-orphan")
