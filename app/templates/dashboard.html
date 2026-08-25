@@ -41,11 +41,12 @@
 <div class="card mb-3">
   <div class="card-title">
     <h3>Contas entre membros</h3>
-    <div class="flex flex-gap" style="align-items:center;gap:6px;">
-      <a href="{{ url_for('dashboard.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
-      <strong style="min-width:110px;text-align:center;font-size:0.85rem;">{{ mes_nome }}/{{ filter_year }}</strong>
-      <a href="{{ url_for('dashboard.index', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
-      <span class="text-faint text-small" style="margin-left:4px;">acertos pendentes</span>
+    <div class="flex flex-gap" style="align-items:center;gap:6px;flex-wrap:wrap;">
+      <a href="{{ url_for('dashboard.index', mes=prev_mes) }}" class="btn btn-ghost btn-sm" style="font-size:1rem;">←</a>
+      <strong style="min-width:120px;text-align:center;font-size:0.95rem;color:var(--accent);">
+        {{ mes_nome }}/{{ filter_year }}
+      </strong>
+      <a href="{{ url_for('dashboard.index', mes=next_mes) }}" class="btn btn-ghost btn-sm" style="font-size:1rem;">→</a>
     </div>
   </div>
   {% if credits_debits %}
@@ -117,6 +118,35 @@
      class="btn btn-ghost btn-sm">📄 Relatório PDF — Contas entre membros</a>
 </div>
 
+<!-- Gastos Avulsos — não previstos, em destaque no topo -->
+{% if avulsos %}
+<div class="card mb-2" style="border-left:4px solid var(--gold);background:rgba(201,168,0,0.06);">
+  <div class="flex-between mb-2">
+    <div>
+      <strong style="color:var(--gold);">⚠️ Gastos não previstos</strong>
+      <span class="text-dim text-small" style="margin-left:8px;">lançamentos sem categoria da casa</span>
+    </div>
+    <span class="mono" style="color:var(--gold);font-weight:700;">{{ avulso_total|brl }}</span>
+  </div>
+  <table class="tbl" style="font-size:0.8rem;">
+    <thead><tr><th>Data</th><th>Descrição</th><th>Cartão</th><th class="text-right">Valor</th></tr></thead>
+    <tbody>
+    {% for e in avulsos[:10] %}
+    <tr>
+      <td>{{ e.entry_date.strftime('%d/%m') if e.entry_date else '—' }}</td>
+      <td>{{ e.description }}</td>
+      <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
+      <td class="text-right mono" style="color:var(--red);">{{ e.amount|brl }}</td>
+    </tr>
+    {% endfor %}
+    {% if avulsos|length > 10 %}
+    <tr><td colspan="4" class="text-center text-dim text-small">... e mais {{ avulsos|length - 10 }} lançamentos</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- Gastos da Casa -->
 <div class="card mb-3" style="border-left:4px solid var(--gold);">
   <div class="card-title">
@@ -131,6 +161,7 @@
         <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Gastos da Casa
       </h3>
+      <a href="{{ url_for('dashboard.configurar_gastos_casa') }}" class="btn btn-ghost btn-sm" style="font-size:0.72rem;">⚙️ Configurar</a>
     </div>
     <span class="text-faint text-small">ciclo 16→16 · clique para ordenar</span>
   </div>
