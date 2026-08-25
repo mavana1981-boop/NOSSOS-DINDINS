@@ -298,28 +298,12 @@ def relatorio_membros():
 
 
 
-@dashboard_bp.route("/configurar-gastos-casa")
+@dashboard_bp.route("/toggle-gasto-casa/<int:hh_id>", methods=["POST"])
 @login_required
-def configurar_gastos_casa():
-    from sqlalchemy import or_
-    links = HouseholdExpense.query.filter(
-        or_(HouseholdExpense.owner_id == current_user.id,
-            HouseholdExpense.shared_with_id == current_user.id)
-    ).all()
-    return render_template("dashboard/configurar_gastos_casa.html", links=links)
-
-
-@dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
-@login_required
-def salvar_config_gastos_casa():
-    from sqlalchemy import or_
-    links = HouseholdExpense.query.filter(
-        or_(HouseholdExpense.owner_id == current_user.id,
-            HouseholdExpense.shared_with_id == current_user.id)
-    ).all()
-    selecionados = set(request.form.getlist("hh_ids"))
-    for hh in links:
-        hh.show_on_dashboard = (str(hh.id) in selecionados)
+def toggle_gasto_casa(hh_id):
+    hh = HouseholdExpense.query.get_or_404(hh_id)
+    if hh.owner_id != current_user.id and hh.shared_with_id != current_user.id:
+        return "Acesso negado", 403
+    hh.show_on_dashboard = not hh.show_on_dashboard
     db.session.commit()
-    flash("Configuração salva.", "success")
-    return redirect(url_for("dashboard.index"))
+    return redirect(request.referrer or url_for("dashboard.index"))
