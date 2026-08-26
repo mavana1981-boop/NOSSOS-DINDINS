@@ -108,8 +108,11 @@
   <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Cota</th></tr></thead>
   <tbody>
   {% for i in m.a_receber %}
-  <tr>
-    <td>{{ i.desc }}</td>
+  <tr {% if i.is_ultima %}style="background:#fff8e1;font-weight:700;border-left:3px solid #b8860b;"{% endif %}>
+    <td>
+      {{ i.desc }}
+      {% if i.is_ultima %}<span style="background:#b8860b;color:white;font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px;">ÚLTIMA</span>{% endif %}
+    </td>
     <td>{{ i.data_str or '—' }}</td>
     <td class="center">{{ i.parcela }}</td>
     <td class="right green">{{ i.share|brl }}</td>
@@ -129,8 +132,11 @@
   <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Minha cota</th></tr></thead>
   <tbody>
   {% for i in m.a_pagar %}
-  <tr>
-    <td>{{ i.desc }}</td>
+  <tr {% if i.is_ultima %}style="background:#fff8e1;font-weight:700;border-left:3px solid #b8860b;"{% endif %}>
+    <td>
+      {{ i.desc }}
+      {% if i.is_ultima %}<span style="background:#b8860b;color:white;font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px;">ÚLTIMA</span>{% endif %}
+    </td>
     <td>{{ i.data_str or '—' }}</td>
     <td class="center">{{ i.parcela }}</td>
     <td class="right red">{{ i.share|brl }}</td>
@@ -173,16 +179,6 @@
 </div>
 
 <!-- Botão imprimir no final -->
-<!-- DEBUG TEMPORÁRIO -->
-{% with msgs = get_flashed_messages(with_categories=true) %}
-{% for cat, msg in msgs %}
-<div style="background:#e8f0fe;border:1px solid #6b8db5;padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;word-break:break-all;">
-  {{ msg }}
-</div>
-{% endfor %}
-{% endwith %}
-<!-- FIM DEBUG -->
-
 <button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 
 </body>
