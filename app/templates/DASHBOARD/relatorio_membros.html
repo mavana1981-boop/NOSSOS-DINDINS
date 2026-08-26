@@ -7,21 +7,18 @@
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family: Arial, sans-serif; font-size: 13px; color: #222; background: #fff; padding: 28px; }
-
-  .no-print { }
   @media print { .no-print { display:none !important; } @page { margin:1.5cm; } }
 
   .header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #6b8db5; padding-bottom:12px; margin-bottom:20px; }
   .header h1 { font-size:20px; font-weight:700; color:#6b8db5; }
-  .header .meta { font-size:11px; color:#888; text-align:right; }
-  .header .mes-nav { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
-  .header .mes-nav a { color:#6b8db5; text-decoration:none; font-size:18px; font-weight:700; }
-  .header .mes-nav strong { font-size:15px; color:#333; min-width:120px; text-align:center; display:inline-block; }
+  .mes-nav { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .mes-nav a { color:#6b8db5; text-decoration:none; font-size:18px; font-weight:700; }
+  .mes-nav strong { font-size:14px; color:#333; min-width:110px; text-align:center; display:inline-block; }
 
   h2 { font-size:13px; font-weight:700; color:#6b8db5; margin:18px 0 6px; padding-bottom:4px; border-bottom:1px solid #ddd; text-transform:uppercase; letter-spacing:.5px; }
-  h3 { font-size:12px; font-weight:700; color:#444; margin:12px 0 4px; }
+  h3 { font-size:12px; font-weight:700; color:#444; margin:10px 0 4px; }
 
-  table { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:12px; }
+  table { width:100%; border-collapse:collapse; margin-bottom:10px; font-size:12px; }
   th { background:#6b8db5; color:white; padding:5px 8px; text-align:left; font-size:11px; }
   td { padding:5px 8px; border-bottom:1px solid #f0f0f0; }
   tr:nth-child(even) td { background:#f7f9fc; }
@@ -30,33 +27,30 @@
   .red { color:#c4654a; font-weight:700; }
   .green { color:#5a9e6f; font-weight:700; }
   .gold { color:#b8860b; font-weight:700; }
+  .dim { color:#999; font-size:11px; }
   .total-row td { background:#e8eef5 !important; font-weight:700; border-top:2px solid #6b8db5; }
-  .sub-label { font-size:10px; color:#999; font-style:italic; }
-
-  .print-btn { position:fixed; top:16px; right:16px; background:#6b8db5; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+  .print-btn { display:block; margin:28px auto 0; background:#6b8db5; color:white; border:none;
+               padding:10px 28px; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600; }
 </style>
 </head>
 <body>
-
-<button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / PDF</button>
 
 <div class="header">
   <div>
     <h1>📋 Relatório Financeiro</h1>
     <div style="font-size:11px;color:#888;margin-top:2px;">{{ user.full_name }}</div>
   </div>
-  <div class="meta">
+  <div>
     <div class="mes-nav no-print">
       <a href="/relatorio?mes={{ prev_mes }}">&#8592;</a>
       <form method="GET" action="/relatorio" style="display:inline;">
-        <input type="month" name="mes" value="{{ mes }}"
-               onchange="this.form.submit()"
-               style="font-size:13px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;">
+        <input type="month" name="mes" value="{{ mes }}" onchange="this.form.submit()"
+               style="font-size:12px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;">
       </form>
       <a href="/relatorio?mes={{ next_mes }}">&#8594;</a>
     </div>
-    <div style="font-size:15px;font-weight:700;color:#6b8db5;">{{ mes_label }}</div>
-    <div>Gerado em {{ hoje }}</div>
+    <div style="font-size:14px;font-weight:700;color:#6b8db5;text-align:right;">{{ mes_label }}</div>
+    <div style="font-size:10px;color:#888;text-align:right;">Gerado em {{ hoje }}</div>
   </div>
 </div>
 
@@ -68,81 +62,111 @@
   {% for r in rendas_ativas %}
   <tr><td>{{ r.description }}</td><td class="right green">{{ r.amount|brl }}</td></tr>
   {% else %}
-  <tr><td colspan="2" class="center sub-label">Nenhuma renda fixa cadastrada</td></tr>
+  <tr><td colspan="2" class="center dim">Nenhuma renda fixa cadastrada</td></tr>
   {% endfor %}
   <tr class="total-row"><td>TOTAL RENDA</td><td class="right green">{{ total_renda|brl }}</td></tr>
   </tbody>
 </table>
 
-<!-- 2. GASTOS FIXOS -->
-<h2>🏠 Gastos Fixos</h2>
+<!-- 2. GASTOS FIXOS (valor planejado) -->
+<h2>🏠 Gastos — Valor Planejado</h2>
 <table>
-  <thead><tr><th>Descrição</th><th class="right">Planejado</th><th class="right">Realizado</th></tr></thead>
+  <thead><tr><th>Descrição</th><th class="right">Planejado</th></tr></thead>
   <tbody>
   {% for g in gastos_fixos %}
   <tr>
     <td>{{ g.desc }}</td>
-    <td class="right">{{ g.planned|brl }}</td>
-    <td class="right">{% if g.spent > 0 %}{{ g.spent|brl }}{% else %}<span class="sub-label">—</span>{% endif %}</td>
+    <td class="right red">{{ g.planned|brl }}</td>
   </tr>
+  {% else %}
+  <tr><td colspan="2" class="center dim">Nenhum gasto cadastrado</td></tr>
   {% endfor %}
+  <tr class="total-row"><td>TOTAL GASTOS</td><td class="right red">{{ total_fixo|brl }}</td></tr>
   <tr class="total-row">
-    <td>TOTAL GASTOS</td>
-    <td class="right red">{{ total_fixo|brl }}</td>
-    <td></td>
-  </tr>
-  <tr class="total-row">
-    <td>💵 SALDO PROJETADO (Renda − Gastos)</td>
-    <td class="right {% if saldo_proj_fixo >= 0 %}green{% else %}red{% endif %}" colspan="2">
+    <td>💵 SALDO (Renda − Gastos)</td>
+    <td class="right {% if saldo_proj_fixo >= 0 %}green{% else %}red{% endif %}">
       {{ saldo_proj_fixo|brl }}
     </td>
   </tr>
   </tbody>
 </table>
 
-<!-- 3. SALDO ENTRE MEMBROS -->
+<!-- 3. CONTAS ENTRE MEMBROS -->
 <h2>🤝 Contas entre Membros — {{ mes_label }}</h2>
 {% for m in membros_detalhe %}
 <h3>Com {{ m.name }} &nbsp;
   <span class="{% if m.saldo > 0 %}green{% elif m.saldo < 0 %}red{% endif %}">
-    {% if m.saldo > 0 %}A receber: {{ m.saldo|brl }}{% elif m.saldo < 0 %}A pagar: {{ (m.saldo * -1)|brl }}{% else %}Quitado{% endif %}
+    {% if m.saldo > 0 %}(a receber: {{ m.saldo|brl }})
+    {% elif m.saldo < 0 %}(a pagar: {{ (m.saldo * -1)|brl }})
+    {% else %}(quitado){% endif %}
   </span>
 </h3>
+
 {% if m.a_receber %}
-<p class="sub-label" style="margin:4px 0 2px;">Eu paguei e {{ m.name }} deve:</p>
+<p class="dim" style="margin:4px 0 2px;">Eu paguei / {{ m.name }} deve:</p>
 <table>
-  <thead><tr><th>Gasto</th><th class="right">Cota de {{ m.name }}</th></tr></thead>
+  <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Cota</th></tr></thead>
   <tbody>
   {% for i in m.a_receber %}
-  <tr><td>{{ i.desc }}</td><td class="right green">{{ i.share|brl }}</td></tr>
+  <tr>
+    <td>{{ i.desc }}</td>
+    <td>
+      {% if i.entries %}{{ i.entries[0].entry_date.strftime('%d/%m/%Y') if i.entries[0].entry_date else '—' }}
+      {% else %}<span class="dim">—</span>{% endif %}
+    </td>
+    <td class="center">
+      {% if i.entries and i.entries[0].installments and i.entries[0].installments > 1 %}
+        {{ i.entries[0].installment_no }}/{{ i.entries[0].installments }}
+      {% else %}—{% endif %}
+    </td>
+    <td class="right green">{{ i.share|brl }}</td>
+  </tr>
   {% endfor %}
-  <tr class="total-row"><td>Subtotal</td><td class="right green">{{ m.a_receber|sum(attribute='share')|brl }}</td></tr>
+  <tr class="total-row">
+    <td colspan="3">Subtotal a receber</td>
+    <td class="right green">{{ m.a_receber|sum(attribute='share')|brl }}</td>
+  </tr>
   </tbody>
 </table>
 {% endif %}
+
 {% if m.a_pagar %}
-<p class="sub-label" style="margin:4px 0 2px;">{{ m.name }} pagou e eu devo:</p>
+<p class="dim" style="margin:4px 0 2px;">{{ m.name }} pagou / eu devo:</p>
 <table>
-  <thead><tr><th>Gasto</th><th class="right">Minha cota</th></tr></thead>
+  <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Minha cota</th></tr></thead>
   <tbody>
   {% for i in m.a_pagar %}
-  <tr><td>{{ i.desc }}</td><td class="right red">{{ i.share|brl }}</td></tr>
+  <tr>
+    <td>{{ i.desc }}</td>
+    <td>
+      {% if i.entries %}{{ i.entries[0].entry_date.strftime('%d/%m/%Y') if i.entries[0].entry_date else '—' }}
+      {% else %}<span class="dim">—</span>{% endif %}
+    </td>
+    <td class="center">
+      {% if i.entries and i.entries[0].installments and i.entries[0].installments > 1 %}
+        {{ i.entries[0].installment_no }}/{{ i.entries[0].installments }}
+      {% else %}—{% endif %}
+    </td>
+    <td class="right red">{{ i.share|brl }}</td>
+  </tr>
   {% endfor %}
-  <tr class="total-row"><td>Subtotal</td><td class="right red">{{ m.a_pagar|sum(attribute='share')|brl }}</td></tr>
+  <tr class="total-row">
+    <td colspan="3">Subtotal a pagar</td>
+    <td class="right red">{{ m.a_pagar|sum(attribute='share')|brl }}</td>
+  </tr>
   </tbody>
 </table>
 {% endif %}
 {% else %}
-<p class="sub-label">Nenhum membro para exibir.</p>
+<p class="dim">Nenhum membro para exibir.</p>
 {% endfor %}
 
-<!-- 4. PROJEÇÃO PARCELADOS — 12 MESES -->
+<!-- 4. PROJEÇÃO PARCELADOS 12 MESES -->
 <h2>📅 Projeção de Parcelados — Próximos 12 Meses</h2>
 <table>
   <thead><tr>
     <th>Mês</th>
     <th class="right">Total Parcelados</th>
-    <th>Principais lançamentos</th>
   </tr></thead>
   <tbody>
   {% for p in projecao_12 %}
@@ -151,13 +175,9 @@
     <td class="right {% if p.parcelados > 5000 %}red{% elif p.parcelados > 2000 %}gold{% else %}green{% endif %}">
       {{ p.parcelados|brl }}
     </td>
-    <td class="sub-label">
-      {{ p.pis[:3]|map(attribute='description')|join(', ') }}
-      {% if p.pis|length > 3 %}... +{{ p.pis|length - 3 }}{% endif %}
-    </td>
   </tr>
   {% else %}
-  <tr><td colspan="3" class="center sub-label">Nenhuma projeção cadastrada</td></tr>
+  <tr><td colspan="2" class="center dim">Nenhuma projeção cadastrada</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -165,5 +185,9 @@
 <div style="margin-top:24px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#aaa;text-align:center;">
   Nosso Dindin · {{ hoje }} · {{ mes_label }}
 </div>
+
+<!-- Botão imprimir no final -->
+<button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+
 </body>
 </html>
