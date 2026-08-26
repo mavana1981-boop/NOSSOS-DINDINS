@@ -1,41 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Painel
-<!-- Modal configurar gastos da casa -->
-<div id="modal-gastos-config" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);
-     z-index:10000;align-items:center;justify-content:center;">
-  <div style="background:var(--surface);border-radius:12px;padding:24px;
-              min-width:300px;max-width:420px;max-height:80vh;overflow-y:auto;
-              box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-    <div class="flex-between mb-3">
-      <strong>⚙️ Gastos da Casa — Painel</strong>
-      <button onclick="document.getElementById('modal-gastos-config').style.display='none'"
-              style="background:none;border:none;font-size:1.4rem;cursor:pointer;">×</button>
-    </div>
-    <p class="text-faint text-small mb-3">Marque quais gastos aparecem no painel.</p>
-
-    {% for item in household_expenses %}
-    {% set hh = item.household %}
-    <div style="display:flex;align-items:center;justify-content:space-between;
-                padding:8px 0;border-bottom:1px solid var(--border);">
-      <span>{{ item.expense.description }}</span>
-      <form method="POST" action="{{ url_for('dashboard.toggle_gasto_casa', hh_id=hh.id) }}"
-            style="margin:0;">
-        <button class="btn btn-sm" style="font-size:0.72rem;
-          background:{% if hh.show_on_dashboard %}var(--green){% else %}var(--surface2){% endif %};
-          color:{% if hh.show_on_dashboard %}white{% else %}var(--text-dim){% endif %};
-          border:none;">
-          {% if hh.show_on_dashboard %}✓ Visível{% else %}Oculto{% endif %}
-        </button>
-      </form>
-    </div>
-    {% endfor %}
-
-    <div style="margin-top:16px;">
-      <button onclick="document.getElementById('modal-gastos-config').style.display='none'"
-              class="btn btn-primary btn-sm" style="width:100%;">Fechar</button>
-    </div>
-  </div>
-</div>
 
 {% endblock %}
 {% block content %}
@@ -156,35 +120,6 @@
      class="btn btn-ghost btn-sm">📄 Relatório PDF — Contas entre membros</a>
 </div>
 
-<!-- Gastos Avulsos — não previstos, em destaque no topo -->
-{% if avulsos %}
-<div class="card mb-2" style="border-left:4px solid var(--gold);background:rgba(201,168,0,0.06);">
-  <div class="flex-between mb-2">
-    <div>
-      <strong style="color:var(--gold);">⚠️ Gastos não previstos</strong>
-      <span class="text-dim text-small" style="margin-left:8px;">lançamentos sem categoria da casa</span>
-    </div>
-    <span class="mono" style="color:var(--gold);font-weight:700;">{{ avulso_total|brl }}</span>
-  </div>
-  <table class="tbl" style="font-size:0.8rem;">
-    <thead><tr><th>Data</th><th>Descrição</th><th>Cartão</th><th class="text-right">Valor</th></tr></thead>
-    <tbody>
-    {% for e in avulsos[:10] %}
-    <tr>
-      <td>{{ e.entry_date.strftime('%d/%m') if e.entry_date else '—' }}</td>
-      <td>{{ e.description }}</td>
-      <td>{% if e.card %}<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:{{ e.card.color or '#6b8db5' }};display:inline-block;"></span>{{ e.card.name }}</span>{% else %}—{% endif %}</td>
-      <td class="text-right mono" style="color:var(--red);">{{ e.amount|brl }}</td>
-    </tr>
-    {% endfor %}
-    {% if avulsos|length > 10 %}
-    <tr><td colspan="4" class="text-center text-dim text-small">... e mais {{ avulsos|length - 10 }} lançamentos</td></tr>
-    {% endif %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
-
 <!-- Gastos da Casa -->
 <div class="card mb-3" style="border-left:4px solid var(--gold);">
   <div class="card-title">
@@ -199,7 +134,7 @@
         <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Gastos da Casa
       </h3>
-      <button type="button" onclick="document.getElementById('modal-gastos-config').style.display='flex'" class="btn btn-ghost btn-sm" style="font-size:0.72rem;">⚙️ Configurar</button>
+      <a href="{{ url_for('dashboard.configurar_gastos_casa') }}" class="btn btn-ghost btn-sm" style="font-size:0.72rem;">⚙️ Configurar</a>
     </div>
     <span class="text-faint text-small">ciclo 16→16 · clique para ordenar</span>
   </div>
@@ -272,7 +207,7 @@
       {% set eid = loop.index %}
       {% if True %}
       <div style="margin-top:8px;">
-        <button type="button" onclick="toggleEntries({{ eid }})"
+        <a="toggleEntries({{ eid }})"
                 style="background:none;border:none;color:var(--accent);font-size:0.75rem;
                        cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;">
           <span id="ic-{{ eid }}">▶</span>
