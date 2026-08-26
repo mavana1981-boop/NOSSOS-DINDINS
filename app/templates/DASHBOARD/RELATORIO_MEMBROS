@@ -110,7 +110,7 @@
   {% for i in m.a_receber %}
   <tr>
     <td>{{ i.desc }}</td>
-    <td>{{ i.data.strftime('%d/%m/%Y') if i.data else '—' }}</td>
+    <td>{{ i.data_str or '—' }}</td>
     <td class="center">{{ i.parcela }}</td>
     <td class="right green">{{ i.share|brl }}</td>
   </tr>
@@ -131,7 +131,7 @@
   {% for i in m.a_pagar %}
   <tr>
     <td>{{ i.desc }}</td>
-    <td>{{ i.data.strftime('%d/%m/%Y') if i.data else '—' }}</td>
+    <td>{{ i.data_str or '—' }}</td>
     <td class="center">{{ i.parcela }}</td>
     <td class="right red">{{ i.share|brl }}</td>
   </tr>
