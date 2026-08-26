@@ -1,50 +1,69 @@
 {% extends "base.html" %}
-{% block title %}Configurar Gastos da Casa{% endblock %}
+{% block title %}Configurar Gastos no Painel{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
-    <h1>&#9881;&#65039; Gastos da Casa &mdash; Painel</h1>
-    <p>Marque quais aparecem e arraste para reordenar.</p>
+    <h1>&#9881;&#65039; Gastos no Painel</h1>
+    <p>Marque qualquer gasto para exibir no painel. Arraste para reordenar.</p>
   </div>
   <a href="{{ url_for('dashboard.index') }}" class="btn btn-ghost">&#8592; Painel</a>
 </div>
 
 <form method="POST" action="{{ url_for('dashboard.salvar_config_gastos_casa') }}">
   <div class="card">
-    <p class="text-dim text-small mb-3">&#9776; Arraste para reordenar &nbsp;&middot;&nbsp; &#10003; Marque para exibir</p>
+    <div class="flex-between mb-3">
+      <p class="text-dim text-small mb-0">&#9776; Arraste &nbsp;&middot;&nbsp; &#10003; Marque para exibir no painel</p>
+      <button type="submit" class="btn btn-primary btn-sm">&#128190; Salvar</button>
+    </div>
+
+    <!-- Campo de busca -->
+    <input type="text" id="busca-gasto" placeholder="Buscar gasto..." class="form-control mb-3"
+           oninput="filtrarGastos(this.value)" style="max-width:300px;">
 
     <div id="sort-list">
-    {% for hh in links %}
-    {% set exp = hh.expense %}
-    <div class="si-row" draggable="true" data-id="{{ hh.id }}"
-         style="display:flex;align-items:center;gap:10px;padding:10px 6px;
+    {% for item in itens %}
+    {% set exp = item.expense %}
+    <div class="si-row" draggable="true" data-id="{{ exp.id }}"
+         style="display:flex;align-items:center;gap:10px;padding:9px 6px;
                 border-bottom:1px solid var(--border);background:var(--surface);
-                border-radius:6px;margin-bottom:4px;cursor:grab;">
-      <span style="color:var(--text-dim);font-size:1.1rem;">&#9776;</span>
-      <input type="checkbox" name="hh_ids" value="{{ hh.id }}"
-             style="width:16px;height:16px;flex-shrink:0;"
-             {% if hh.show_on_dashboard %}checked{% endif %}>
+                border-radius:6px;margin-bottom:3px;cursor:grab;
+                {% if item.pinned %}border-left:3px solid var(--accent);{% endif %}">
+      <span style="color:var(--text-dim);font-size:1rem;cursor:grab;flex-shrink:0;">&#9776;</span>
+      <input type="checkbox" name="exp_ids" value="{{ exp.id }}"
+             class="item-check" style="width:16px;height:16px;flex-shrink:0;"
+             {% if item.pinned %}checked{% endif %}>
       <div style="flex:1;">
-        <strong>{{ exp.description if exp else '?' }}</strong>
-        {% if exp %}<span class="text-dim text-small" style="margin-left:4px;">{{ exp.category }}</span>{% endif %}
+        <strong class="gasto-desc">{{ exp.description }}</strong>
+        <span class="text-dim text-small" style="margin-left:6px;">{{ exp.category }}</span>
+        <span class="badge" style="margin-left:4px;font-size:0.62rem;
+              background:var(--surface2);color:var(--text-dim);padding:1px 4px;border-radius:3px;">
+          {{ exp.kind }}
+        </span>
       </div>
-      <span class="mono text-small" style="color:var(--red);">{{ exp.amount|brl if exp else '' }}</span>
-      <input type="hidden" name="ordem" value="{{ hh.id }}">
+      <span class="mono text-small" style="color:var(--red);">{{ exp.amount|brl }}</span>
+      <input type="hidden" name="ordem" value="{{ exp.id }}">
     </div>
-    {% else %}
-    <p class="text-faint text-center" style="padding:20px;">Nenhum gasto da casa cadastrado.</p>
     {% endfor %}
     </div>
 
-    <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
-      <a href="{{ url_for('dashboard.index') }}" class="btn btn-ghost">Cancelar</a>
-      <button type="submit" class="btn btn-primary">&#128190; Salvar</button>
+    <div style="margin-top:16px;text-align:right;">
+      <button type="submit" class="btn btn-primary">&#128190; Salvar configuração</button>
     </div>
   </div>
 </form>
 
 <script>
+// Filtro de busca
+function filtrarGastos(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.si-row').forEach(function(row) {
+    var desc = (row.querySelector('.gasto-desc') || {}).textContent || '';
+    row.style.display = (!q || desc.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+// Drag-and-drop
 var list = document.getElementById('sort-list');
 var dragging = null;
 
@@ -55,7 +74,8 @@ list.addEventListener('dragstart', function(e) {
 list.addEventListener('dragend', function() {
   if(dragging) dragging.style.opacity='';
   dragging = null;
-  list.querySelectorAll('.si-row').forEach(function(el, i) {
+  // Atualizar campos hidden com nova ordem
+  list.querySelectorAll('.si-row').forEach(function(el) {
     el.querySelector('input[name="ordem"]').value = el.getAttribute('data-id');
   });
 });
