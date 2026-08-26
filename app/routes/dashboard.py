@@ -225,8 +225,6 @@ def index():
         recent_expenses=recent_expenses,
         recent_incomes=recent_incomes,
         household_expenses=household_expenses,
-        avulsos=_avulsos,
-        avulso_total=avulso_total,
         household_total_planned=household_total_planned,
         household_total_spent=household_total_spent,
         household_pct=household_pct,
