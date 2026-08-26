@@ -331,36 +331,53 @@ def configurar_gastos_casa():
 @dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
 @login_required
 def salvar_config_gastos_casa():
-    ids_ordenados = request.form.getlist("ordem")      # expense_ids na ordem visual
-    selecionados  = set(request.form.getlist("exp_ids"))  # expense_ids marcados
+    ids_ordenados = request.form.getlist("ordem")
+    selecionados  = set(request.form.getlist("exp_ids"))
 
-    for idx, exp_id_str in enumerate(ids_ordenados):
-        try:
-            exp_id = int(exp_id_str)
-        except Exception:
-            continue
+    try:
+        for idx, exp_id_str in enumerate(ids_ordenados):
+            try:
+                exp_id = int(exp_id_str)
+            except Exception:
+                continue
 
-        exp = Expense.query.get(exp_id)
-        if not exp or exp.payer_id != current_user.id:
-            continue
+            exp = Expense.query.get(exp_id)
+            if not exp or exp.payer_id != current_user.id:
+                continue
 
-        pinned = exp_id_str in selecionados
-        hh = HouseholdExpense.query.filter_by(expense_id=exp_id).first()
+            pinned = exp_id_str in selecionados
 
-        if pinned:
-            if not hh:
-                hh = HouseholdExpense(
-                    expense_id=exp_id,
-                    owner_id=current_user.id,
-                )
-                db.session.add(hh)
-                db.session.flush()
-            hh.show_on_dashboard = True
-            hh.display_order = idx
-        else:
-            if hh:
-                hh.show_on_dashboard = False
+            # Buscar HH do usuário atual apenas
+            hh = HouseholdExpense.query.filter_by(
+                expense_id=exp_id,
+                owner_id=current_user.id
+            ).first()
 
-    db.session.commit()
-    flash("Configuração salva.", "success")
+            if pinned:
+                if not hh:
+                    # Verificar se existe para outro owner e deletar primeiro
+                    hh_outro = HouseholdExpense.query.filter_by(expense_id=exp_id).first()
+                    if hh_outro:
+                        hh = hh_outro
+                        hh.owner_id = current_user.id
+                    else:
+                        hh = HouseholdExpense(
+                            expense_id=exp_id,
+                            owner_id=current_user.id,
+                            shared_with_id=None,
+                        )
+                        db.session.add(hh)
+                        db.session.flush()
+                hh.show_on_dashboard = True
+                hh.display_order = idx
+            else:
+                if hh:
+                    hh.show_on_dashboard = False
+
+        db.session.commit()
+        flash("Configuração salva com sucesso.", "success")
+    except Exception as _e:
+        db.session.rollback()
+        flash(f"Erro ao salvar: {_e}", "danger")
+
     return redirect(url_for("dashboard.index"))
