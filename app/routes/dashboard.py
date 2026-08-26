@@ -278,17 +278,16 @@ def relatorio_membros():
     total_renda = sum(float(r.amount) for r in rendas_ativas)
 
     # ── 2. Gastos fixos ───────────────────────────────────────────────────
+    # Gastos da casa: todos os household expenses do usuário (sem filtro de mês)
     hh_links = HouseholdExpense.query.filter(
         or_(HouseholdExpense.owner_id == current_user.id,
             HouseholdExpense.shared_with_id == current_user.id)
-    ).all()
+    ).order_by(HouseholdExpense.display_order).all()
     gastos_fixos = []
     total_fixo = 0.0
     for hh in hh_links:
         exp = hh.expense
         if not exp:
-            continue
-        if exp.kind == "recorrente" and not exp.is_active_on(filter_year, filter_month):
             continue
         entries = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
