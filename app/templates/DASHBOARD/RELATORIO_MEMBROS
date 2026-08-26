@@ -3,162 +3,163 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relatório — Contas entre Membros — {{ mes_label }}</title>
+<title>Relatório — {{ mes_label }}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #222; background: #fff; padding: 28px; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', Arial, sans-serif; font-size: 13px; color: #222; background: #fff; padding: 32px; }
+  .no-print { }
+  @media print { .no-print { display:none !important; } @page { margin:1.5cm; } }
 
-  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #6b8db5; padding-bottom: 14px; margin-bottom: 24px; }
-  .header h1 { font-size: 20px; font-weight: 700; color: #6b8db5; }
-  .header .meta { font-size: 11px; color: #888; text-align: right; }
+  .header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #6b8db5; padding-bottom:12px; margin-bottom:20px; }
+  .header h1 { font-size:20px; font-weight:700; color:#6b8db5; }
+  .header .meta { font-size:11px; color:#888; text-align:right; }
+  .header .mes-nav { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .header .mes-nav a { color:#6b8db5; text-decoration:none; font-size:18px; font-weight:700; }
+  .header .mes-nav strong { font-size:15px; color:#333; min-width:120px; text-align:center; display:inline-block; }
 
-  h2 { font-size: 14px; font-weight: 700; color: #6b8db5; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #e0e0e0; }
+  h2 { font-size:13px; font-weight:700; color:#6b8db5; margin:18px 0 6px; padding-bottom:4px; border-bottom:1px solid #ddd; text-transform:uppercase; letter-spacing:.5px; }
+  h3 { font-size:12px; font-weight:700; color:#444; margin:12px 0 4px; }
 
-  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-  th { background: #6b8db5; color: white; padding: 7px 10px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-  td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; }
-  tr:nth-child(even) td { background: #f7f9fc; }
-  .right { text-align: right; }
-  .center { text-align: center; }
-  .red { color: #c4654a; }
-  .green { color: #5a9e6f; }
-  .bold { font-weight: 700; }
+  table { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:12px; }
+  th { background:#6b8db5; color:white; padding:5px 8px; text-align:left; font-size:11px; }
+  td { padding:5px 8px; border-bottom:1px solid #f0f0f0; }
+  tr:nth-child(even) td { background:#f7f9fc; }
+  .right { text-align:right; }
+  .center { text-align:center; }
+  .red { color:#c4654a; font-weight:700; }
+  .green { color:#5a9e6f; font-weight:700; }
+  .gold { color:#b8860b; font-weight:700; }
+  .total-row td { background:#e8eef5 !important; font-weight:700; border-top:2px solid #6b8db5; }
+  .sub-label { font-size:10px; color:#999; font-style:italic; }
 
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
-  .badge-red { background: #fde8e4; color: #c4654a; }
-  .badge-green { background: #e4f5ec; color: #5a9e6f; }
-
-  .total-row td { background: #f0f4f9; font-weight: 700; border-top: 2px solid #6b8db5; }
-
-  .print-btn { position: fixed; top: 20px; right: 20px; background: #6b8db5; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-  .print-btn:hover { background: #5a7da5; }
-
-  @media print {
-    .print-btn { display: none; }
-    body { padding: 16px; }
-    @page { margin: 1.5cm; }
-  }
+  .print-btn { position:fixed; top:16px; right:16px; background:#6b8db5; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
 </style>
 </head>
 <body>
 
-<button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+<button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / PDF</button>
 
 <div class="header">
   <div>
-    <h1>📋 Contas entre Membros</h1>
-    <div style="font-size:12px;color:#666;margin-top:4px;">Nosso Dindin · {{ user.full_name }}</div>
+    <h1>📋 Relatório Financeiro</h1>
+    <div style="font-size:11px;color:#888;margin-top:2px;">{{ user.full_name }}</div>
   </div>
   <div class="meta">
-    <div style="font-size:16px;font-weight:700;color:#6b8db5;">{{ mes_label }}</div>
+    <div class="mes-nav no-print">
+      <a href="{{ url_for('dashboard.relatorio_membros', mes=prev_mes) }}">&#8592;</a>
+      <strong>{{ mes_label }}</strong>
+      <a href="{{ url_for('dashboard.relatorio_membros', mes=next_mes) }}">&#8594;</a>
+    </div>
+    <div style="font-size:15px;font-weight:700;color:#6b8db5;">{{ mes_label }}</div>
     <div>Gerado em {{ hoje }}</div>
   </div>
 </div>
 
-<!-- Saldos entre membros -->
-<h2>💰 Saldos entre membros</h2>
-{% if membros %}
+<!-- 1. RENDA FIXA -->
+<h2>💰 Renda Fixa</h2>
 <table>
-  <thead>
-    <tr>
-      <th>Membro</th>
-      <th class="center">Situação</th>
-      <th class="right">Valor</th>
-    </tr>
-  </thead>
+  <thead><tr><th>Descrição</th><th class="right">Valor</th></tr></thead>
   <tbody>
-  {% for m in membros %}
-  <tr>
-    <td class="bold">{{ m.name }}</td>
-    <td class="center">
-      {% if m.balance > 0 %}
-      <span class="badge badge-green">A receber</span>
-      {% else %}
-      <span class="badge badge-red">A pagar</span>
-      {% endif %}
-    </td>
-    <td class="right bold {% if m.balance > 0 %}green{% else %}red{% endif %}">
-      R$ {{ "%.2f"|format(m.balance|abs) | replace('.', ',') }}
-    </td>
-  </tr>
+  {% for r in rendas_ativas %}
+  <tr><td>{{ r.description }}</td><td class="right green">{{ r.amount|brl }}</td></tr>
+  {% else %}
+  <tr><td colspan="2" class="center sub-label">Nenhuma renda fixa cadastrada</td></tr>
   {% endfor %}
+  <tr class="total-row"><td>TOTAL RENDA</td><td class="right green">{{ total_renda|brl }}</td></tr>
   </tbody>
 </table>
-{% else %}
-<p style="color:#888;padding:12px 0;">Nenhum saldo pendente entre membros neste mês.</p>
-{% endif %}
 
-<!-- Gastos da casa -->
-<h2>🏠 Gastos da Casa — {{ mes_label }}</h2>
-{% if gastos_casa %}
+<!-- 2. GASTOS FIXOS -->
+<h2>🏠 Gastos Fixos</h2>
 <table>
-  <thead>
-    <tr>
-      <th>Descrição</th>
-      <th class="right">Planejado</th>
-      <th class="right">Realizado</th>
-      <th class="right">Diferença</th>
-      <th class="center">%</th>
-    </tr>
-  </thead>
+  <thead><tr><th>Descrição</th><th class="right">Planejado</th><th class="right">Realizado</th></tr></thead>
   <tbody>
-  {% for g in gastos_casa %}
-  {% set pct = (g.spent / g.planned * 100) | round(1) if g.planned > 0 else 0 %}
+  {% for g in gastos_fixos %}
   <tr>
     <td>{{ g.desc }}</td>
-    <td class="right">R$ {{ "%.2f"|format(g.planned) | replace('.', ',') }}</td>
-    <td class="right bold">R$ {{ "%.2f"|format(g.spent) | replace('.', ',') }}</td>
-    <td class="right {% if g.diff > 0 %}red{% else %}green{% endif %}">
-      {% if g.diff > 0 %}+{% endif %}R$ {{ "%.2f"|format(g.diff) | replace('.', ',') }}
-    </td>
-    <td class="center {% if pct > 100 %}red{% elif pct >= 80 %}bold{% endif %}">{{ pct }}%</td>
+    <td class="right">{{ g.planned|brl }}</td>
+    <td class="right">{% if g.spent > 0 %}{{ g.spent|brl }}{% else %}<span class="sub-label">—</span>{% endif %}</td>
   </tr>
   {% endfor %}
-  {% set total_plan = gastos_casa | sum(attribute='planned') %}
-  {% set total_spent = gastos_casa | sum(attribute='spent') %}
   <tr class="total-row">
-    <td>TOTAL</td>
-    <td class="right">R$ {{ "%.2f"|format(total_plan) | replace('.', ',') }}</td>
-    <td class="right">R$ {{ "%.2f"|format(total_spent) | replace('.', ',') }}</td>
-    <td class="right {% if total_spent > total_plan %}red{% else %}green{% endif %}">
-      R$ {{ "%.2f"|format(total_spent - total_plan) | replace('.', ',') }}
+    <td>TOTAL GASTOS</td>
+    <td class="right red">{{ total_fixo|brl }}</td>
+    <td></td>
+  </tr>
+  <tr class="total-row">
+    <td>💵 SALDO PROJETADO (Renda − Gastos)</td>
+    <td class="right {% if saldo_proj_fixo >= 0 %}green{% else %}red{% endif %}" colspan="2">
+      {{ saldo_proj_fixo|brl }}
     </td>
-    <td class="center">{{ ((total_spent / total_plan * 100) | round(1)) if total_plan > 0 else 0 }}%</td>
   </tr>
   </tbody>
 </table>
 
-<!-- Lançamentos por gasto -->
-{% for g in gastos_casa %}
-{% if g.entries %}
-<h2 style="font-size:12px;margin-top:14px;">📌 Lançamentos: {{ g.desc }}</h2>
+<!-- 3. SALDO ENTRE MEMBROS -->
+<h2>🤝 Contas entre Membros — {{ mes_label }}</h2>
+{% for m in membros_detalhe %}
+<h3>Com {{ m.name }} &nbsp;
+  <span class="{% if m.saldo > 0 %}green{% elif m.saldo < 0 %}red{% endif %}">
+    {% if m.saldo > 0 %}A receber: {{ m.saldo|brl }}{% elif m.saldo < 0 %}A pagar: {{ (m.saldo * -1)|brl }}{% else %}Quitado{% endif %}
+  </span>
+</h3>
+{% if m.a_receber %}
+<p class="sub-label" style="margin:4px 0 2px;">Eu paguei e {{ m.name }} deve:</p>
 <table>
-  <thead>
-    <tr><th>Data</th><th>Descrição</th><th>Cartão</th><th class="right">Valor</th></tr>
-  </thead>
+  <thead><tr><th>Gasto</th><th class="right">Cota de {{ m.name }}</th></tr></thead>
   <tbody>
-  {% for e in g.entries %}
-  <tr>
-    <td>{{ e.entry_date.strftime('%d/%m') if e.entry_date else '—' }}</td>
-    <td>{{ e.description }}</td>
-    <td>{{ e.card.name if e.card else '—' }}</td>
-    <td class="right">R$ {{ "%.2f"|format(e.amount | float) | replace('.', ',') }}</td>
-  </tr>
+  {% for i in m.a_receber %}
+  <tr><td>{{ i.desc }}</td><td class="right green">{{ i.share|brl }}</td></tr>
   {% endfor %}
+  <tr class="total-row"><td>Subtotal</td><td class="right green">{{ m.a_receber|sum(attribute='share')|brl }}</td></tr>
   </tbody>
 </table>
 {% endif %}
+{% if m.a_pagar %}
+<p class="sub-label" style="margin:4px 0 2px;">{{ m.name }} pagou e eu devo:</p>
+<table>
+  <thead><tr><th>Gasto</th><th class="right">Minha cota</th></tr></thead>
+  <tbody>
+  {% for i in m.a_pagar %}
+  <tr><td>{{ i.desc }}</td><td class="right red">{{ i.share|brl }}</td></tr>
+  {% endfor %}
+  <tr class="total-row"><td>Subtotal</td><td class="right red">{{ m.a_pagar|sum(attribute='share')|brl }}</td></tr>
+  </tbody>
+</table>
+{% endif %}
+{% else %}
+<p class="sub-label">Nenhum membro para exibir.</p>
 {% endfor %}
 
-{% else %}
-<p style="color:#888;padding:12px 0;">Nenhum gasto da casa registrado neste mês.</p>
-{% endif %}
+<!-- 4. PROJEÇÃO PARCELADOS — 12 MESES -->
+<h2>📅 Projeção de Parcelados — Próximos 12 Meses</h2>
+<table>
+  <thead><tr>
+    <th>Mês</th>
+    <th class="right">Total Parcelados</th>
+    <th>Principais lançamentos</th>
+  </tr></thead>
+  <tbody>
+  {% for p in projecao_12 %}
+  <tr>
+    <td><strong>{{ p.label }}</strong></td>
+    <td class="right {% if p.parcelados > 5000 %}red{% elif p.parcelados > 2000 %}gold{% else %}green{% endif %}">
+      {{ p.parcelados|brl }}
+    </td>
+    <td class="sub-label">
+      {{ p.pis[:3]|map(attribute='description')|join(', ') }}
+      {% if p.pis|length > 3 %}... +{{ p.pis|length - 3 }}{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="3" class="center sub-label">Nenhuma projeção cadastrada</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
 
-<div style="margin-top:32px;padding-top:12px;border-top:1px solid #eee;font-size:10px;color:#aaa;text-align:center;">
-  Nosso Dindin · Relatório gerado em {{ hoje }} · {{ mes_label }}
+<div style="margin-top:24px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#aaa;text-align:center;">
+  Nosso Dindin · {{ hoje }} · {{ mes_label }}
 </div>
-
 </body>
 </html>
