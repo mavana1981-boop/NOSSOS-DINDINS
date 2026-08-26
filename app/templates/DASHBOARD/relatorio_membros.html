@@ -110,15 +110,8 @@
   {% for i in m.a_receber %}
   <tr>
     <td>{{ i.desc }}</td>
-    <td>
-      {% if i.entries %}{{ i.entries[0].entry_date.strftime('%d/%m/%Y') if i.entries[0].entry_date else '—' }}
-      {% else %}<span class="dim">—</span>{% endif %}
-    </td>
-    <td class="center">
-      {% if i.entries and i.entries[0].installments and i.entries[0].installments > 1 %}
-        {{ i.entries[0].installment_no }}/{{ i.entries[0].installments }}
-      {% else %}—{% endif %}
-    </td>
+    <td>{{ i.data_str or '—' }}</td>
+    <td class="center">{{ i.parcela }}</td>
     <td class="right green">{{ i.share|brl }}</td>
   </tr>
   {% endfor %}
@@ -138,15 +131,8 @@
   {% for i in m.a_pagar %}
   <tr>
     <td>{{ i.desc }}</td>
-    <td>
-      {% if i.entries %}{{ i.entries[0].entry_date.strftime('%d/%m/%Y') if i.entries[0].entry_date else '—' }}
-      {% else %}<span class="dim">—</span>{% endif %}
-    </td>
-    <td class="center">
-      {% if i.entries and i.entries[0].installments and i.entries[0].installments > 1 %}
-        {{ i.entries[0].installment_no }}/{{ i.entries[0].installments }}
-      {% else %}—{% endif %}
-    </td>
+    <td>{{ i.data_str or '—' }}</td>
+    <td class="center">{{ i.parcela }}</td>
     <td class="right red">{{ i.share|brl }}</td>
   </tr>
   {% endfor %}
@@ -187,6 +173,16 @@
 </div>
 
 <!-- Botão imprimir no final -->
+<!-- DEBUG TEMPORÁRIO -->
+{% with msgs = get_flashed_messages(with_categories=true) %}
+{% for cat, msg in msgs %}
+<div style="background:#e8f0fe;border:1px solid #6b8db5;padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;word-break:break-all;">
+  {{ msg }}
+</div>
+{% endfor %}
+{% endwith %}
+<!-- FIM DEBUG -->
+
 <button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 
 </body>
