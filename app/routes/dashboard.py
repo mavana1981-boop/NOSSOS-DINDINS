@@ -278,31 +278,27 @@ def relatorio_membros():
     total_renda = sum(float(r.amount) for r in rendas_ativas)
 
     # ── 2. Gastos fixos ───────────────────────────────────────────────────
-    # Gastos da casa: todos os household expenses do usuário (sem filtro de mês)
-    hh_links = HouseholdExpense.query.filter(
-        or_(HouseholdExpense.owner_id == current_user.id,
-            HouseholdExpense.shared_with_id == current_user.id)
-    ).order_by(HouseholdExpense.display_order).all()
+    # Gastos fixos: TODOS os expenses cadastrados pelo usuário, valor planejado
+    todos_expenses = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+    ).order_by(Expense.description).all()
     gastos_fixos = []
     total_fixo = 0.0
-    for hh in hh_links:
-        exp = hh.expense
-        if not exp:
-            continue
+    for exp in todos_expenses:
+        planned = float(exp.amount)
+        # Entradas reais no mês para mostrar data e parcela
         entries = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == _mes,
             CardEntry.status == "ativo",
-        ).all()
-        spent = sum(float(e.amount) for e in entries)
-        planned = float(exp.amount)
+        ).order_by(CardEntry.entry_date).all()
         gastos_fixos.append({
             "desc": exp.description,
             "planned": planned,
-            "spent": spent,
             "entries": entries,
         })
-        total_fixo += spent if spent > 0 else planned
+        total_fixo += planned
+    # Saldo = Renda Fixa - Total Planejado dos Gastos
     saldo_proj_fixo = total_renda - total_fixo
 
     # ── 3. Saldo detalhado entre membros ─────────────────────────────────
@@ -320,11 +316,16 @@ def relatorio_membros():
         for exp, share in exps_meus:
             if not exp.is_active_on(filter_year, filter_month):
                 continue
+            _entries_m = CardEntry.query.filter(
+                CardEntry.expense_id == exp.id,
+                CardEntry.billing_month == _mes,
+                CardEntry.status == "ativo",
+            ).order_by(CardEntry.entry_date).all()
             itens_a_receber.append({
                 "desc": exp.description,
                 "share": float(share.share_amount),
+                "entries": _entries_m,
             })
-        # Gastos que o outro pagou e eu devo
         exps_dele = db.session.query(Expense, ExpenseShare).join(
             ExpenseShare, ExpenseShare.expense_id == Expense.id
         ).filter(
@@ -335,9 +336,15 @@ def relatorio_membros():
         for exp, share in exps_dele:
             if not exp.is_active_on(filter_year, filter_month):
                 continue
+            _entries_p = CardEntry.query.filter(
+                CardEntry.expense_id == exp.id,
+                CardEntry.billing_month == _mes,
+                CardEntry.status == "ativo",
+            ).order_by(CardEntry.entry_date).all()
             itens_a_pagar.append({
                 "desc": exp.description,
                 "share": float(share.share_amount),
+                "entries": _entries_p,
             })
         saldo = sum(i["share"] for i in itens_a_receber) - sum(i["share"] for i in itens_a_pagar)
         membros_detalhe.append({
