@@ -333,26 +333,18 @@ def relatorio_membros():
         for exp, share in exps_meus:
             if not exp.is_active_on(filter_year, filter_month):
                 continue
-            _entries_m = CardEntry.query.filter(
-                CardEntry.expense_id == exp.id,
-                CardEntry.billing_month == _mes,
-                CardEntry.status == "ativo",
-            ).order_by(CardEntry.entry_date).all()
-            # Data: entry real ou data do gasto
-            _data_ref = (_entries_m[0].entry_date if _entries_m and _entries_m[0].entry_date
-                         else exp.spent_at)
-            # Parcela: do entry real ou calculada pela recorrência
-            if _entries_m and _entries_m[0].installments and _entries_m[0].installments > 1:
-                _parc = f"{_entries_m[0].installment_no}/{_entries_m[0].installments}"
-            elif exp.recurrence_months:
+            # Parcela calculada pela recorrência
+            if exp.recurrence_months:
                 _md = (filter_year - exp.spent_at.year)*12 + (filter_month - exp.spent_at.month) + 1
                 _parc = f"{_md}/{exp.recurrence_months}"
+            elif exp.kind == "pontual":
+                _parc = "Avulso"
             else:
-                _parc = "—"
+                _parc = "Recorrente"
             itens_a_receber.append({
                 "desc": exp.description,
                 "share": float(share.share_amount),
-                "data": _data_ref,
+                "data": exp.spent_at,
                 "parcela": _parc,
             })
         exps_dele = db.session.query(Expense, ExpenseShare).join(
@@ -365,24 +357,17 @@ def relatorio_membros():
         for exp, share in exps_dele:
             if not exp.is_active_on(filter_year, filter_month):
                 continue
-            _entries_p = CardEntry.query.filter(
-                CardEntry.expense_id == exp.id,
-                CardEntry.billing_month == _mes,
-                CardEntry.status == "ativo",
-            ).order_by(CardEntry.entry_date).all()
-            _data_ref2 = (_entries_p[0].entry_date if _entries_p and _entries_p[0].entry_date
-                          else exp.spent_at)
-            if _entries_p and _entries_p[0].installments and _entries_p[0].installments > 1:
-                _parc2 = f"{_entries_p[0].installment_no}/{_entries_p[0].installments}"
-            elif exp.recurrence_months:
+            if exp.recurrence_months:
                 _md2 = (filter_year - exp.spent_at.year)*12 + (filter_month - exp.spent_at.month) + 1
                 _parc2 = f"{_md2}/{exp.recurrence_months}"
+            elif exp.kind == "pontual":
+                _parc2 = "Avulso"
             else:
-                _parc2 = "—"
+                _parc2 = "Recorrente"
             itens_a_pagar.append({
                 "desc": exp.description,
                 "share": float(share.share_amount),
-                "data": _data_ref2,
+                "data": exp.spent_at,
                 "parcela": _parc2,
             })
         saldo = sum(i["share"] for i in itens_a_receber) - sum(i["share"] for i in itens_a_pagar)
