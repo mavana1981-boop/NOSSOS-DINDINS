@@ -270,11 +270,11 @@ def relatorio_membros():
     next_mes = f"{_next_yr}-{_next_mo:02d}"
 
     # ── 1. Renda fixa do mês ──────────────────────────────────────────────
-    rendas = _Inc.query.filter(
+    # Income não tem is_active_on — filtrar por is_recurring
+    rendas_ativas = _Inc.query.filter(
         _Inc.user_id == current_user.id,
         _Inc.is_recurring == True,
     ).all()
-    rendas_ativas = [r for r in rendas if r.is_active_on(filter_year, filter_month)]
     total_renda = sum(float(r.amount) for r in rendas_ativas)
 
     # ── 2. Gastos fixos ───────────────────────────────────────────────────
