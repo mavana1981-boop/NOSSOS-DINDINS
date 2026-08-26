@@ -126,22 +126,19 @@ def index():
         })
 
     # Gastos da Casa
-    _all_hh = HouseholdExpense.query.filter(
+    household_links = HouseholdExpense.query.filter(
         or_(
             HouseholdExpense.owner_id == current_user.id,
             HouseholdExpense.shared_with_id == current_user.id
         )
     ).all()
     # Filtra: se shared_with_id for None, só o owner vê; se preenchido, ambos veem
-    _all_hh = [
-        hh for hh in _all_hh
-        if hh.owner_id == current_user.id or (hh.shared_with_id == current_user.id)
-    ]
-    # IDs de despesas vinculadas a Gastos da Casa (para excluir dos avulsos,
-    # independentemente de estarem fixados/visíveis no dashboard ou não)
-    _hh_expense_ids = {hh.expense_id for hh in _all_hh}
-    # Apenas os fixados no dashboard (show_on_dashboard) aparecem no quadro
-    household_links = [hh for hh in _all_hh if getattr(hh, "show_on_dashboard", True)]
+    household_links = sorted(
+        [hh for hh in household_links
+         if (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id)
+         and getattr(hh, "show_on_dashboard", True)],
+        key=lambda h: h.display_order or 0
+    )
 
     # Percentual desejável — ciclo do dia 16 ao próximo dia 16
     from datetime import timedelta
@@ -160,25 +157,6 @@ def index():
     total_days = (cycle_end - cycle_start).days
     elapsed_days = (today - cycle_start).days
     desired_pct = min(round(elapsed_days / total_days * 100, 1) if total_days > 0 else 0, 100)
-
-    # Gastos avulsos: lançamentos de cartão do mês, do usuário, sem vínculo
-    # com nenhum Gasto da Casa (com ou sem expense_id vinculado a outra coisa)
-    _avulsos_filter = [
-        CardEntry.user_id == current_user.id,
-        CardEntry.billing_month == mes_filter,
-        CardEntry.status == "ativo",
-    ]
-    if _hh_expense_ids:
-        _avulsos_filter.append(
-            or_(CardEntry.expense_id.is_(None),
-                ~CardEntry.expense_id.in_(_hh_expense_ids))
-        )
-    else:
-        _avulsos_filter.append(CardEntry.expense_id.is_(None))
-
-    _avulsos = CardEntry.query.filter(*_avulsos_filter)\
-        .order_by(CardEntry.entry_date.desc()).all()
-    avulso_total = sum(float(e.amount) for e in _avulsos)
 
     household_expenses = []
     household_total_planned = 0.0
@@ -322,12 +300,27 @@ def relatorio_membros():
 
 
 
-@dashboard_bp.route("/toggle-gasto-casa/<int:hh_id>", methods=["POST"])
+@dashboard_bp.route("/configurar-gastos-casa")
 @login_required
-def toggle_gasto_casa(hh_id):
-    hh = HouseholdExpense.query.get_or_404(hh_id)
-    if hh.owner_id != current_user.id and hh.shared_with_id != current_user.id:
-        return "Acesso negado", 403
-    hh.show_on_dashboard = not hh.show_on_dashboard
+def configurar_gastos_casa():
+    links = HouseholdExpense.query.filter(
+        or_(HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id)
+    ).order_by(HouseholdExpense.display_order).all()
+    return render_template("dashboard/configurar_gastos_casa.html", links=links)
+
+
+@dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
+@login_required
+def salvar_config_gastos_casa():
+    # ids ordenados conforme posição no form
+    ids_ordenados = request.form.getlist("ordem")
+    selecionados   = set(request.form.getlist("hh_ids"))
+    for idx, hh_id in enumerate(ids_ordenados):
+        hh = HouseholdExpense.query.get(int(hh_id))
+        if hh and (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id):
+            hh.show_on_dashboard = (hh_id in selecionados)
+            hh.display_order     = idx
     db.session.commit()
-    return redirect(request.referrer or url_for("dashboard.index"))
+    flash("Configuração salva.", "success")
+    return redirect(url_for("dashboard.index"))
