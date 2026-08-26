@@ -278,8 +278,9 @@ def relatorio_membros():
     total_renda = sum(float(r.amount) for r in rendas_ativas)
 
     # ── 2. Gastos fixos ───────────────────────────────────────────────────
-    # Gastos fixos = mesmos que compõem a coluna "Fixos" do fluxo de caixa:
-    # Expenses com kind="recorrente" e is_active_on(filter_year, filter_month)
+    # Gastos fixos = lógica EXATA do fluxo de caixa coluna "Fixos":
+    # - Só expenses onde payer_id = current_user (gastos de outros são ignorados)
+    # - valor = expense.amount - shares de outros (o que me cabe)
     gastos_fixos = []
     total_fixo = 0.0
     for exp in Expense.query.filter(
@@ -288,19 +289,33 @@ def relatorio_membros():
     ).order_by(Expense.description).all():
         if not exp.is_active_on(filter_year, filter_month):
             continue
-        planned = float(exp.amount)
+        # Subtrair shares de outros (o que me repassam)
+        shares_outros = ExpenseShare.query.filter(
+            ExpenseShare.expense_id == exp.id,
+            ExpenseShare.user_id != current_user.id,
+        ).all()
+        repasse = sum(float(s.share_amount) for s in shares_outros)
+        minha_parte = max(0.0, round(float(exp.amount) - repasse, 2))
+
+        # Label de parcela se tiver recurrence_months
+        parc_label = ""
+        if exp.recurrence_months:
+            md = (filter_year - exp.spent_at.year) * 12 + (filter_month - exp.spent_at.month) + 1
+            parc_label = f" ({md}/{exp.recurrence_months})"
+
         entries = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == _mes,
             CardEntry.status == "ativo",
         ).order_by(CardEntry.entry_date).all()
+
         gastos_fixos.append({
-            "desc": exp.description,
-            "planned": planned,
+            "desc": exp.description + parc_label,
+            "planned": minha_parte,
             "entries": entries,
         })
-        total_fixo += planned
-    # Saldo = Renda Fixa - Total Planejado (igual ao fluxo de caixa)
+        total_fixo += minha_parte
+    # Saldo = Renda Fixa - Total (minha parte) → igual ao fluxo de caixa
     saldo_proj_fixo = total_renda - total_fixo
 
     # ── 3. Saldo detalhado entre membros ─────────────────────────────────
