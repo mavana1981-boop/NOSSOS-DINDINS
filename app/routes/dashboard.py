@@ -372,7 +372,29 @@ def relatorio_membros():
                 "data_str": _dt_str2,
                 "parcela": _parc2,
             })
+        # Ordenar: última parcela primeiro; destacar última
+        def _sort_key(item):
+            parc = item.get("parcela", "")
+            try:
+                no, tot = parc.split("/")
+                return (0 if int(no) == int(tot) else 1, -int(no))
+            except Exception:
+                return (1, 0)
+
+        def _enrich(lst):
+            for item in lst:
+                parc = item.get("parcela", "")
+                try:
+                    no, tot = parc.split("/")
+                    item["is_ultima"] = int(no) == int(tot)
+                except Exception:
+                    item["is_ultima"] = False
+            return sorted(lst, key=_sort_key)
+
+        itens_a_receber = _enrich(itens_a_receber)
+        itens_a_pagar   = _enrich(itens_a_pagar)
         saldo = sum(i["share"] for i in itens_a_receber) - sum(i["share"] for i in itens_a_pagar)
+
         membros_detalhe.append({
             "name": o.full_name,
             "a_receber": itens_a_receber,
