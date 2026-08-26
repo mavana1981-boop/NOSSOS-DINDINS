@@ -272,7 +272,7 @@ def relatorio_membros():
     # ── 1. Renda fixa do mês ──────────────────────────────────────────────
     rendas = _Inc.query.filter(
         _Inc.user_id == current_user.id,
-        _Inc.kind == "recorrente",
+        _Inc.is_recurring == True,
     ).all()
     rendas_ativas = [r for r in rendas if r.is_active_on(filter_year, filter_month)]
     total_renda = sum(float(r.amount) for r in rendas_ativas)
