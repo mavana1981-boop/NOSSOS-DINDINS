@@ -361,10 +361,12 @@ def salvar_config_gastos_casa():
                         hh = hh_outro
                         hh.owner_id = current_user.id
                     else:
+                        # shared_with_id: usar o outro membro da casa
+                        _outro = User.query.filter(User.id != current_user.id).first()
                         hh = HouseholdExpense(
                             expense_id=exp_id,
                             owner_id=current_user.id,
-                            shared_with_id=None,
+                            shared_with_id=_outro.id if _outro else current_user.id,
                         )
                         db.session.add(hh)
                         db.session.flush()
