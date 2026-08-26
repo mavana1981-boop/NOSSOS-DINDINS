@@ -136,7 +136,7 @@ def index():
     household_links = sorted(
         [hh for hh in household_links
          if (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id)
-         and getattr(hh, "show_on_dashboard", True)],
+         and (getattr(hh, "show_on_dashboard", True) is not False)],
         key=lambda h: h.display_order or 0
     )
 
@@ -166,12 +166,8 @@ def index():
         exp = hh.expense
         if not exp:
             continue
-        if exp.kind == 'recorrente':
-            visible = exp.is_active_on(filter_year, filter_month)
-        else:
-            visible = True
-        if not visible:
-            continue
+        # Gastos fixados no dashboard: sempre exibir, independente do período
+        # (is_active_on é relevante só para recorrentes no fluxo normal)
 
         # Apenas entries explicitamente vinculados a este gasto via expense_id
         # Garante que os lançamentos batem exatamente com o que aparece no detalhe do cartão
@@ -240,60 +236,148 @@ def index():
     )
 
 
-@dashboard_bp.route("/relatorio-membros")
+@dashboard_bp.route("/relatorio")
 @login_required
 def relatorio_membros():
-    """Relatório HTML de contas entre membros — imprimível como PDF."""
-    from app.utils import get_user_balance_with as _gubw, get_open_billing_month as _gobm_rel
-    from app.models import User as _User, CardEntry, HouseholdExpense
+    """Relatório financeiro completo — imprimível como PDF."""
+    from app.utils import get_open_billing_month as _gobm_rel
+    from app.models import User as _User, CardEntry, Income as _Inc
     from datetime import date as _dt
+    import calendar as _cal2
 
     today = _dt.today()
-    _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
+    _mes_param = request.args.get("mes")
+    if _mes_param:
+        _mes = _mes_param
+    else:
+        _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
     try:
         filter_year  = int(_mes[:4])
         filter_month = int(_mes[5:7])
     except Exception:
         filter_year, filter_month = today.year, today.month
 
-    MESES = ["Janeiro","Fevereiro","Marco","Abril","Maio","Junho",
-             "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-    mes_label = f"{MESES[filter_month-1]}/{filter_year}"
+    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label = f"{MESES_PT[filter_month-1]}/{filter_year}"
 
-    others = _User.query.filter(_User.id != current_user.id).all()
-    membros = []
-    for o in others:
-        bal = _gubw(current_user.id, o.id, filter_year, filter_month)
-        membros.append({"name": o.full_name, "balance": float(bal)})
-    membros = [m for m in membros if abs(m["balance"]) > 0.005]
+    # Navegação prev/next
+    _prev_mo = filter_month - 1 if filter_month > 1 else 12
+    _prev_yr = filter_year if filter_month > 1 else filter_year - 1
+    _next_mo = filter_month + 1 if filter_month < 12 else 1
+    _next_yr = filter_year if filter_month < 12 else filter_year + 1
+    prev_mes = f"{_prev_yr}-{_prev_mo:02d}"
+    next_mes = f"{_next_yr}-{_next_mo:02d}"
 
-    hh_links = HouseholdExpense.query.filter_by(owner_id=current_user.id).all()
-    gastos_casa = []
+    # ── 1. Renda fixa do mês ──────────────────────────────────────────────
+    rendas = _Inc.query.filter(
+        _Inc.user_id == current_user.id,
+        _Inc.kind == "recorrente",
+    ).all()
+    rendas_ativas = [r for r in rendas if r.is_active_on(filter_year, filter_month)]
+    total_renda = sum(float(r.amount) for r in rendas_ativas)
+
+    # ── 2. Gastos fixos ───────────────────────────────────────────────────
+    hh_links = HouseholdExpense.query.filter(
+        or_(HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id)
+    ).all()
+    gastos_fixos = []
+    total_fixo = 0.0
     for hh in hh_links:
         exp = hh.expense
-        if not exp or not exp.is_active_on(filter_year, filter_month):
+        if not exp:
+            continue
+        if exp.kind == "recorrente" and not exp.is_active_on(filter_year, filter_month):
             continue
         entries = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == _mes,
             CardEntry.status == "ativo",
         ).all()
-        total = sum(float(e.amount) for e in entries)
-        gastos_casa.append({
+        spent = sum(float(e.amount) for e in entries)
+        planned = float(exp.amount)
+        gastos_fixos.append({
             "desc": exp.description,
-            "planned": float(exp.amount),
-            "spent": total,
-            "diff": total - float(exp.amount),
+            "planned": planned,
+            "spent": spent,
             "entries": entries,
+        })
+        total_fixo += spent if spent > 0 else planned
+    saldo_proj_fixo = total_renda - total_fixo
+
+    # ── 3. Saldo detalhado entre membros ─────────────────────────────────
+    others = _User.query.filter(_User.id != current_user.id).all()
+    membros_detalhe = []
+    for o in others:
+        # Gastos que eu paguei e divido com o outro
+        exps_meus = db.session.query(Expense, ExpenseShare).join(
+            ExpenseShare, ExpenseShare.expense_id == Expense.id
+        ).filter(
+            Expense.payer_id == current_user.id,
+            ExpenseShare.user_id == o.id,
+        ).all()
+        itens_a_receber = []
+        for exp, share in exps_meus:
+            if not exp.is_active_on(filter_year, filter_month):
+                continue
+            itens_a_receber.append({
+                "desc": exp.description,
+                "share": float(share.share_amount),
+            })
+        # Gastos que o outro pagou e eu devo
+        exps_dele = db.session.query(Expense, ExpenseShare).join(
+            ExpenseShare, ExpenseShare.expense_id == Expense.id
+        ).filter(
+            Expense.payer_id == o.id,
+            ExpenseShare.user_id == current_user.id,
+        ).all()
+        itens_a_pagar = []
+        for exp, share in exps_dele:
+            if not exp.is_active_on(filter_year, filter_month):
+                continue
+            itens_a_pagar.append({
+                "desc": exp.description,
+                "share": float(share.share_amount),
+            })
+        saldo = sum(i["share"] for i in itens_a_receber) - sum(i["share"] for i in itens_a_pagar)
+        membros_detalhe.append({
+            "name": o.full_name,
+            "a_receber": itens_a_receber,
+            "a_pagar": itens_a_pagar,
+            "saldo": saldo,
+        })
+
+    # ── 4. Projeção eventuais próximos 12 meses ───────────────────────────
+    projecao_12 = []
+    for _step in range(1, 13):
+        _pmo = filter_month + _step - 1
+        _pyr = filter_year + _pmo // 12
+        _pmo = (_pmo % 12) + 1
+        _proj_mes = f"{_pyr}-{_pmo:02d}"
+        # PlannedInstallments neste mês
+        from app.models import PlannedInstallment as _PI
+        pis = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes).all()
+        total_pi = sum(float(p.amount) for p in pis)
+        projecao_12.append({
+            "mes": _proj_mes,
+            "label": f"{MESES_PT[_pmo-1][:3]}/{_pyr}",
+            "parcelados": total_pi,
+            "pis": pis,
         })
 
     return render_template("DASHBOARD/relatorio_membros.html",
-                           mes_label=mes_label,
-                           mes=_mes,
-                           membros=membros,
-                           gastos_casa=gastos_casa,
+                           mes_label=mes_label, mes=_mes,
+                           prev_mes=prev_mes, next_mes=next_mes,
                            hoje=today.strftime("%d/%m/%Y"),
-                           user=current_user)
+                           user=current_user,
+                           rendas_ativas=rendas_ativas,
+                           total_renda=total_renda,
+                           gastos_fixos=gastos_fixos,
+                           total_fixo=total_fixo,
+                           saldo_proj_fixo=saldo_proj_fixo,
+                           membros_detalhe=membros_detalhe,
+                           projecao_12=projecao_12)
 
 
 
