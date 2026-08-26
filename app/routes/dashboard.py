@@ -301,24 +301,66 @@ def relatorio_membros():
 @dashboard_bp.route("/configurar-gastos-casa")
 @login_required
 def configurar_gastos_casa():
-    links = HouseholdExpense.query.filter(
+    # Todos os gastos do usuário (qualquer categoria)
+    todos_gastos = Expense.query.filter(
+        Expense.payer_id == current_user.id
+    ).order_by(Expense.description).all()
+
+    # Mapa expense_id -> HouseholdExpense existente
+    hh_map = {hh.expense_id: hh for hh in HouseholdExpense.query.filter(
         or_(HouseholdExpense.owner_id == current_user.id,
             HouseholdExpense.shared_with_id == current_user.id)
-    ).order_by(HouseholdExpense.display_order).all()
-    return render_template("DASHBOARD/configurar_gastos_casa.html", links=links)
+    ).all()}
+
+    # Montar lista com estado de seleção e ordem
+    itens = []
+    for exp in todos_gastos:
+        hh = hh_map.get(exp.id)
+        itens.append({
+            "expense": exp,
+            "hh": hh,
+            "pinned": hh.show_on_dashboard if hh else False,
+            "order": hh.display_order if hh else 999,
+        })
+    # Mostrar selecionados primeiro, depois o restante
+    itens.sort(key=lambda x: (0 if x["pinned"] else 1, x["order"], x["expense"].description))
+
+    return render_template("DASHBOARD/configurar_gastos_casa.html", itens=itens)
 
 
 @dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
 @login_required
 def salvar_config_gastos_casa():
-    # ids ordenados conforme posição no form
-    ids_ordenados = request.form.getlist("ordem")
-    selecionados   = set(request.form.getlist("hh_ids"))
-    for idx, hh_id in enumerate(ids_ordenados):
-        hh = HouseholdExpense.query.get(int(hh_id))
-        if hh and (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id):
-            hh.show_on_dashboard = (hh_id in selecionados)
-            hh.display_order     = idx
+    ids_ordenados = request.form.getlist("ordem")      # expense_ids na ordem visual
+    selecionados  = set(request.form.getlist("exp_ids"))  # expense_ids marcados
+
+    for idx, exp_id_str in enumerate(ids_ordenados):
+        try:
+            exp_id = int(exp_id_str)
+        except Exception:
+            continue
+
+        exp = Expense.query.get(exp_id)
+        if not exp or exp.payer_id != current_user.id:
+            continue
+
+        pinned = exp_id_str in selecionados
+        hh = HouseholdExpense.query.filter_by(expense_id=exp_id).first()
+
+        if pinned:
+            if not hh:
+                hh = HouseholdExpense(
+                    expense_id=exp_id,
+                    owner_id=current_user.id,
+                )
+                db.session.add(hh)
+                db.session.flush()
+            hh.show_on_dashboard = True
+            hh.display_order = idx
+        else:
+            if hh:
+                hh.show_on_dashboard = False
+
     db.session.commit()
     flash("Configuração salva.", "success")
     return redirect(url_for("dashboard.index"))
