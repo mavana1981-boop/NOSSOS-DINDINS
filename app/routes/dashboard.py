@@ -278,15 +278,17 @@ def relatorio_membros():
     total_renda = sum(float(r.amount) for r in rendas_ativas)
 
     # ── 2. Gastos fixos ───────────────────────────────────────────────────
-    # Gastos fixos: TODOS os expenses cadastrados pelo usuário, valor planejado
-    todos_expenses = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-    ).order_by(Expense.description).all()
+    # Gastos fixos = mesmos que compõem a coluna "Fixos" do fluxo de caixa:
+    # Expenses com kind="recorrente" e is_active_on(filter_year, filter_month)
     gastos_fixos = []
     total_fixo = 0.0
-    for exp in todos_expenses:
+    for exp in Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente",
+    ).order_by(Expense.description).all():
+        if not exp.is_active_on(filter_year, filter_month):
+            continue
         planned = float(exp.amount)
-        # Entradas reais no mês para mostrar data e parcela
         entries = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == _mes,
@@ -298,7 +300,7 @@ def relatorio_membros():
             "entries": entries,
         })
         total_fixo += planned
-    # Saldo = Renda Fixa - Total Planejado dos Gastos
+    # Saldo = Renda Fixa - Total Planejado (igual ao fluxo de caixa)
     saldo_proj_fixo = total_renda - total_fixo
 
     # ── 3. Saldo detalhado entre membros ─────────────────────────────────
