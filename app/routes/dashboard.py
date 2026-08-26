@@ -341,10 +341,11 @@ def relatorio_membros():
                 _parc = "Avulso"
             else:
                 _parc = "Recorrente"
+            _dt_str = exp.spent_at.strftime("%d/%m/%Y") if exp.spent_at else "—"
             itens_a_receber.append({
                 "desc": exp.description,
                 "share": float(share.share_amount),
-                "data": exp.spent_at,
+                "data_str": _dt_str,
                 "parcela": _parc,
             })
         exps_dele = db.session.query(Expense, ExpenseShare).join(
@@ -364,10 +365,11 @@ def relatorio_membros():
                 _parc2 = "Avulso"
             else:
                 _parc2 = "Recorrente"
+            _dt_str2 = exp.spent_at.strftime("%d/%m/%Y") if exp.spent_at else "—"
             itens_a_pagar.append({
                 "desc": exp.description,
                 "share": float(share.share_amount),
-                "data": exp.spent_at,
+                "data_str": _dt_str2,
                 "parcela": _parc2,
             })
         saldo = sum(i["share"] for i in itens_a_receber) - sum(i["share"] for i in itens_a_pagar)
