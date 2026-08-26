@@ -287,7 +287,7 @@ def relatorio_membros():
             "entries": entries,
         })
 
-    return render_template("dashboard/relatorio_membros.html",
+    return render_template("DASHBOARD/relatorio_membros.html",
                            mes_label=mes_label,
                            mes=_mes,
                            membros=membros,
@@ -305,7 +305,7 @@ def configurar_gastos_casa():
         or_(HouseholdExpense.owner_id == current_user.id,
             HouseholdExpense.shared_with_id == current_user.id)
     ).order_by(HouseholdExpense.display_order).all()
-    return render_template("dashboard/configurar_gastos_casa.html", links=links)
+    return render_template("DASHBOARD/configurar_gastos_casa.html", links=links)
 
 
 @dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
