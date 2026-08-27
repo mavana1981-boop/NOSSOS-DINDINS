@@ -360,7 +360,20 @@ def relatorio_membros():
             "planned": minha_ev,
         })
         total_eventual += minha_ev
-    # Saldo final = Renda - Fixos - Eventuais
+    # Parcelados projetados do mês (planned_installments)
+    from app.models import PlannedInstallment as _PI_rel
+    pis_mes = _PI_rel.query.filter_by(
+        user_id=current_user.id, billing_month=_mes
+    ).all()
+    total_parcelados = sum(float(p.amount) for p in pis_mes)
+    if total_parcelados > 0:
+        gastos_eventuais.append({
+            "desc": f"Cartão Parcelado (projetado)",
+            "planned": total_parcelados,
+        })
+        total_eventual += total_parcelados
+
+    # Saldo final = Renda - Fixos - Eventuais (inclui parcelados)
     saldo_final = total_renda - total_fixo - total_eventual
 
     # 3. Expenses pontuais sem lançamento: usar spent_at do mês
@@ -382,7 +395,20 @@ def relatorio_membros():
             "planned": minha_ev,
         })
         total_eventual += minha_ev
-    # Saldo final = Renda - Fixos - Eventuais
+    # Parcelados projetados do mês (planned_installments)
+    from app.models import PlannedInstallment as _PI_rel
+    pis_mes = _PI_rel.query.filter_by(
+        user_id=current_user.id, billing_month=_mes
+    ).all()
+    total_parcelados = sum(float(p.amount) for p in pis_mes)
+    if total_parcelados > 0:
+        gastos_eventuais.append({
+            "desc": f"Cartão Parcelado (projetado)",
+            "planned": total_parcelados,
+        })
+        total_eventual += total_parcelados
+
+    # Saldo final = Renda - Fixos - Eventuais (inclui parcelados)
     saldo_final = total_renda - total_fixo - total_eventual
 
     # ── 3. Saldo detalhado entre membros ─────────────────────────────────
