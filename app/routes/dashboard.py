@@ -318,6 +318,29 @@ def relatorio_membros():
     # Saldo = Renda Fixa - Total (minha parte) → igual ao fluxo de caixa
     saldo_proj_fixo = total_renda - total_fixo
 
+    # Gastos eventuais do mês: expenses pontual do usuário registrados no mês selecionado
+    gastos_eventuais = []
+    total_eventual = 0.0
+    for exp in Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "pontual",
+    ).order_by(Expense.description).all():
+        if not (exp.spent_at and exp.spent_at.year == filter_year
+                and exp.spent_at.month == filter_month):
+            continue
+        # Minha parte: descontar shares de outros
+        shares_out = ExpenseShare.query.filter(
+            ExpenseShare.expense_id == exp.id,
+            ExpenseShare.user_id != current_user.id,
+        ).all()
+        repasse_ev = sum(float(s.share_amount) for s in shares_out)
+        minha_ev = max(0.0, round(float(exp.amount) - repasse_ev, 2))
+        gastos_eventuais.append({
+            "desc": exp.description,
+            "planned": minha_ev,
+        })
+        total_eventual += minha_ev
+
     # ── 3. Saldo detalhado entre membros ─────────────────────────────────
     others = _User.query.filter(_User.id != current_user.id).all()
     membros_detalhe = []
@@ -430,6 +453,8 @@ def relatorio_membros():
                            gastos_fixos=gastos_fixos,
                            total_fixo=total_fixo,
                            saldo_proj_fixo=saldo_proj_fixo,
+                           gastos_eventuais=gastos_eventuais,
+                           total_eventual=total_eventual,
                            membros_detalhe=membros_detalhe,
                            projecao_12=projecao_12)
 
