@@ -366,12 +366,25 @@ def relatorio_membros():
         user_id=current_user.id, billing_month=_mes
     ).all()
     total_parcelados = sum(float(p.amount) for p in pis_mes)
-    if total_parcelados > 0:
+
+    # Planejado de cartão = gastos fixos recorrentes com card_id (reserva de cartão)
+    _exps_card = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente",
+        Expense.card_id != None,
+    ).all()
+    _planned_cards = sum(float(e.amount) for e in _exps_card
+                         if e.is_active_on(filter_year, filter_month))
+
+    excedente_parcelados = max(0.0, round(total_parcelados - _planned_cards, 2))
+    if excedente_parcelados > 0:
+        def _brl_fmt(v):
+            return "R$ {:,.2f}".format(v).replace(",","X").replace(".",",").replace("X",".")
         gastos_eventuais.append({
-            "desc": f"Cartão Parcelado (projetado)",
-            "planned": total_parcelados,
+            "desc": f"Excedente Parcelados ({_brl_fmt(total_parcelados)} projetado − {_brl_fmt(_planned_cards)} planejado)",
+            "planned": excedente_parcelados,
         })
-        total_eventual += total_parcelados
+        total_eventual += excedente_parcelados
 
     # Saldo final = Renda - Fixos - Eventuais (inclui parcelados)
     saldo_final = total_renda - total_fixo - total_eventual
@@ -401,12 +414,25 @@ def relatorio_membros():
         user_id=current_user.id, billing_month=_mes
     ).all()
     total_parcelados = sum(float(p.amount) for p in pis_mes)
-    if total_parcelados > 0:
+
+    # Planejado de cartão = gastos fixos recorrentes com card_id (reserva de cartão)
+    _exps_card = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente",
+        Expense.card_id != None,
+    ).all()
+    _planned_cards = sum(float(e.amount) for e in _exps_card
+                         if e.is_active_on(filter_year, filter_month))
+
+    excedente_parcelados = max(0.0, round(total_parcelados - _planned_cards, 2))
+    if excedente_parcelados > 0:
+        def _brl_fmt(v):
+            return "R$ {:,.2f}".format(v).replace(",","X").replace(".",",").replace("X",".")
         gastos_eventuais.append({
-            "desc": f"Cartão Parcelado (projetado)",
-            "planned": total_parcelados,
+            "desc": f"Excedente Parcelados ({_brl_fmt(total_parcelados)} projetado − {_brl_fmt(_planned_cards)} planejado)",
+            "planned": excedente_parcelados,
         })
-        total_eventual += total_parcelados
+        total_eventual += excedente_parcelados
 
     # Saldo final = Renda - Fixos - Eventuais (inclui parcelados)
     saldo_final = total_renda - total_fixo - total_eventual
