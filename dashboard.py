@@ -1,5 +1,5 @@
 from datetime import date
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
@@ -14,14 +14,17 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @login_required
 def index():
     today = date.today()
-    # Filtro de mês para contas entre membros
-    # Dashboard: aceita ?mes= mas nunca permite mês fechado
+    # Filtro de mês: se ?mes= fornecido (navegação manual), respeitar sempre.
+    # Sem parâmetro: usar primeiro mês aberto.
     from app.utils import get_open_billing_month as _gobm_dash
-    _mes_param = request.args.get("mes", today.strftime("%Y-%m"))
-    _mes_aberto = _gobm_dash(current_user.id, _mes_param)
+    _mes_param = request.args.get("mes")
+    if _mes_param:
+        mes_filter = _mes_param   # usuário escolheu — respeitar mesmo fechado
+    else:
+        mes_filter = _gobm_dash(current_user.id, today.strftime("%Y-%m"))
     try:
-        filter_year  = int(_mes_aberto[:4])
-        filter_month = int(_mes_aberto[5:7])
+        filter_year  = int(mes_filter[:4])
+        filter_month = int(mes_filter[5:7])
     except Exception:
         filter_year  = today.year
         filter_month = today.month
@@ -130,10 +133,12 @@ def index():
         )
     ).all()
     # Filtra: se shared_with_id for None, só o owner vê; se preenchido, ambos veem
-    household_links = [
-        hh for hh in household_links
-        if hh.owner_id == current_user.id or (hh.shared_with_id == current_user.id)
-    ]
+    household_links = sorted(
+        [hh for hh in household_links
+         if (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id)
+         and (getattr(hh, "show_on_dashboard", True) is not False)],
+        key=lambda h: h.display_order or 0
+    )
 
     # Percentual desejável — ciclo do dia 16 ao próximo dia 16
     from datetime import timedelta
@@ -161,39 +166,16 @@ def index():
         exp = hh.expense
         if not exp:
             continue
-        if exp.kind == 'recorrente':
-            visible = exp.is_active_on(filter_year, filter_month)
-        else:
-            visible = True
-        if not visible:
-            continue
+        # Gastos fixados no dashboard: sempre exibir, independente do período
+        # (is_active_on é relevante só para recorrentes no fluxo normal)
 
-        # Buscar lançamentos: primeiro por expense_id, depois por categoria
+        # Apenas entries explicitamente vinculados a este gasto via expense_id
+        # Garante que os lançamentos batem exatamente com o que aparece no detalhe do cartão
         entries_card = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
             CardEntry.billing_month == mes_filter,
-            CardEntry.status != "excluido",
-        ).all()
-
-        # Se não há vinculados por ID, buscar por categoria do mês
-        if not entries_card and exp.category and exp.category != "Outros":
-            entries_card = CardEntry.query.filter(
-                CardEntry.category == exp.category,
-                CardEntry.billing_month == mes_filter,
-                CardEntry.status != "excluido",
-                CardEntry.user_id == current_user.id,
-            ).all()
-
-        # Fallback: buscar por descrição similar (palavra principal do gasto)
-        if not entries_card:
-            _kw = exp.description.split()[0].upper()
-            from sqlalchemy import func as _func
-            entries_card = CardEntry.query.filter(
-                CardEntry.billing_month == mes_filter,
-                CardEntry.status != "excluido",
-                CardEntry.user_id == current_user.id,
-                CardEntry.description.ilike(f"%{_kw}%"),
-            ).all()
+            CardEntry.status == "ativo",   # igual ao detalhe do cartão
+        ).order_by(CardEntry.entry_date.desc()).all()
 
         spent_this_month = sum(float(e.amount) for e in entries_card)
 
@@ -252,3 +234,315 @@ def index():
         next_mes=next_mes,
         mes_atual=today.strftime("%B/%Y").capitalize(),
     )
+
+
+@dashboard_bp.route("/relatorio")
+@login_required
+def relatorio_membros():
+    """Relatório financeiro completo — imprimível como PDF."""
+    from app.utils import get_open_billing_month as _gobm_rel
+    from app.models import User as _User, CardEntry, Income as _Inc
+    from datetime import date as _dt
+    import calendar as _cal2
+
+    today = _dt.today()
+    _mes_param = request.args.get("mes")
+    if _mes_param:
+        _mes = _mes_param
+    else:
+        _mes = _gobm_rel(current_user.id, today.strftime("%Y-%m"))
+    try:
+        filter_year  = int(_mes[:4])
+        filter_month = int(_mes[5:7])
+    except Exception:
+        filter_year, filter_month = today.year, today.month
+
+    MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    mes_label = f"{MESES_PT[filter_month-1]}/{filter_year}"
+
+    # Navegação prev/next
+    _prev_mo = filter_month - 1 if filter_month > 1 else 12
+    _prev_yr = filter_year if filter_month > 1 else filter_year - 1
+    _next_mo = filter_month + 1 if filter_month < 12 else 1
+    _next_yr = filter_year if filter_month < 12 else filter_year + 1
+    prev_mes = f"{_prev_yr}-{_prev_mo:02d}"
+    next_mes = f"{_next_yr}-{_next_mo:02d}"
+
+    # ── 1. Renda fixa do mês ──────────────────────────────────────────────
+    # Income não tem is_active_on — filtrar por is_recurring
+    rendas_ativas = _Inc.query.filter(
+        _Inc.user_id == current_user.id,
+        _Inc.is_recurring == True,
+    ).all()
+    total_renda = sum(float(r.amount) for r in rendas_ativas)
+
+    # ── 2. Gastos fixos ───────────────────────────────────────────────────
+    # Gastos fixos = lógica EXATA do fluxo de caixa coluna "Fixos":
+    # - Só expenses onde payer_id = current_user (gastos de outros são ignorados)
+    # - valor = expense.amount - shares de outros (o que me cabe)
+    gastos_fixos = []
+    total_fixo = 0.0
+    for exp in Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente",
+    ).order_by(Expense.description).all():
+        if not exp.is_active_on(filter_year, filter_month):
+            continue
+        # Subtrair shares de outros (o que me repassam)
+        shares_outros = ExpenseShare.query.filter(
+            ExpenseShare.expense_id == exp.id,
+            ExpenseShare.user_id != current_user.id,
+        ).all()
+        repasse = sum(float(s.share_amount) for s in shares_outros)
+        minha_parte = max(0.0, round(float(exp.amount) - repasse, 2))
+
+        # Label de parcela se tiver recurrence_months
+        parc_label = ""
+        if exp.recurrence_months:
+            md = (filter_year - exp.spent_at.year) * 12 + (filter_month - exp.spent_at.month) + 1
+            parc_label = f" ({md}/{exp.recurrence_months})"
+
+        entries = CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            CardEntry.billing_month == _mes,
+            CardEntry.status == "ativo",
+        ).order_by(CardEntry.entry_date).all()
+
+        gastos_fixos.append({
+            "desc": exp.description + parc_label,
+            "planned": minha_parte,
+            "entries": entries,
+        })
+        total_fixo += minha_parte
+    # Saldo = Renda Fixa - Total (minha parte) → igual ao fluxo de caixa
+    saldo_proj_fixo = total_renda - total_fixo
+
+    # Gastos eventuais do mês: expenses pontual do usuário registrados no mês selecionado
+    gastos_eventuais = []
+    total_eventual = 0.0
+    for exp in Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "pontual",
+    ).order_by(Expense.description).all():
+        if not (exp.spent_at and exp.spent_at.year == filter_year
+                and exp.spent_at.month == filter_month):
+            continue
+        # Minha parte: descontar shares de outros
+        shares_out = ExpenseShare.query.filter(
+            ExpenseShare.expense_id == exp.id,
+            ExpenseShare.user_id != current_user.id,
+        ).all()
+        repasse_ev = sum(float(s.share_amount) for s in shares_out)
+        minha_ev = max(0.0, round(float(exp.amount) - repasse_ev, 2))
+        gastos_eventuais.append({
+            "desc": exp.description,
+            "planned": minha_ev,
+        })
+        total_eventual += minha_ev
+
+    # ── 3. Saldo detalhado entre membros ─────────────────────────────────
+    others = _User.query.filter(_User.id != current_user.id).all()
+    membros_detalhe = []
+    for o in others:
+        # Gastos que eu paguei e divido com o outro
+        exps_meus = db.session.query(Expense, ExpenseShare).join(
+            ExpenseShare, ExpenseShare.expense_id == Expense.id
+        ).filter(
+            Expense.payer_id == current_user.id,
+            ExpenseShare.user_id == o.id,
+        ).all()
+        itens_a_receber = []
+        for exp, share in exps_meus:
+            if not exp.is_active_on(filter_year, filter_month):
+                continue
+            # Parcela calculada pela recorrência
+            if exp.recurrence_months:
+                _md = (filter_year - exp.spent_at.year)*12 + (filter_month - exp.spent_at.month) + 1
+                _parc = f"{_md}/{exp.recurrence_months}"
+            elif exp.kind == "pontual":
+                _parc = "Avulso"
+            else:
+                _parc = "Recorrente"
+            _dt_str = exp.spent_at.strftime("%d/%m/%Y") if exp.spent_at else "—"
+            itens_a_receber.append({
+                "desc": exp.description,
+                "share": float(share.share_amount),
+                "data_str": _dt_str,
+                "parcela": _parc,
+            })
+        exps_dele = db.session.query(Expense, ExpenseShare).join(
+            ExpenseShare, ExpenseShare.expense_id == Expense.id
+        ).filter(
+            Expense.payer_id == o.id,
+            ExpenseShare.user_id == current_user.id,
+        ).all()
+        itens_a_pagar = []
+        for exp, share in exps_dele:
+            if not exp.is_active_on(filter_year, filter_month):
+                continue
+            if exp.recurrence_months:
+                _md2 = (filter_year - exp.spent_at.year)*12 + (filter_month - exp.spent_at.month) + 1
+                _parc2 = f"{_md2}/{exp.recurrence_months}"
+            elif exp.kind == "pontual":
+                _parc2 = "Avulso"
+            else:
+                _parc2 = "Recorrente"
+            _dt_str2 = exp.spent_at.strftime("%d/%m/%Y") if exp.spent_at else "—"
+            itens_a_pagar.append({
+                "desc": exp.description,
+                "share": float(share.share_amount),
+                "data_str": _dt_str2,
+                "parcela": _parc2,
+            })
+        # Ordenar: última parcela primeiro; destacar última
+        def _sort_key(item):
+            parc = item.get("parcela", "")
+            try:
+                no, tot = parc.split("/")
+                return (0 if int(no) == int(tot) else 1, -int(no))
+            except Exception:
+                return (1, 0)
+
+        def _enrich(lst):
+            for item in lst:
+                parc = item.get("parcela", "")
+                try:
+                    no, tot = parc.split("/")
+                    item["is_ultima"] = int(no) == int(tot)
+                except Exception:
+                    item["is_ultima"] = False
+            return sorted(lst, key=_sort_key)
+
+        itens_a_receber = _enrich(itens_a_receber)
+        itens_a_pagar   = _enrich(itens_a_pagar)
+        saldo = sum(i["share"] for i in itens_a_receber) - sum(i["share"] for i in itens_a_pagar)
+
+        membros_detalhe.append({
+            "name": o.full_name,
+            "a_receber": itens_a_receber,
+            "a_pagar": itens_a_pagar,
+            "saldo": saldo,
+        })
+
+    # ── 4. Projeção eventuais próximos 12 meses ───────────────────────────
+    projecao_12 = []
+    for _step in range(1, 13):
+        _pmo = filter_month + _step - 1
+        _pyr = filter_year + _pmo // 12
+        _pmo = (_pmo % 12) + 1
+        _proj_mes = f"{_pyr}-{_pmo:02d}"
+        # PlannedInstallments neste mês
+        from app.models import PlannedInstallment as _PI
+        pis = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes).all()
+        total_pi = sum(float(p.amount) for p in pis)
+        projecao_12.append({
+            "mes": _proj_mes,
+            "label": f"{MESES_PT[_pmo-1][:3]}/{_pyr}",
+            "parcelados": total_pi,
+            "pis": pis,
+        })
+
+    return render_template("DASHBOARD/relatorio_membros.html",
+                           mes_label=mes_label, mes=_mes,
+                           prev_mes=prev_mes, next_mes=next_mes,
+                           hoje=today.strftime("%d/%m/%Y"),
+                           user=current_user,
+                           rendas_ativas=rendas_ativas,
+                           total_renda=total_renda,
+                           gastos_fixos=gastos_fixos,
+                           total_fixo=total_fixo,
+                           saldo_proj_fixo=saldo_proj_fixo,
+                           gastos_eventuais=gastos_eventuais,
+                           total_eventual=total_eventual,
+                           membros_detalhe=membros_detalhe,
+                           projecao_12=projecao_12)
+
+
+
+
+@dashboard_bp.route("/configurar-gastos-casa")
+@login_required
+def configurar_gastos_casa():
+    # Todos os gastos do usuário (qualquer categoria)
+    todos_gastos = Expense.query.filter(
+        Expense.payer_id == current_user.id
+    ).order_by(Expense.description).all()
+
+    # Mapa expense_id -> HouseholdExpense existente
+    hh_map = {hh.expense_id: hh for hh in HouseholdExpense.query.filter(
+        or_(HouseholdExpense.owner_id == current_user.id,
+            HouseholdExpense.shared_with_id == current_user.id)
+    ).all()}
+
+    # Montar lista com estado de seleção e ordem
+    itens = []
+    for exp in todos_gastos:
+        hh = hh_map.get(exp.id)
+        itens.append({
+            "expense": exp,
+            "hh": hh,
+            "pinned": hh.show_on_dashboard if hh else False,
+            "order": hh.display_order if hh else 999,
+        })
+    # Mostrar selecionados primeiro, depois o restante
+    itens.sort(key=lambda x: (0 if x["pinned"] else 1, x["order"], x["expense"].description))
+
+    return render_template("DASHBOARD/configurar_gastos_casa.html", itens=itens)
+
+
+@dashboard_bp.route("/configurar-gastos-casa/salvar", methods=["POST"])
+@login_required
+def salvar_config_gastos_casa():
+    ids_ordenados = request.form.getlist("ordem")
+    selecionados  = set(request.form.getlist("exp_ids"))
+
+    try:
+        for idx, exp_id_str in enumerate(ids_ordenados):
+            try:
+                exp_id = int(exp_id_str)
+            except Exception:
+                continue
+
+            exp = Expense.query.get(exp_id)
+            if not exp or exp.payer_id != current_user.id:
+                continue
+
+            pinned = exp_id_str in selecionados
+
+            # Buscar HH do usuário atual apenas
+            hh = HouseholdExpense.query.filter_by(
+                expense_id=exp_id,
+                owner_id=current_user.id
+            ).first()
+
+            if pinned:
+                if not hh:
+                    # Verificar se existe para outro owner e deletar primeiro
+                    hh_outro = HouseholdExpense.query.filter_by(expense_id=exp_id).first()
+                    if hh_outro:
+                        hh = hh_outro
+                        hh.owner_id = current_user.id
+                    else:
+                        # shared_with_id: usar o outro membro da casa
+                        _outro = User.query.filter(User.id != current_user.id).first()
+                        hh = HouseholdExpense(
+                            expense_id=exp_id,
+                            owner_id=current_user.id,
+                            shared_with_id=_outro.id if _outro else current_user.id,
+                        )
+                        db.session.add(hh)
+                        db.session.flush()
+                hh.show_on_dashboard = True
+                hh.display_order = idx
+            else:
+                if hh:
+                    hh.show_on_dashboard = False
+
+        db.session.commit()
+        flash("Configuração salva com sucesso.", "success")
+    except Exception as _e:
+        db.session.rollback()
+        flash(f"Erro ao salvar: {_e}", "danger")
+
+    return redirect(url_for("dashboard.index"))
