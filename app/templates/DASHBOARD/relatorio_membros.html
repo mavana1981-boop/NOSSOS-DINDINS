@@ -91,6 +91,26 @@
   </tbody>
 </table>
 
+<!-- 2b. GASTOS EVENTUAIS DO MÊS -->
+{% if gastos_eventuais %}
+<h2>⚡ Gastos Eventuais — {{ mes_label }}</h2>
+<table>
+  <thead><tr><th>Descrição</th><th class="right">Minha parte</th></tr></thead>
+  <tbody>
+  {% for g in gastos_eventuais %}
+  <tr>
+    <td>{{ g.desc }}</td>
+    <td class="right red">{{ g.planned|brl }}</td>
+  </tr>
+  {% endfor %}
+  <tr class="total-row">
+    <td>TOTAL EVENTUAIS</td>
+    <td class="right red">{{ total_eventual|brl }}</td>
+  </tr>
+  </tbody>
+</table>
+{% endif %}
+
 <!-- 3. CONTAS ENTRE MEMBROS -->
 <h2>🤝 Contas entre Membros — {{ mes_label }}</h2>
 {% for m in membros_detalhe %}
