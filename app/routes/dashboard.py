@@ -316,19 +316,61 @@ def relatorio_membros():
         })
         total_fixo += minha_parte
     # Saldo = Renda Fixa - Total (minha parte) → igual ao fluxo de caixa
-    saldo_proj_fixo = total_renda - total_fixo
+    saldo_proj_fixo = total_renda - total_fixo  # parcial (sem eventuais ainda)
 
-    # Gastos eventuais do mês: expenses pontual do usuário registrados no mês selecionado
+    # Gastos eventuais do mês: CardEntries do mês sem expense_id OU de expenses pontuais
+    # Busca entries do usuário no billing_month que não são expenses recorrentes
     gastos_eventuais = []
     total_eventual = 0.0
-    for exp in Expense.query.filter(
+
+    # 1. Expenses pontual com lançamentos no mês (via CardEntry.expense_id)
+    _ev_exps = Expense.query.filter(
         Expense.payer_id == current_user.id,
         Expense.kind == "pontual",
-    ).order_by(Expense.description).all():
+    ).all()
+    _ev_exp_ids = {e.id for e in _ev_exps}
+
+    # 2. CardEntries do mês vinculadas a expenses pontuais
+    _ev_entries = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.billing_month == _mes,
+        CardEntry.status == "ativo",
+        CardEntry.expense_id.in_(_ev_exp_ids),
+    ).all() if _ev_exp_ids else []
+
+    # Agrupar por expense_id
+    from collections import defaultdict
+    _ev_por_exp = defaultdict(list)
+    for e in _ev_entries:
+        _ev_por_exp[e.expense_id].append(e)
+
+    for exp_id, entries_ev in _ev_por_exp.items():
+        exp = Expense.query.get(exp_id)
+        if not exp:
+            continue
+        total_ev_entry = sum(float(e.amount) for e in entries_ev)
+        shares_out = ExpenseShare.query.filter(
+            ExpenseShare.expense_id == exp_id,
+            ExpenseShare.user_id != current_user.id,
+        ).all()
+        repasse_ev = sum(float(s.share_amount) for s in shares_out)
+        minha_ev = max(0.0, round(total_ev_entry - repasse_ev, 2))
+        gastos_eventuais.append({
+            "desc": exp.description,
+            "planned": minha_ev,
+        })
+        total_eventual += minha_ev
+    # Saldo final = Renda - Fixos - Eventuais
+    saldo_final = total_renda - total_fixo - total_eventual
+
+    # 3. Expenses pontuais sem lançamento: usar spent_at do mês
+    _ev_with_entries = set(_ev_por_exp.keys())
+    for exp in _ev_exps:
+        if exp.id in _ev_with_entries:
+            continue
         if not (exp.spent_at and exp.spent_at.year == filter_year
                 and exp.spent_at.month == filter_month):
             continue
-        # Minha parte: descontar shares de outros
         shares_out = ExpenseShare.query.filter(
             ExpenseShare.expense_id == exp.id,
             ExpenseShare.user_id != current_user.id,
@@ -340,6 +382,8 @@ def relatorio_membros():
             "planned": minha_ev,
         })
         total_eventual += minha_ev
+    # Saldo final = Renda - Fixos - Eventuais
+    saldo_final = total_renda - total_fixo - total_eventual
 
     # ── 3. Saldo detalhado entre membros ─────────────────────────────────
     others = _User.query.filter(_User.id != current_user.id).all()
@@ -455,6 +499,7 @@ def relatorio_membros():
                            saldo_proj_fixo=saldo_proj_fixo,
                            gastos_eventuais=gastos_eventuais,
                            total_eventual=total_eventual,
+                           saldo_final=saldo_final,
                            membros_detalhe=membros_detalhe,
                            projecao_12=projecao_12)
 
