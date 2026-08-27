@@ -207,11 +207,11 @@
       {% set eid = loop.index %}
       {% if True %}
       <div style="margin-top:8px;">
-        <a="toggleEntries({{ eid }})"
+        <button onclick="toggleEntries({{ eid }})"
                 style="background:none;border:none;color:var(--accent);font-size:0.75rem;
                        cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;">
           <span id="ic-{{ eid }}">▶</span>
-          {% if item.entries %}▶ Ver {{ item.entries|length }} lançamento(s){% else %}⚠️ Nenhum lançamento vinculado — classifique via Regras{% endif %}
+          {% if item.entries %}Ver {{ item.entries|length }} lançamento(s){% else %}⚠️ Nenhum lançamento vinculado{% endif %}
         </button>
         <div id="entries-{{ eid }}" style="display:none;margin-top:6px;">
           <table style="width:100%;font-size:0.78rem;border-collapse:collapse;">
