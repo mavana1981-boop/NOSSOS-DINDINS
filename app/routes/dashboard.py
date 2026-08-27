@@ -543,6 +543,53 @@ def relatorio_membros():
             "n_ultimas": len(ultimas),
         })
 
+    # Projeção de saldo mês a mês — mês atual até 12 meses à frente
+    _all_rec_inc  = [r for r in rendas_ativas]  # rendas já filtradas
+    _all_rec_exps = Expense.query.filter(
+        Expense.payer_id == current_user.id,
+        Expense.kind == "recorrente",
+    ).all()
+
+    projecao_saldo = []
+    for _st in range(0, 13):
+        _pmo_s = filter_month + _st - 1
+        _pyr_s = filter_year + _pmo_s // 12
+        _pmo_s = (_pmo_s % 12) + 1
+        _proj_mes_s = f"{_pyr_s}-{_pmo_s:02d}"
+        _label_s = f"{MESES_PT[_pmo_s-1]}/{_pyr_s}"
+
+        # Renda
+        _renda_s = sum(float(r.amount) for r in _all_rec_inc)
+
+        # Gastos fixos (minha parte) ativos no mês
+        _fixos_s = 0.0
+        for _ex in _all_rec_exps:
+            if not _ex.is_active_on(_pyr_s, _pmo_s):
+                continue
+            _sh_s = ExpenseShare.query.filter(
+                ExpenseShare.expense_id == _ex.id,
+                ExpenseShare.user_id != current_user.id,
+            ).all()
+            _rep_s = sum(float(s.share_amount) for s in _sh_s)
+            _fixos_s += max(0.0, float(_ex.amount) - _rep_s)
+
+        # Parcelados projetados do mês
+        _pis_s = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes_s).all()
+        _total_pi_s = sum(float(p.amount) for p in _pis_s)
+        _exc_s = max(0.0, _total_pi_s - _planned_cards)
+
+        _saldo_s = round(_renda_s - _fixos_s - _exc_s, 2)
+        projecao_saldo.append({
+            "label": _label_s,
+            "mes": _proj_mes_s,
+            "renda": round(_renda_s, 2),
+            "fixos": round(_fixos_s, 2),
+            "parcelados": round(_total_pi_s, 2),
+            "excedente": round(_exc_s, 2),
+            "saldo": _saldo_s,
+            "is_atual": _st == 0,
+        })
+
     return render_template("DASHBOARD/relatorio_membros.html",
                            mes_label=mes_label, mes=_mes,
                            prev_mes=prev_mes, next_mes=next_mes,
@@ -557,7 +604,8 @@ def relatorio_membros():
                            total_eventual=total_eventual,
                            saldo_final=saldo_final,
                            membros_detalhe=membros_detalhe,
-                           projecao_12=projecao_12)
+                           projecao_12=projecao_12,
+                           projecao_saldo=projecao_saldo)
 
 
 
