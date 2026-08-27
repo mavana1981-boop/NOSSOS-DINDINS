@@ -81,13 +81,7 @@
   {% else %}
   <tr><td colspan="2" class="center dim">Nenhum gasto cadastrado</td></tr>
   {% endfor %}
-  <tr class="total-row"><td>TOTAL GASTOS</td><td class="right red">{{ total_fixo|brl }}</td></tr>
-  <tr class="total-row">
-    <td>💵 SALDO (Renda − Gastos)</td>
-    <td class="right {% if saldo_proj_fixo >= 0 %}green{% else %}red{% endif %}">
-      {{ saldo_proj_fixo|brl }}
-    </td>
-  </tr>
+  <tr class="total-row"><td>TOTAL GASTOS FIXOS</td><td class="right red">{{ total_fixo|brl }}</td></tr>
   </tbody>
 </table>
 
@@ -110,6 +104,24 @@
   </tbody>
 </table>
 {% endif %}
+
+
+<!-- Saldo Final do Mês -->
+<table>
+  <tbody>
+  <tr class="total-row"><td>💰 Renda Fixa</td><td class="right green">{{ total_renda|brl }}</td></tr>
+  <tr class="total-row"><td>🏠 Gastos Fixos</td><td class="right red">&#8722; {{ total_fixo|brl }}</td></tr>
+  {% if total_eventual > 0 %}
+  <tr class="total-row"><td>⚡ Eventuais</td><td class="right red">&#8722; {{ total_eventual|brl }}</td></tr>
+  {% endif %}
+  <tr style="background:#d4edda;font-weight:800;font-size:14px;">
+    <td>&#128181; SALDO DO MÊS</td>
+    <td class="right {% if saldo_final >= 0 %}green{% else %}red{% endif %}" style="font-size:15px;">
+      {{ saldo_final|brl }}
+    </td>
+  </tr>
+  </tbody>
+</table>
 
 <!-- 3. CONTAS ENTRE MEMBROS -->
 <h2>🤝 Contas entre Membros — {{ mes_label }}</h2>
