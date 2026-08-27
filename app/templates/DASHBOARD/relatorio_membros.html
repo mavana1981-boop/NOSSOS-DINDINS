@@ -187,24 +187,46 @@
 
 <!-- 4. PROJEÇÃO PARCELADOS 12 MESES -->
 <h2>📅 Projeção de Parcelados — Próximos 12 Meses</h2>
-<table>
-  <thead><tr>
-    <th>Mês</th>
-    <th class="right">Total Parcelados</th>
-  </tr></thead>
-  <tbody>
-  {% for p in projecao_12 %}
-  <tr>
-    <td><strong>{{ p.label }}</strong></td>
-    <td class="right {% if p.parcelados > 5000 %}red{% elif p.parcelados > 2000 %}gold{% else %}green{% endif %}">
+{% for p in projecao_12 %}
+<div style="margin-bottom:10px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;
+              padding:5px 8px;border-radius:4px;
+              background:{% if p.tem_ultima %}#fff8e1{% else %}#f7f9fc{% endif %};
+              border-left:3px solid {% if p.parcelados > 5000 %}#c4654a{% elif p.parcelados > 2000 %}#b8860b{% else %}#5a9e6f{% endif %};">
+    <strong>{{ p.label }}</strong>
+    {% if p.tem_ultima %}
+    <span style="background:#b8860b;color:white;font-size:9px;padding:1px 5px;border-radius:3px;">
+      {{ p.n_ultimas }} ÚLTIMA(S)
+    </span>
+    {% endif %}
+    <span style="font-weight:700;color:{% if p.parcelados > 5000 %}#c4654a{% elif p.parcelados > 2000 %}#b8860b{% else %}#5a9e6f{% endif %};">
       {{ p.parcelados|brl }}
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="2" class="center dim">Nenhuma projeção cadastrada</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+    </span>
+  </div>
+  {% if p.pis %}
+  <table style="margin-top:2px;font-size:11px;">
+    <tbody>
+    {% for pi in p.pis %}
+    <tr {% if pi.is_ultima %}style="background:#fff3cd;font-weight:700;"{% endif %}>
+      <td style="padding:2px 8px;border-bottom:1px solid #f0f0f0;width:55%;">
+        {{ pi.desc }}
+        {% if pi.is_ultima %}
+        <span style="background:#b8860b;color:white;font-size:8px;padding:0px 3px;border-radius:2px;margin-left:3px;">FIM</span>
+        {% endif %}
+      </td>
+      <td style="padding:2px 8px;border-bottom:1px solid #f0f0f0;text-align:center;color:#666;">{{ pi.parcela }}</td>
+      <td style="padding:2px 8px;border-bottom:1px solid #f0f0f0;text-align:right;color:{% if pi.is_ultima %}#5a9e6f{% else %}#c4654a{% endif %};">
+        {{ pi.amount|brl }}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% else %}
+<p class="dim">Nenhuma projeção cadastrada.</p>
+{% endfor %}
 
 <div style="margin-top:24px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#aaa;text-align:center;">
   Nosso Dindin · {{ hoje }} · {{ mes_label }}
