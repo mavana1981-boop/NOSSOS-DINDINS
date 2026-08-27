@@ -371,21 +371,14 @@ def relatorio_membros():
     ).all()
     total_parcelados = sum(float(p.amount) for p in pis_mes)
 
-    # Planejado de cartão = expense chamado "CARTAO PARCELADO" (maior valor)
-    _exp_cartao = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-        Expense.description.ilike("%CARTAO PARCELADO%"),
-    ).order_by(Expense.amount.desc()).first()
-    if _exp_cartao:
-        # Descontar shares de outros (igual ao gastos_fixos)
-        _sh_cart = ExpenseShare.query.filter(
-            ExpenseShare.expense_id == _exp_cartao.id,
-            ExpenseShare.user_id != current_user.id,
-        ).all()
-        _rep_cart = sum(float(s.share_amount) for s in _sh_cart)
-        _planned_cards = max(0.0, float(_exp_cartao.amount) - _rep_cart)
-    else:
-        _planned_cards = 0.0
+    # Planejado de cartão: buscar "Cartão Parcelado" ou "Cartao Parcelado" pelo valor
+    # Usa o gasto que está na lista de gastos_fixos com essa descrição
+    _planned_cards = 0.0
+    for _gf in gastos_fixos:
+        _desc_up = _gf["desc"].upper().replace("Ã","A").replace("Á","A").replace("À","A")
+        if "CARTAO PARCELADO" in _desc_up and "IPVA" not in _desc_up:
+            _planned_cards = _gf["planned"]
+            break
 
     excedente_parcelados = max(0.0, round(total_parcelados - _planned_cards, 2))
     if excedente_parcelados > 0:
