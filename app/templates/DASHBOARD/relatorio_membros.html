@@ -74,9 +74,14 @@
   <thead><tr><th>Descrição</th><th class="right">Planejado</th></tr></thead>
   <tbody>
   {% for g in gastos_fixos %}
-  <tr>
-    <td>{{ g.desc }}</td>
-    <td class="right red">{{ g.planned|brl }}</td>
+  <tr {% if g.is_ultima %}style="background:#e8f5e9;font-weight:700;"{% endif %}>
+    <td>
+      {{ g.desc }}
+      {% if g.is_ultima %}
+      <span style="background:#5a9e6f;color:white;font-size:8px;padding:1px 4px;border-radius:2px;margin-left:4px;">FIM ✓</span>
+      {% endif %}
+    </td>
+    <td class="right {% if g.is_ultima %}green{% else %}red{% endif %}">{{ g.planned|brl }}</td>
   </tr>
   {% else %}
   <tr><td colspan="2" class="center dim">Nenhum gasto cadastrado</td></tr>
