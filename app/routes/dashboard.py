@@ -344,9 +344,13 @@ def relatorio_membros():
     for e in _ev_entries:
         _ev_por_exp[e.expense_id].append(e)
 
+    NOME_PLANEJADO_CARTAO = "CARTAO PARCELADO"
     for exp_id, entries_ev in _ev_por_exp.items():
         exp = Expense.query.get(exp_id)
         if not exp:
+            continue
+        # Excluir o gasto planejado de cartão — será tratado como excedente
+        if exp.description.upper().strip() == NOME_PLANEJADO_CARTAO.upper():
             continue
         total_ev_entry = sum(float(e.amount) for e in entries_ev)
         shares_out = ExpenseShare.query.filter(
@@ -367,14 +371,21 @@ def relatorio_membros():
     ).all()
     total_parcelados = sum(float(p.amount) for p in pis_mes)
 
-    # Planejado de cartão = gastos fixos recorrentes com card_id (reserva de cartão)
-    _exps_card = Expense.query.filter(
+    # Planejado de cartão = expense chamado "CARTAO PARCELADO" (maior valor)
+    _exp_cartao = Expense.query.filter(
         Expense.payer_id == current_user.id,
-        Expense.kind == "recorrente",
-        Expense.card_id != None,
-    ).all()
-    _planned_cards = sum(float(e.amount) for e in _exps_card
-                         if e.is_active_on(filter_year, filter_month))
+        Expense.description.ilike("%CARTAO PARCELADO%"),
+    ).order_by(Expense.amount.desc()).first()
+    if _exp_cartao:
+        # Descontar shares de outros (igual ao gastos_fixos)
+        _sh_cart = ExpenseShare.query.filter(
+            ExpenseShare.expense_id == _exp_cartao.id,
+            ExpenseShare.user_id != current_user.id,
+        ).all()
+        _rep_cart = sum(float(s.share_amount) for s in _sh_cart)
+        _planned_cards = max(0.0, float(_exp_cartao.amount) - _rep_cart)
+    else:
+        _planned_cards = 0.0
 
     excedente_parcelados = max(0.0, round(total_parcelados - _planned_cards, 2))
     if excedente_parcelados > 0:
@@ -393,6 +404,9 @@ def relatorio_membros():
     _ev_with_entries = set(_ev_por_exp.keys())
     for exp in _ev_exps:
         if exp.id in _ev_with_entries:
+            continue
+        # Excluir gasto planejado de cartão (tratado como excedente)
+        if exp.description.upper().strip() == NOME_PLANEJADO_CARTAO.upper():
             continue
         if not (exp.spent_at and exp.spent_at.year == filter_year
                 and exp.spent_at.month == filter_month):
