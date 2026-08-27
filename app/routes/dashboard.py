@@ -297,11 +297,13 @@ def relatorio_membros():
         repasse = sum(float(s.share_amount) for s in shares_outros)
         minha_parte = max(0.0, round(float(exp.amount) - repasse, 2))
 
-        # Label de parcela se tiver recurrence_months
+        # Label de parcela e flag de última
         parc_label = ""
+        is_ultima_fixo = False
         if exp.recurrence_months:
             md = (filter_year - exp.spent_at.year) * 12 + (filter_month - exp.spent_at.month) + 1
             parc_label = f" ({md}/{exp.recurrence_months})"
+            is_ultima_fixo = (md == exp.recurrence_months)
 
         entries = CardEntry.query.filter(
             CardEntry.expense_id == exp.id,
@@ -313,6 +315,7 @@ def relatorio_membros():
             "desc": exp.description + parc_label,
             "planned": minha_parte,
             "entries": entries,
+            "is_ultima": is_ultima_fixo,
         })
         total_fixo += minha_parte
     # Saldo = Renda Fixa - Total (minha parte) → igual ao fluxo de caixa
