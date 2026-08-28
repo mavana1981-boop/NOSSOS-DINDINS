@@ -579,39 +579,41 @@ def relatorio_membros():
         _total_pi_s = sum(float(p.amount) for p in _pis_s)
         _exc_s = max(0.0, _total_pi_s - _planned_cards)
 
-        # Gastos eventuais reais do mês (se passado ou atual)
+        # Eventuais = lançamentos do mês que NÃO são de expenses recorrentes
+        # (mesma lógica da coluna "Eventual" do fluxo de caixa)
         _ev_itens_s = []
         _total_ev_s = 0.0
         if _is_passado or _st == 0:
-            _ev_entries_s = CardEntry.query.filter(
+            # IDs de expenses recorrentes (fixos) — excluir das eventuais
+            _rec_ids = {e.id for e in _all_rec_exps_proj}
+            # Buscar todos os entries do mês que não são fixos e não são parcelados de cartão
+            _all_entries_s = CardEntry.query.filter(
                 CardEntry.user_id == current_user.id,
                 CardEntry.billing_month == _proj_mes_s,
                 CardEntry.status == "ativo",
-                CardEntry.expense_id.in_(_ev_exp_ids) if _ev_exp_ids else False,
-            ).all() if _ev_exp_ids else []
+            ).all()
             _ev_group = {}
-            for _ee in _ev_entries_s:
-                _ev_group.setdefault(_ee.expense_id, []).append(_ee)
-            for _eid2, _ees in _ev_group.items():
-                _eexp = Expense.query.get(_eid2)
-                if not _eexp or _norm_acc(_eexp.description) == _norm_acc(NOME_PLANEJADO_CARTAO):
+            for _ee in _all_entries_s:
+                # Excluir: fixos (recorrentes) e parcelados (installments > 1)
+                if _ee.expense_id and _ee.expense_id in _rec_ids:
                     continue
+                if _ee.installments and _ee.installments > 1:
+                    continue
+                _chave = _ee.expense_id or f"avulso_{_ee.description[:20]}"
+                _ev_group.setdefault(_chave, []).append(_ee)
+            for _chave2, _ees in _ev_group.items():
+                if isinstance(_chave2, int):
+                    _eexp = Expense.query.get(_chave2)
+                    _desc_ev = _eexp.description if _eexp else "Avulso"
+                    # Excluir cartão parcelado planejado
+                    if _eexp and "CARTAO PARCELADO" in _norm_acc(_eexp.description):
+                        continue
+                else:
+                    _desc_ev = _ees[0].description[:30]
                 _tot_ee = sum(float(e.amount) for e in _ees)
-                _ev_itens_s.append({"desc": _eexp.description, "valor": _tot_ee})
+                _ev_itens_s.append({"desc": _desc_ev, "valor": _tot_ee})
                 _total_ev_s += _tot_ee
-        else:
-            # Futuro: usar valor planejado dos eventuais cadastrados
-            for _ev_exp_fut in Expense.query.filter(
-                Expense.payer_id == current_user.id,
-                Expense.kind == "pontual",
-            ).all():
-                if _norm_acc(_ev_exp_fut.description) == _norm_acc(NOME_PLANEJADO_CARTAO):
-                    continue
-                if (_ev_exp_fut.spent_at and
-                        _ev_exp_fut.spent_at.year == _pyr_s and
-                        _ev_exp_fut.spent_at.month == _pmo_s):
-                    _ev_itens_s.append({"desc": _ev_exp_fut.description, "valor": float(_ev_exp_fut.amount)})
-                    _total_ev_s += float(_ev_exp_fut.amount)
+            _ev_itens_s.sort(key=lambda x: x["valor"], reverse=True)
 
         _saldo_s = round(_renda_s - _fixos_s - _exc_s - _total_ev_s, 2)
         projecao_saldo.append({
