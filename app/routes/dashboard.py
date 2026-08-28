@@ -628,6 +628,16 @@ def relatorio_membros():
         })
 
     # Andamento do Mês: gastos da casa selecionados com percentual
+    # household_links para o relatório (mesma lógica do index)
+    household_links = sorted(
+        [hh for hh in HouseholdExpense.query.filter(
+            or_(HouseholdExpense.owner_id == current_user.id,
+                HouseholdExpense.shared_with_id == current_user.id)
+         ).all()
+         if (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id)
+         and getattr(hh, "show_on_dashboard", True) is not False],
+        key=lambda h: h.display_order or 0
+    )
     from datetime import date as _dt_and
     import calendar as _cal_and
     _hoje_and = _dt_and.today()
