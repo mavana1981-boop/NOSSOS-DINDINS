@@ -553,9 +553,161 @@ def delete_planejados_bulk():
     return redirect(url_for("cashflow.planejados"))
 
 
-@cashflow_bp.route("/parcelados/comparativo")
+@cashflow_bp.route("/parcelados/diagnostico")
 @login_required
 def comparativo_parcelados():
+    """Varre planned_installments em busca de parcelas ausentes na série."""
+    from app.models import PlannedInstallment, Card
+    from collections import defaultdict
+    from datetime import date as _dt
+    import calendar as _cal
+
+    def _add_mes(bm, n):
+        """Avança billing_month 'YYYY-MM' em n meses."""
+        y, m = int(bm[:4]), int(bm[5:7])
+        m += n
+        y += (m - 1) // 12
+        m = ((m - 1) % 12) + 1
+        return f"{y}-{m:02d}"
+
+    pis = PlannedInstallment.query.filter_by(
+        user_id=current_user.id
+    ).order_by(PlannedInstallment.description, PlannedInstallment.installment_no).all()
+
+    # Agrupar por série: (description, installments)
+    series = defaultdict(list)
+    for p in pis:
+        if p.installments and p.installments > 1:
+            series[(p.description, p.installments)].append(p)
+
+    gaps = []  # lista de parcelas faltantes
+
+    for (desc, total), itens in series.items():
+        # Ordenar por installment_no
+        itens_ord = sorted(itens, key=lambda x: x.installment_no)
+        inst_nos = {p.installment_no: p for p in itens_ord}
+
+        # Encontrar a primeira parcela para calcular billing_month esperado
+        p1 = inst_nos.get(1)
+        if not p1:
+            # Usar a menor parcela como âncora
+            p1 = itens_ord[0]
+
+        bm_base = p1.billing_month
+        inst_base = p1.installment_no
+        amount_ref = float(p1.amount)
+        card_id_ref = p1.card_id
+
+        # Verificar todas as parcelas de 1 até total
+        for i in range(1, total + 1):
+            if i in inst_nos:
+                continue  # existe, OK
+
+            # Calcular billing_month esperado
+            diff = i - inst_base
+            bm_esperado = _add_mes(bm_base, diff)
+
+            # Verificar se a série não foi excluída manualmente
+            from app.models import PlannedInstallmentDeletion as _PID
+            import re as _re_g
+            def _ng(s):
+                s = (s or "").upper().strip()
+                s = _re_g.sub(r'\s+\d{1,2}\s+DE\s+\d{1,2}', '', s)
+                s = _re_g.sub(r'\s+\d{1,2}/\d{1,2}', '', s)
+                return s.strip()
+            foi_del = _PID.query.filter_by(
+                user_id=current_user.id,
+                billing_month=bm_esperado,
+            ).filter(_PID.description == desc).first()
+            if foi_del:
+                continue  # excluída intencionalmente
+
+            gaps.append({
+                "desc": desc,
+                "installment_no": i,
+                "installments": total,
+                "billing_month": bm_esperado,
+                "amount": amount_ref,
+                "card_id": card_id_ref,
+                "card_name": itens_ord[0].card.name if itens_ord[0].card else "—",
+            })
+
+    gaps.sort(key=lambda x: (x["billing_month"], x["desc"], x["installment_no"]))
+    cards = Card.query.filter_by(user_id=current_user.id).all()
+
+    return render_template("cashflow/comparativo.html",
+                           gaps=gaps, cards=cards)
+
+
+@cashflow_bp.route("/parcelados/diagnostico/adicionar", methods=["POST"])
+@login_required
+def diagnostico_adicionar():
+    """Adiciona uma parcela faltante identificada pelo diagnóstico."""
+    from app.models import PlannedInstallment
+    from decimal import Decimal
+
+    desc         = request.form.get("desc", "").strip()
+    inst_no      = int(request.form.get("installment_no", 1))
+    installments = int(request.form.get("installments", 1))
+    billing_month= request.form.get("billing_month", "").strip()
+    amount       = Decimal(request.form.get("amount", "0").replace(",", "."))
+    card_id      = request.form.get("card_id") or None
+    if card_id:
+        card_id = int(card_id)
+
+    existente = PlannedInstallment.query.filter_by(
+        user_id=current_user.id,
+        description=desc,
+        installment_no=inst_no,
+    ).first()
+    if not existente:
+        db.session.add(PlannedInstallment(
+            user_id=current_user.id,
+            card_id=card_id,
+            description=desc,
+            amount=amount,
+            installment_no=inst_no,
+            installments=installments,
+            billing_month=billing_month,
+        ))
+        db.session.commit()
+        flash(f"✅ Adicionado: {desc} {inst_no}/{installments} em {billing_month}.", "success")
+    else:
+        flash(f"Já existe: {desc} {inst_no}/{installments}.", "info")
+
+    return redirect(url_for("cashflow.comparativo_parcelados"))
+
+
+@cashflow_bp.route("/parcelados/diagnostico/ignorar", methods=["POST"])
+@login_required
+def diagnostico_ignorar():
+    """Marca como excluída intencionalmente para não aparecer mais no diagnóstico."""
+    from app.models import PlannedInstallmentDeletion
+    desc         = request.form.get("desc", "").strip()
+    billing_month= request.form.get("billing_month", "").strip()
+    card_id      = request.form.get("card_id") or None
+
+    existe = PlannedInstallmentDeletion.query.filter_by(
+        user_id=current_user.id,
+        card_id=int(card_id) if card_id else None,
+        description=desc,
+        billing_month=billing_month,
+    ).first()
+    if not existe:
+        db.session.add(PlannedInstallmentDeletion(
+            user_id=current_user.id,
+            card_id=int(card_id) if card_id else None,
+            description=desc,
+            billing_month=billing_month,
+        ))
+        db.session.commit()
+    flash(f"⏭ Ignorado: {desc} em {billing_month}.", "info")
+    return redirect(url_for("cashflow.comparativo_parcelados"))
+
+
+@cashflow_bp.route("/parcelados/comparativo")
+@login_required
+def comparativo_parcelados_old():
     from app.models import PlannedInstallment
     m7 = PlannedInstallment.query.filter_by(user_id=current_user.id, billing_month="2026-07")        .order_by(PlannedInstallment.description).all()
     m8 = PlannedInstallment.query.filter_by(user_id=current_user.id, billing_month="2026-08")        .order_by(PlannedInstallment.description).all()
