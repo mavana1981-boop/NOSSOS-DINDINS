@@ -7,7 +7,6 @@
     <h1>📋 Parcelados Projetados</h1>
     <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
   </div>
-  <a href="{{ url_for('cashflow.adicionar_planejado') }}" class="btn btn-ghost btn-sm">➕ Adicionar parcela</a>
   <a href="{{ url_for('cashflow.comparativo_parcelados') }}" class="btn btn-ghost btn-sm">🔍 Diagnóstico</a>
 </div>
 
@@ -71,7 +70,12 @@
       {% if total_mes > 5000 %}{% set cor_total = "#e07a30" %}
       {% elif total_mes > 2000 %}{% set cor_total = "#c9a800" %}
       {% else %}{% set cor_total = "#5a9e6f" %}{% endif %}
-      <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
+        <a href="/fluxo/planejados/adicionar?mes={{ bm }}" onclick="event.stopPropagation();"
+           class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:2px 8px;"
+           title="Adicionar parcela em {{ bm }}">➕</a>
+      </div>
     </div>
 
     <!-- Conteúdo colapsável -->
