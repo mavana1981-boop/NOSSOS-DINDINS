@@ -190,6 +190,92 @@
 <p class="dim">Nenhum membro para exibir.</p>
 {% endfor %}
 
+<!-- 5. PROJEÇÃO DE SALDO MÊS A MÊS -->
+<h2>📈 Projeção de Saldo — 6 meses anteriores + 12 futuros</h2>
+<div style="overflow-x:auto;">
+<table style="min-width:700px;">
+  <thead>
+    <tr>
+      <th>Mês</th>
+      <th class="right">Renda</th>
+      <th class="right">Fixos</th>
+      <th class="right">Eventuais</th>
+      <th class="right">Parcel. Exc.</th>
+      <th class="right" style="font-size:12px;background:#5a7da5;">Saldo Proj.</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in projecao_saldo %}
+  <tr {% if s.is_atual %}style="background:#e3eaf5;font-weight:700;border-left:3px solid #6b8db5;"
+      {% elif s.is_passado %}style="background:#f9f9f9;opacity:0.85;"
+      {% elif s.saldo < 0 %}style="background:#fde8e4;"{% endif %}>
+    <td>
+      <strong>{{ s.label }}</strong>
+      {% if s.is_atual %}<span style="font-size:9px;background:#6b8db5;color:white;padding:1px 4px;border-radius:2px;margin-left:4px;">ATUAL</span>{% endif %}
+      {% if s.is_passado %}<span style="font-size:9px;color:#aaa;margin-left:4px;">◀</span>{% endif %}
+    </td>
+    <td class="right green">{{ s.renda|brl }}</td>
+    <td class="right red">{{ s.fixos|brl }}</td>
+    <td class="right">
+      {% if s.ev_itens %}
+      <span style="color:#c4654a;">{{ s.total_ev|brl }}</span>
+      <div style="font-size:10px;color:#999;">
+        {% for ev in s.ev_itens %}{{ ev.desc[:20] }}: {{ ev.valor|brl }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+      </div>
+      {% else %}—{% endif %}
+    </td>
+    <td class="right {% if s.excedente > 0 %}red{% else %}dim{% endif %}">
+      {% if s.excedente > 0 %}{{ s.excedente|brl }}{% else %}—{% endif %}
+    </td>
+    <td class="right" style="font-weight:700;font-size:13px;color:{% if s.saldo >= 0 %}#5a9e6f{% else %}#c4654a{% endif %};">
+      {{ s.saldo|brl }}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- 3b. ANDAMENTO DO MÊS -->
+{% if andamento_mes %}
+<h2>📊 Andamento do Mês — {{ mes_label }}</h2>
+<div style="font-size:11px;color:#888;margin-bottom:8px;">
+  Percentual ideal do mês ({{ pct_mes_ideal }}% do tempo decorrido)
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Gasto</th>
+      <th class="right">Planejado</th>
+      <th class="right">Realizado</th>
+      <th class="right">% Gasto</th>
+      <th style="width:100px;">Progresso</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for a in andamento_mes %}
+  <tr {% if not a.ok %}style="background:#fde8e4;"{% elif a.pct == 0 %}style="opacity:0.6;"{% endif %}>
+    <td>{{ a.desc }}</td>
+    <td class="right dim">{{ a.planned|brl }}</td>
+    <td class="right">{{ a.spent|brl }}</td>
+    <td class="right" style="font-weight:700;color:{% if a.pct > pct_mes_ideal + 10 %}#c4654a{% elif a.pct > pct_mes_ideal %}#b8860b{% else %}#5a9e6f{% endif %};">
+      {{ a.pct }}%
+    </td>
+    <td>
+      <div style="background:#eee;border-radius:4px;height:8px;position:relative;">
+        <!-- Linha do ideal -->
+        <div style="position:absolute;left:{{ pct_mes_ideal }}%;top:-2px;bottom:-2px;width:1px;background:#6b8db5;"></div>
+        <!-- Barra de progresso -->
+        <div style="width:{{ [a.pct, 100]|min }}%;height:8px;border-radius:4px;
+                    background:{% if a.pct > pct_mes_ideal + 10 %}#c4654a{% elif a.pct > pct_mes_ideal %}#b8860b{% else %}#5a9e6f{% endif %};"></div>
+      </div>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
 <!-- 4. PROJEÇÃO PARCELADOS 12 MESES -->
 <h2>📅 Projeção de Parcelados — Próximos 12 Meses</h2>
 {% for p in projecao_12 %}
@@ -238,48 +324,6 @@
 </div>
 
 <!-- Botão imprimir no final -->
-<!-- 5. PROJEÇÃO DE SALDO MÊS A MÊS -->
-<h2>📈 Projeção de Saldo — Próximos 12 Meses</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Mês</th>
-      <th class="right">Renda</th>
-      <th class="right">Fixos</th>
-      <th class="right">Parcelados</th>
-      <th class="right" style="font-size:12px;">Saldo Proj.</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for s in projecao_saldo %}
-  <tr {% if s.is_atual %}style="background:#e3eaf5;font-weight:700;border-left:3px solid #6b8db5;"
-      {% elif s.saldo < 0 %}style="background:#fde8e4;"
-      {% elif loop.index is divisibleby 3 %}style="background:#f7f9fc;"{% endif %}>
-    <td>
-      <strong>{{ s.label }}</strong>
-      {% if s.is_atual %}<span style="font-size:9px;background:#6b8db5;color:white;padding:1px 4px;border-radius:2px;margin-left:4px;">ATUAL</span>{% endif %}
-    </td>
-    <td class="right green">{{ s.renda|brl }}</td>
-    <td class="right red">{{ s.fixos|brl }}</td>
-    <td class="right {% if s.excedente > 0 %}red{% else %}dim{% endif %}">
-      {% if s.excedente > 0 %}+{{ s.excedente|brl }}{% else %}—{% endif %}
-    </td>
-    <td class="right" style="font-weight:700;font-size:13px;color:{% if s.saldo >= 0 %}#5a9e6f{% else %}#c4654a{% endif %};">
-      {{ s.saldo|brl }}
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-
-<div style="font-size:10px;color:#999;margin-top:6px;text-align:right;">
-  * Parcelados = excedente acima do planejado de cartão (R$ {{ _planned_cards|brl if _planned_cards is defined else '2.000,00' }})
-</div>
-
-<div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#aaa;text-align:center;">
-  Nosso Dindin · {{ hoje }} · {{ mes_label }}
-</div>
-
 <button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 
 </body>
