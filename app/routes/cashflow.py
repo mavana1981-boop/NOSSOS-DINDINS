@@ -632,6 +632,11 @@ def comparativo_parcelados():
                 "card_name": itens_ord[0].card.name if itens_ord[0].card else "—",
             })
 
+    # Excluir gaps de meses anteriores ao atual
+    from datetime import date as _dt_now
+    _mes_atual = _dt_now.today().strftime("%Y-%m")
+    gaps = [g for g in gaps if g["billing_month"] >= _mes_atual]
+
     gaps.sort(key=lambda x: (x["billing_month"], x["desc"], x["installment_no"]))
     cards = Card.query.filter_by(user_id=current_user.id).all()
 
