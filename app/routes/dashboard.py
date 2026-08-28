@@ -543,6 +543,19 @@ def relatorio_membros():
             "n_ultimas": len(ultimas),
         })
 
+    # Pré-carregar cashflow dos anos relevantes para o loop de projeção
+    from app.utils import get_yearly_cashflow as _gyc
+    _anos_necessarios = set()
+    for _st_pre in range(-6, 13):
+        _bm_pre = filter_month + _st_pre - 1
+        _yr_pre = filter_year + _bm_pre // 12
+        _anos_necessarios.add(_yr_pre)
+    _cf_cache = {}
+    for _yr_c in _anos_necessarios:
+        _meses_c = _gyc(current_user.id, _yr_c)
+        for _mc in _meses_c:
+            _cf_cache[(_yr_c, _mc["month"])] = _mc
+
     # Projeção de saldo: 6 meses anteriores + atual + 12 futuros
     _all_rec_inc  = [r for r in rendas_ativas]
     _all_rec_exps_proj = Expense.query.filter(
@@ -579,27 +592,21 @@ def relatorio_membros():
         _total_pi_s = sum(float(p.amount) for p in _pis_s)
         _exc_s = max(0.0, _total_pi_s - _planned_cards)
 
-        # Excedentes: EXATAMENTE os eventual_items do fluxo de caixa
-        # EXCLUINDO apenas o item de excedente de cartão parcelado
+        # Excedentes: direto do cache do get_yearly_cashflow (igual à coluna Eventuais)
         _ev_itens_s = []
         _total_ev_s = 0.0
-        try:
-            from app.utils import get_user_monthly_summary as _gums
-            _summary_s = _gums(current_user.id, _pyr_s, _pmo_s)
-            for _ei in _summary_s.get("eventual_items", []):
-                _desc_ei = str(_ei.get("desc", ""))
-                _amt_ei  = float(_ei.get("amount", 0))
-                # Excluir excedente de parcelados cartão (tem coluna própria)
-                if _norm_acc(_desc_ei).startswith("CARTAO PARCELADO"):
-                    continue
-                if _norm_acc(_desc_ei).startswith("CARTAO PARCELADO - EXCEDENTE"):
-                    continue
-                if _amt_ei <= 0:
-                    continue
-                _ev_itens_s.append({"desc": _desc_ei, "valor": _amt_ei})
-                _total_ev_s += _amt_ei
-        except Exception:
-            pass
+        _cf_mes = _cf_cache.get((_pyr_s, _pmo_s), {})
+        for _ei in _cf_mes.get("eventual_items", []):
+            _desc_ei = str(_ei.get("desc", ""))
+            _amt_ei  = float(_ei.get("amount", 0))
+            # Excluir SOMENTE o excedente de cartão parcelado (tem coluna própria)
+            _dn = _norm_acc(_desc_ei)
+            if "CARTAO PARCELADO" in _dn and "EXCEDENTE" in _dn:
+                continue
+            if _amt_ei <= 0:
+                continue
+            _ev_itens_s.append({"desc": _desc_ei, "valor": _amt_ei})
+            _total_ev_s += _amt_ei
 
         _saldo_s = round(_renda_s - _fixos_s - _exc_s - _total_ev_s, 2)
         projecao_saldo.append({
