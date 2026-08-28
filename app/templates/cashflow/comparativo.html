@@ -5,7 +5,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>🔍 Diagnóstico — Parcelas Ausentes</h1>
-    <p>Varredura automática de séries com lacunas. Autorize uma a uma.</p>
+    <p>Séries com lacunas. Selecione e aja em lote ou uma a uma.</p>
   </div>
   <a href="{{ url_for('cashflow.planejados') }}" class="btn btn-ghost">← Parcelados</a>
 </div>
@@ -17,59 +17,116 @@
 
 {% else %}
 <div class="card mb-3" style="border-left:4px solid var(--gold);">
-  <strong style="color:var(--gold);">⚠️ {{ gaps|length }} parcela(s) faltando em séries existentes</strong>
-  <div class="text-faint text-small mt-1">Revise uma a uma. Clique ✅ Adicionar para inserir ou ⏭ Ignorar para descartar permanentemente.</div>
-</div>
-
-{% for g in gaps %}
-<div class="card mb-2" style="border-left:3px solid var(--gold);">
   <div class="flex-between">
     <div>
-      <strong>{{ g.desc }}</strong>
-      <span class="badge" style="margin-left:6px;background:var(--gold);color:black;font-size:0.7rem;padding:2px 6px;border-radius:4px;">
-        {{ g.installment_no }}/{{ g.installments }}
-      </span>
-      <span class="badge" style="margin-left:4px;background:var(--surface2);color:var(--text-dim);font-size:0.7rem;padding:2px 6px;border-radius:4px;">
-        {{ g.billing_month }}
-      </span>
+      <strong style="color:var(--gold);">⚠️ {{ gaps|length }} parcela(s) faltando</strong>
+      <span class="text-faint text-small" style="margin-left:8px;">Selecione uma ou mais e use as ações abaixo.</span>
     </div>
-    <div class="mono" style="color:var(--red);font-weight:700;">{{ g.amount|brl }}</div>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;">
+      <input type="checkbox" id="sel-all" onchange="toggleAll(this)" style="width:15px;height:15px;">
+      Selecionar todos
+    </label>
   </div>
 
-  <div class="text-faint text-small" style="margin:4px 0 10px;">
-    Cartão: {{ g.card_name }} &nbsp;·&nbsp;
-    Parcela <strong>{{ g.installment_no }}</strong> de <strong>{{ g.installments }}</strong>
-    prevista para <strong>{{ g.billing_month }}</strong> não foi encontrada.
+  <!-- Ações em lote -->
+  <div class="flex flex-gap" style="gap:8px;margin-top:12px;flex-wrap:wrap;">
+    <button type="button" class="btn btn-sm" style="background:var(--green);color:white;border:none;"
+            onclick="acaoLote('adicionar')">
+      ✅ Adicionar selecionados
+    </button>
+    <button type="button" class="btn btn-ghost btn-sm" style="color:var(--text-dim);"
+            onclick="acaoLote('ignorar')">
+      ⏭ Ignorar selecionados
+    </button>
+    <span id="count-sel" class="text-faint text-small" style="line-height:2.5;">0 selecionado(s)</span>
   </div>
+</div>
 
-  <div class="flex flex-gap" style="gap:8px;">
-    <!-- Adicionar -->
-    <form method="POST" action="{{ url_for('cashflow.diagnostico_adicionar') }}" style="margin:0;">
-      <input type="hidden" name="desc" value="{{ g.desc }}">
-      <input type="hidden" name="installment_no" value="{{ g.installment_no }}">
-      <input type="hidden" name="installments" value="{{ g.installments }}">
-      <input type="hidden" name="billing_month" value="{{ g.billing_month }}">
-      <input type="hidden" name="amount" value="{{ g.amount }}">
-      <input type="hidden" name="card_id" value="{{ g.card_id or '' }}">
-      <button type="submit" class="btn btn-sm"
-              style="background:var(--green);color:white;border:none;"
-              onclick="return confirm('Adicionar {{ g.desc }} {{ g.installment_no }}/{{ g.installments }} em {{ g.billing_month }}?');">
-        ✅ Adicionar
-      </button>
-    </form>
+<!-- Forms ocultos para envio em lote -->
+<form id="form-adicionar" method="POST" action="{{ url_for('cashflow.diagnostico_adicionar') }}" style="display:none;">
+  <input type="hidden" name="itens_json" id="json-adicionar">
+</form>
+<form id="form-ignorar" method="POST" action="{{ url_for('cashflow.diagnostico_ignorar') }}" style="display:none;">
+  <input type="hidden" name="itens_json" id="json-ignorar">
+</form>
 
-    <!-- Ignorar permanentemente -->
-    <form method="POST" action="{{ url_for('cashflow.diagnostico_ignorar') }}" style="margin:0;">
-      <input type="hidden" name="desc" value="{{ g.desc }}">
-      <input type="hidden" name="billing_month" value="{{ g.billing_month }}">
-      <input type="hidden" name="card_id" value="{{ g.card_id or '' }}">
-      <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--text-dim);"
-              onclick="return confirm('Ignorar permanentemente {{ g.desc }} {{ g.installment_no }}/{{ g.installments }} em {{ g.billing_month }}?');">
-        ⏭ Ignorar
-      </button>
-    </form>
+{% for g in gaps %}
+<div class="card mb-2 gap-item" style="border-left:3px solid var(--gold);"
+     data-item='{"desc":"{{ g.desc|replace('"','&quot;') }}","installment_no":{{ g.installment_no }},"installments":{{ g.installments }},"billing_month":"{{ g.billing_month }}","amount":"{{ g.amount }}","card_id":"{{ g.card_id or '' }}"}'>
+
+  <div class="flex-between" style="align-items:flex-start;">
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;flex:1;">
+      <input type="checkbox" class="item-check" style="width:16px;height:16px;flex-shrink:0;" onchange="atualizarContagem()">
+      <div>
+        <strong>{{ g.desc }}</strong>
+        <span class="badge" style="margin-left:6px;background:var(--gold);color:black;font-size:0.7rem;padding:2px 6px;border-radius:4px;">
+          {{ g.installment_no }}/{{ g.installments }}
+        </span>
+        <span class="badge" style="margin-left:4px;background:var(--surface2);color:var(--text-dim);font-size:0.7rem;padding:2px 6px;border-radius:4px;">
+          {{ g.billing_month }}
+        </span>
+        <div class="text-faint text-small" style="margin-top:2px;">
+          {{ g.card_name }} · {{ g.amount|brl }}
+        </div>
+      </div>
+    </label>
+
+    <!-- Ações individuais -->
+    <div class="flex flex-gap" style="gap:6px;flex-shrink:0;">
+      <form method="POST" action="{{ url_for('cashflow.diagnostico_adicionar') }}" style="margin:0;">
+        <input type="hidden" name="desc" value="{{ g.desc }}">
+        <input type="hidden" name="installment_no" value="{{ g.installment_no }}">
+        <input type="hidden" name="installments" value="{{ g.installments }}">
+        <input type="hidden" name="billing_month" value="{{ g.billing_month }}">
+        <input type="hidden" name="amount" value="{{ g.amount }}">
+        <input type="hidden" name="card_id" value="{{ g.card_id or '' }}">
+        <button type="submit" class="btn btn-sm" style="background:var(--green);color:white;border:none;font-size:0.75rem;"
+                onclick="return confirm('Adicionar?');">✅</button>
+      </form>
+      <form method="POST" action="{{ url_for('cashflow.diagnostico_ignorar') }}" style="margin:0;">
+        <input type="hidden" name="desc" value="{{ g.desc }}">
+        <input type="hidden" name="billing_month" value="{{ g.billing_month }}">
+        <input type="hidden" name="card_id" value="{{ g.card_id or '' }}">
+        <button type="submit" class="btn btn-ghost btn-sm" style="font-size:0.75rem;"
+                onclick="return confirm('Ignorar permanentemente?');">⏭</button>
+      </form>
+    </div>
   </div>
 </div>
 {% endfor %}
+
+<script>
+function toggleAll(cb) {
+  document.querySelectorAll('.item-check').forEach(c => c.checked = cb.checked);
+  atualizarContagem();
+}
+
+function atualizarContagem() {
+  var n = document.querySelectorAll('.item-check:checked').length;
+  document.getElementById('count-sel').textContent = n + ' selecionado(s)';
+}
+
+function getSelecionados() {
+  var itens = [];
+  document.querySelectorAll('.gap-item').forEach(function(div) {
+    var cb = div.querySelector('.item-check');
+    if (cb && cb.checked) {
+      try { itens.push(JSON.parse(div.getAttribute('data-item'))); } catch(e) {}
+    }
+  });
+  return itens;
+}
+
+function acaoLote(acao) {
+  var itens = getSelecionados();
+  if (!itens.length) { alert('Selecione ao menos uma parcela.'); return; }
+  var label = acao === 'adicionar' ? 'adicionar' : 'ignorar';
+  if (!confirm('Deseja ' + label + ' ' + itens.length + ' parcela(s)?')) return;
+  var formId  = acao === 'adicionar' ? 'form-adicionar' : 'form-ignorar';
+  var jsonId  = acao === 'adicionar' ? 'json-adicionar' : 'json-ignorar';
+  document.getElementById(jsonId).value = JSON.stringify(itens);
+  document.getElementById(formId).submit();
+}
+</script>
 {% endif %}
 {% endblock %}
