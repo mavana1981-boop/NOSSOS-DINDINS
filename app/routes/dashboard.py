@@ -572,20 +572,10 @@ def relatorio_membros():
         _label_s = f"{MESES_PT[_pmo_s-1]}/{_pyr_s}"
         _is_passado = _st < 0
 
-        # Renda
-        _renda_s = sum(float(r.amount) for r in _all_rec_inc)
-
-        # Gastos fixos (minha parte) ativos
-        _fixos_s = 0.0
-        for _ex in _all_rec_exps_proj:
-            if not _ex.is_active_on(_pyr_s, _pmo_s):
-                continue
-            _sh_s = ExpenseShare.query.filter(
-                ExpenseShare.expense_id == _ex.id,
-                ExpenseShare.user_id != current_user.id,
-            ).all()
-            _rep_s = sum(float(s.share_amount) for s in _sh_s)
-            _fixos_s += max(0.0, float(_ex.amount) - _rep_s)
+        # Usar cache do cashflow — mesma fonte da coluna Fixos do fluxo
+        _cf_mes = _cf_cache.get((_pyr_s, _pmo_s), {})
+        _renda_s = float(_cf_mes.get("income_recurring", 0) or 0)
+        _fixos_s = float(_cf_mes.get("fixed_expense", 0) or 0)
 
         # Parcelados projetados
         _pis_s = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes_s).all()
