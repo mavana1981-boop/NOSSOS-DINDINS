@@ -585,3 +585,75 @@ def comparativo_parcelados():
                            m7=m7, m8=m8, erros=erros,
                            total7=sum(float(p.amount) for p in m7),
                            total8=sum(float(p.amount) for p in m8))
+
+
+@cashflow_bp.route("/planejados/adicionar", methods=["GET", "POST"])
+@login_required
+def adicionar_planejado():
+    """Adiciona manualmente uma parcela projetada para regularizar série."""
+    from app.models import PlannedInstallment, Card
+    cards = Card.query.filter_by(user_id=current_user.id).all()
+
+    if request.method == "POST":
+        try:
+            desc         = request.form.get("description", "").strip()
+            amount       = request.form.get("amount", "0").replace(".", "").replace(",", ".")
+            billing_month= request.form.get("billing_month", "").strip()
+            inst_no      = int(request.form.get("installment_no", 1))
+            installments = int(request.form.get("installments", 1))
+            card_id_f    = request.form.get("card_id") or None
+            if card_id_f:
+                card_id_f = int(card_id_f)
+
+            if not desc or not billing_month:
+                flash("Descrição e mês são obrigatórios.", "danger")
+                return redirect(url_for("cashflow.adicionar_planejado"))
+
+            from decimal import Decimal, InvalidOperation
+            try:
+                amt = Decimal(amount)
+            except InvalidOperation:
+                flash("Valor inválido.", "danger")
+                return redirect(url_for("cashflow.adicionar_planejado"))
+
+            # Verificar se já existe
+            existente = PlannedInstallment.query.filter_by(
+                user_id=current_user.id,
+                description=desc,
+                installment_no=inst_no,
+                billing_month=billing_month,
+            ).first()
+            if existente:
+                flash(f"Já existe: {desc} {inst_no}/{installments} em {billing_month}.", "warning")
+                return redirect(url_for("cashflow.planejados"))
+
+            pi = PlannedInstallment(
+                user_id=current_user.id,
+                card_id=card_id_f,
+                description=desc,
+                amount=amt,
+                installment_no=inst_no,
+                installments=installments,
+                billing_month=billing_month,
+                origin_entry_id=None,
+            )
+            db.session.add(pi)
+            db.session.commit()
+            flash(f"Parcela {inst_no}/{installments} de '{desc}' adicionada em {billing_month}.", "success")
+            return redirect(url_for("cashflow.planejados"))
+        except Exception as _e:
+            db.session.rollback()
+            flash(f"Erro: {_e}", "danger")
+            return redirect(url_for("cashflow.adicionar_planejado"))
+
+    # GET — mostrar formulário
+    mes_default = request.args.get("mes", "")
+    desc_default = request.args.get("desc", "")
+    inst_default = request.args.get("inst_no", "")
+    total_default = request.args.get("total", "")
+    return render_template("cashflow/adicionar_planejado.html",
+                           cards=cards,
+                           mes_default=mes_default,
+                           desc_default=desc_default,
+                           inst_default=inst_default,
+                           total_default=total_default)
