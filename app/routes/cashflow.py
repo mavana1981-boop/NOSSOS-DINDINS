@@ -647,66 +647,78 @@ def comparativo_parcelados():
 @cashflow_bp.route("/parcelados/diagnostico/adicionar", methods=["POST"])
 @login_required
 def diagnostico_adicionar():
-    """Adiciona uma parcela faltante identificada pelo diagnóstico."""
+    """Adiciona uma ou mais parcelas faltantes (seleção múltipla)."""
     from app.models import PlannedInstallment
     from decimal import Decimal
+    import json
 
-    desc         = request.form.get("desc", "").strip()
-    inst_no      = int(request.form.get("installment_no", 1))
-    installments = int(request.form.get("installments", 1))
-    billing_month= request.form.get("billing_month", "").strip()
-    amount       = Decimal(request.form.get("amount", "0").replace(",", "."))
-    card_id      = request.form.get("card_id") or None
-    if card_id:
-        card_id = int(card_id)
-
-    existente = PlannedInstallment.query.filter_by(
-        user_id=current_user.id,
-        description=desc,
-        installment_no=inst_no,
-    ).first()
-    if not existente:
-        db.session.add(PlannedInstallment(
-            user_id=current_user.id,
-            card_id=card_id,
-            description=desc,
-            amount=amount,
-            installment_no=inst_no,
-            installments=installments,
-            billing_month=billing_month,
-        ))
-        db.session.commit()
-        flash(f"✅ Adicionado: {desc} {inst_no}/{installments} em {billing_month}.", "success")
+    itens_json = request.form.get("itens_json")
+    if itens_json:
+        itens = json.loads(itens_json)
     else:
-        flash(f"Já existe: {desc} {inst_no}/{installments}.", "info")
+        itens = [{"desc": request.form.get("desc","").strip(),
+                  "installment_no": int(request.form.get("installment_no",1)),
+                  "installments":   int(request.form.get("installments",1)),
+                  "billing_month":  request.form.get("billing_month","").strip(),
+                  "amount":         request.form.get("amount","0"),
+                  "card_id":        request.form.get("card_id") or None}]
 
+    adicionados = 0
+    for it in itens:
+        card_id = int(it["card_id"]) if it.get("card_id") else None
+        try:
+            amt = Decimal(str(it["amount"]).replace(",","."))
+        except Exception:
+            continue
+        existe = PlannedInstallment.query.filter_by(
+            user_id=current_user.id,
+            description=it["desc"],
+            installment_no=int(it["installment_no"]),
+        ).first()
+        if not existe:
+            db.session.add(PlannedInstallment(
+                user_id=current_user.id, card_id=card_id,
+                description=it["desc"], amount=amt,
+                installment_no=int(it["installment_no"]),
+                installments=int(it["installments"]),
+                billing_month=it["billing_month"],
+            ))
+            adicionados += 1
+    db.session.commit()
+    flash(f"✅ {adicionados} parcela(s) adicionada(s).", "success")
     return redirect(url_for("cashflow.comparativo_parcelados"))
 
 
 @cashflow_bp.route("/parcelados/diagnostico/ignorar", methods=["POST"])
 @login_required
 def diagnostico_ignorar():
-    """Marca como excluída intencionalmente para não aparecer mais no diagnóstico."""
+    """Ignora uma ou mais parcelas (seleção múltipla)."""
     from app.models import PlannedInstallmentDeletion
-    desc         = request.form.get("desc", "").strip()
-    billing_month= request.form.get("billing_month", "").strip()
-    card_id      = request.form.get("card_id") or None
+    import json
 
-    existe = PlannedInstallmentDeletion.query.filter_by(
-        user_id=current_user.id,
-        card_id=int(card_id) if card_id else None,
-        description=desc,
-        billing_month=billing_month,
-    ).first()
-    if not existe:
-        db.session.add(PlannedInstallmentDeletion(
-            user_id=current_user.id,
-            card_id=int(card_id) if card_id else None,
-            description=desc,
-            billing_month=billing_month,
-        ))
-        db.session.commit()
-    flash(f"⏭ Ignorado: {desc} em {billing_month}.", "info")
+    itens_json = request.form.get("itens_json")
+    if itens_json:
+        itens = json.loads(itens_json)
+    else:
+        itens = [{"desc": request.form.get("desc","").strip(),
+                  "billing_month": request.form.get("billing_month","").strip(),
+                  "card_id": request.form.get("card_id") or None}]
+
+    ignorados = 0
+    for it in itens:
+        card_id = int(it["card_id"]) if it.get("card_id") else None
+        existe = PlannedInstallmentDeletion.query.filter_by(
+            user_id=current_user.id, card_id=card_id,
+            description=it["desc"], billing_month=it["billing_month"],
+        ).first()
+        if not existe:
+            db.session.add(PlannedInstallmentDeletion(
+                user_id=current_user.id, card_id=card_id,
+                description=it["desc"], billing_month=it["billing_month"],
+            ))
+            ignorados += 1
+    db.session.commit()
+    flash(f"⏭ {ignorados} parcela(s) ignorada(s).", "info")
     return redirect(url_for("cashflow.comparativo_parcelados"))
 
 
