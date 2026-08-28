@@ -543,27 +543,28 @@ def relatorio_membros():
             "n_ultimas": len(ultimas),
         })
 
-    # Projeção de saldo mês a mês — mês atual até 12 meses à frente
-    _all_rec_inc  = [r for r in rendas_ativas]  # rendas já filtradas
-    _all_rec_exps = Expense.query.filter(
+    # Projeção de saldo: 6 meses anteriores + atual + 12 futuros
+    _all_rec_inc  = [r for r in rendas_ativas]
+    _all_rec_exps_proj = Expense.query.filter(
         Expense.payer_id == current_user.id,
         Expense.kind == "recorrente",
     ).all()
 
     projecao_saldo = []
-    for _st in range(0, 13):
-        _pmo_s = filter_month + _st - 1
-        _pyr_s = filter_year + _pmo_s // 12
-        _pmo_s = (_pmo_s % 12) + 1
+    for _st in range(-6, 13):
+        _base_m = filter_month + _st - 1
+        _pyr_s = filter_year + _base_m // 12
+        _pmo_s = (_base_m % 12) + 1
         _proj_mes_s = f"{_pyr_s}-{_pmo_s:02d}"
         _label_s = f"{MESES_PT[_pmo_s-1]}/{_pyr_s}"
+        _is_passado = _st < 0
 
         # Renda
         _renda_s = sum(float(r.amount) for r in _all_rec_inc)
 
-        # Gastos fixos (minha parte) ativos no mês
+        # Gastos fixos (minha parte) ativos
         _fixos_s = 0.0
-        for _ex in _all_rec_exps:
+        for _ex in _all_rec_exps_proj:
             if not _ex.is_active_on(_pyr_s, _pmo_s):
                 continue
             _sh_s = ExpenseShare.query.filter(
@@ -573,22 +574,88 @@ def relatorio_membros():
             _rep_s = sum(float(s.share_amount) for s in _sh_s)
             _fixos_s += max(0.0, float(_ex.amount) - _rep_s)
 
-        # Parcelados projetados do mês
+        # Parcelados projetados
         _pis_s = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes_s).all()
         _total_pi_s = sum(float(p.amount) for p in _pis_s)
         _exc_s = max(0.0, _total_pi_s - _planned_cards)
 
-        _saldo_s = round(_renda_s - _fixos_s - _exc_s, 2)
+        # Gastos eventuais reais do mês (se passado ou atual)
+        _ev_itens_s = []
+        _total_ev_s = 0.0
+        if _is_passado or _st == 0:
+            _ev_entries_s = CardEntry.query.filter(
+                CardEntry.user_id == current_user.id,
+                CardEntry.billing_month == _proj_mes_s,
+                CardEntry.status == "ativo",
+                CardEntry.expense_id.in_(_ev_exp_ids) if _ev_exp_ids else False,
+            ).all() if _ev_exp_ids else []
+            _ev_group = {}
+            for _ee in _ev_entries_s:
+                _ev_group.setdefault(_ee.expense_id, []).append(_ee)
+            for _eid2, _ees in _ev_group.items():
+                _eexp = Expense.query.get(_eid2)
+                if not _eexp or _norm_acc(_eexp.description) == _norm_acc(NOME_PLANEJADO_CARTAO):
+                    continue
+                _tot_ee = sum(float(e.amount) for e in _ees)
+                _ev_itens_s.append({"desc": _eexp.description, "valor": _tot_ee})
+                _total_ev_s += _tot_ee
+        else:
+            # Futuro: usar valor planejado dos eventuais cadastrados
+            for _ev_exp_fut in Expense.query.filter(
+                Expense.payer_id == current_user.id,
+                Expense.kind == "pontual",
+            ).all():
+                if _norm_acc(_ev_exp_fut.description) == _norm_acc(NOME_PLANEJADO_CARTAO):
+                    continue
+                if (_ev_exp_fut.spent_at and
+                        _ev_exp_fut.spent_at.year == _pyr_s and
+                        _ev_exp_fut.spent_at.month == _pmo_s):
+                    _ev_itens_s.append({"desc": _ev_exp_fut.description, "valor": float(_ev_exp_fut.amount)})
+                    _total_ev_s += float(_ev_exp_fut.amount)
+
+        _saldo_s = round(_renda_s - _fixos_s - _exc_s - _total_ev_s, 2)
         projecao_saldo.append({
-            "label": _label_s,
-            "mes": _proj_mes_s,
+            "label": _label_s, "mes": _proj_mes_s,
             "renda": round(_renda_s, 2),
             "fixos": round(_fixos_s, 2),
             "parcelados": round(_total_pi_s, 2),
             "excedente": round(_exc_s, 2),
+            "ev_itens": _ev_itens_s,
+            "total_ev": round(_total_ev_s, 2),
             "saldo": _saldo_s,
             "is_atual": _st == 0,
+            "is_passado": _is_passado,
         })
+
+    # Andamento do Mês: gastos da casa selecionados com percentual
+    from datetime import date as _dt_and
+    import calendar as _cal_and
+    _hoje_and = _dt_and.today()
+    _dias_mes = _cal_and.monthrange(filter_year, filter_month)[1]
+    _dia_ref = min(_hoje_and.day, _dias_mes) if (filter_year == _hoje_and.year and filter_month == _hoje_and.month) else _dias_mes
+    _pct_mes_ideal = round(_dia_ref / _dias_mes * 100, 1)
+
+    andamento_mes = []
+    for hh in household_links:
+        exp = hh.expense
+        if not exp:
+            continue
+        entries_hh = CardEntry.query.filter(
+            CardEntry.expense_id == exp.id,
+            CardEntry.billing_month == _mes,
+            CardEntry.status == "ativo",
+        ).all()
+        spent_hh = sum(float(e.amount) for e in entries_hh)
+        planned_hh = float(exp.amount)
+        pct_gasto = round(spent_hh / planned_hh * 100, 1) if planned_hh > 0 else 0
+        andamento_mes.append({
+            "desc": exp.description,
+            "planned": planned_hh,
+            "spent": spent_hh,
+            "pct": pct_gasto,
+            "ok": pct_gasto <= _pct_mes_ideal + 5,
+        })
+    andamento_mes.sort(key=lambda x: x["pct"], reverse=True)
 
     return render_template("DASHBOARD/relatorio_membros.html",
                            mes_label=mes_label, mes=_mes,
@@ -605,7 +672,9 @@ def relatorio_membros():
                            saldo_final=saldo_final,
                            membros_detalhe=membros_detalhe,
                            projecao_12=projecao_12,
-                           projecao_saldo=projecao_saldo)
+                           projecao_saldo=projecao_saldo,
+                           andamento_mes=andamento_mes,
+                           pct_mes_ideal=_pct_mes_ideal)
 
 
 
