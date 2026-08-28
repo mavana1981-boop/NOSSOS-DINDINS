@@ -1,278 +1,531 @@
 {% extends "base.html" %}
-{% block title %}Parcelados Projetados{% endblock %}
+{% block title %}Fluxo de Caixa {{ year }}
+{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
-    <h1>📋 Parcelados Projetados</h1>
-    <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
+    <h1>Fluxo de Caixa</h1>
+    <p>Visão mês a mês de <strong>{{ year }}</strong></p>
   </div>
-  <a href="/fluxo/planejados/adicionar" class="btn btn-ghost btn-sm">➕ Adicionar parcela</a>
-  <a href="{{ url_for('cashflow.comparativo_parcelados') }}" class="btn btn-ghost btn-sm">🔍 Diagnóstico</a>
 </div>
 
-{% if not por_mes %}
-<div class="card text-center text-faint" style="padding:40px;">
-  Nenhuma parcela planejada.
+<!-- Navegação de ano + Atualizar -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <a href="{{ url_for('cashflow.index', year=year-1) }}" class="btn btn-ghost">← {{ year-1 }}</a>
+    <span style="font-size:1.1rem;font-weight:700;color:var(--accent);padding:0 4px;">{{ year }}</span>
+    <a href="{{ url_for('cashflow.index', year=year+1) }}" class="btn btn-ghost">{{ year+1 }} →</a>
+  </div>
+  <a href="{{ url_for('cashflow.index', year=year) }}" class="btn btn-primary" style="font-size:0.85rem;">
+    ↺ Atualizar fluxo
+  </a>
+  <form method="POST" action="{{ url_for('cashflow.limpar_excedentes') }}"
+        onsubmit="return confirm('Limpar todos os excedentes de cartão? Eles serão recalculados automaticamente.');">
+    <button class="btn btn-ghost" style="font-size:0.85rem;border:1px solid var(--red);color:var(--red);">
+      🗑 Limpar excedentes
+    </button>
+  </form>
 </div>
-{% else %}
-<form method="POST" action="{{ url_for('cashflow.delete_planejados_bulk') }}" id="bulk-form">
 
-  <!-- Barra de ações -->
-  <div class="card mb-3" style="background:var(--surface2);padding:12px 16px;">
-    <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
-      <div class="flex flex-gap" style="gap:12px;align-items:center;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
-          <input type="checkbox" id="select-all" onchange="toggleAll(this)" style="width:18px;height:18px;">
-          Todos
-        </label>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAllMonths(true)">▼ Expandir</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAllMonths(false)">▶ Recolher</button>
-      </div>
-      <div class="flex flex-gap" style="gap:8px;align-items:center;">
-        <span id="count-label" class="text-dim text-small">0 selecionado(s)</span>
-        <button type="submit" class="btn btn-sm"
-                style="background:var(--red);color:white;border:none;"
-                onclick="return confirmarExclusao()"
-                id="btn-delete-bulk" disabled>
-          🗑 Excluir selecionados
-        </button>
-      </div>
-    </div>
+<!-- 4 cards principais -->
+<div class="grid grid-4 mb-3">
+  <div class="card">
+    <div class="stat-label">Renda fixa — {{ current_month.month_name }}</div>
+    <div class="stat-value positive">{{ current_month.income_recurring|brl }}</div>
   </div>
-
-  {% set prev_year = namespace(v='') %}
-  {% for bm, items in por_mes.items() %}
-  {% set bm_year = bm[:4] %}
-  {% set total_mes = items | sum(attribute='amount') | float %}
-  {% set mes_id = bm | replace('-','') %}
-
-  {# Separador de ano #}
-  {% if bm_year != prev_year.v %}
-  {% set prev_year.v = bm_year %}
-  <div style="display:flex;align-items:center;gap:12px;margin:{% if loop.index > 1 %}28px{% else %}8px{% endif %} 0 10px;">
-    <div style="flex:1;height:2px;background:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};opacity:0.5;"></div>
-    <span style="font-size:1.1rem;font-weight:800;letter-spacing:2px;color:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};">{{ bm_year }}</span>
-    <div style="flex:1;height:2px;background:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};opacity:0.5;"></div>
+  <div class="card">
+    <div class="stat-label">Renda eventual — {{ current_month.month_name }}</div>
+    <div class="stat-value" style="color:var(--blue);">{{ current_month.income_eventual|brl }}</div>
   </div>
-  {% endif %}
-  {% set ultima_count = namespace(v=0) %}
-  {% for p in items %}{% if p.installment_no == p.installments %}{% set ultima_count.v = ultima_count.v + 1 %}{% endif %}{% endfor %}
-  <div class="card mb-2" style="border-left:3px solid {% if bm[:4] == '2026' %}var(--accent){% elif bm[:4] == '2027' %}var(--gold){% elif bm[:4] == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};">
-    <!-- Header colapsável -->
-    <div class="flex-between" style="cursor:pointer;padding:4px 0;"
-         onclick="toggleMes('{{ mes_id }}')">
-      <div class="flex flex-gap" style="align-items:center;gap:10px;">
-        <span id="icon-{{ mes_id }}">▶</span>
-        <strong>{{ bm }}</strong>
-        <span class="text-dim text-small">({{ items|length }} parcela(s)
-          {%- if ultima_count.v %} · <span style="color:var(--red);">{{ ultima_count.v }} última(s)</span>{% endif %})</span>
-      </div>
-      {% if total_mes > 5000 %}{% set cor_total = "#e07a30" %}
-      {% elif total_mes > 2000 %}{% set cor_total = "#c9a800" %}
-      {% else %}{% set cor_total = "#5a9e6f" %}{% endif %}
-      <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
-    </div>
+  <div class="card">
+    <div class="stat-label">Saldo — {{ current_month.month_name }}</div>
+    {% if current_month.net >= 0 %}
+    <div class="stat-value positive">{{ current_month.net|brl }}</div>
+    {% else %}
+    <div class="stat-value negative">{{ current_month.net|brl }}</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <div class="stat-label">Saldo do ano</div>
+    {% if saldo_ano >= 0 %}
+    <div class="stat-value positive">{{ saldo_ano|brl }}</div>
+    {% else %}
+    <div class="stat-value negative">{{ saldo_ano|brl }}</div>
+    {% endif %}
+    <div class="text-faint text-small">acumulado dez/{{ year }}</div>
+  </div>
+</div>
 
-    <!-- Conteúdo colapsável -->
-    <div id="mes-{{ mes_id }}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
-      <!-- Filtro por cartão -->
-      {% set cartoes_mes = items | map(attribute='card') | select | unique | list %}
-      {% if cartoes_mes | length > 1 %}
-      <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span class="text-small text-dim">Filtrar:</span>
-        <button type="button" class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;"
-                onclick="filtrarCartao('tbl-{{ mes_id }}', '', this)">Todos</button>
-        {% for card in cartoes_mes %}
-        {% if card %}
-        <button type="button" class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:4px;"
-                onclick="filtrarCartao('tbl-{{ mes_id }}', '{{ card.name }}', this)">
-          <span style="width:8px;height:8px;border-radius:50%;background:{{ card.color or '#6b8db5' }};display:inline-block;"></span>
-          {{ card.name }}
-        </button>
+<!-- Gráfico de barras -->
+<div class="card mt-2">
+  <div style="display:flex;gap:2px;align-items:flex-end;height:160px;padding:8px 0 0;">
+    {% for m in months %}
+    {% set inc_h = ((m.income / max_value * 100)|round)|int if max_value else 0 %}
+    {% set exp_h = ((m.total_expense / max_value * 100)|round)|int if max_value else 0 %}
+    {% set inc_rec_pct = ((m.income_recurring / m.income * 100)|round)|int if m.income > 0 else 100 %}
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="flex:1;width:100%;display:flex;flex-direction:row;align-items:flex-end;gap:1px;">
+        <!-- Barra de renda -->
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:130px;">
+          <div style="width:100%;height:{{ inc_h }}%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden;min-height:{{ 2 if inc_h > 0 else 0 }}px;"
+               title="Renda: {{ m.income|brl }}">
+            <div style="background:var(--blue);flex:{{ 100 - inc_rec_pct }};"></div>
+            <div style="background:var(--green);flex:{{ inc_rec_pct }};"></div>
+          </div>
+        </div>
+        <!-- Barra de gastos -->
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:130px;">
+          <div style="width:100%;height:{{ exp_h }}%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden;min-height:{{ 2 if exp_h > 0 else 0 }}px;"
+               title="Gastos: {{ m.total_expense|brl }}">
+            {% set fix_pct = ((m.fixed_expense / m.total_expense * 100)|round)|int if m.total_expense > 0 else 100 %}
+            <div style="background:var(--red);flex:{{ 100 - fix_pct }};"></div>
+            <div style="background:var(--gold);flex:{{ fix_pct }};"></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:0.6rem;color:var(--text-faint);text-align:center;padding-top:2px;white-space:nowrap;">{{ m.month_name }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="display:flex;gap:16px;margin-top:6px;font-size:0.72rem;color:var(--text-faint);">
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);display:inline-block;border-radius:2px;"></span>Renda fixa</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--blue);display:inline-block;border-radius:2px;"></span>Renda eventual</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--gold);display:inline-block;border-radius:2px;"></span>Fixos</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--red);display:inline-block;border-radius:2px;"></span>Eventuais</span>
+  </div>
+</div>
+
+<!-- Tabela detalhada -->
+<div class="card mt-3">
+  <div class="card-title">
+    <h3>Detalhamento mês a mês</h3>
+    <span class="text-faint text-small">clique = detalhar · duplo clique = editar</span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th class="text-right">Renda fixa</th>
+          <th class="text-right">Renda eventual</th>
+          <th class="text-right" style="background:rgba(100,200,100,0.12);font-weight:800;border-bottom:2px solid var(--green);">Total renda</th>
+          <th class="text-right">Fixos</th>
+          <th class="text-right">Eventuais</th>
+          <th class="text-right" style="background:rgba(200,100,100,0.12);font-weight:800;border-bottom:2px solid var(--red);">Total gasto</th>
+          <th class="text-right">Saldo</th>
+          <th class="text-right">Acumulado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in months %}
+        {% set is_current_mo = (m.month == current_month_num and year == current_month_year and not m.get('is_next_year')) %}
+        {% if m.is_next_year is defined and m.is_next_year %}
+        <tr style="border-top:2px dashed var(--border-strong);opacity:0.8;">
+          <td><strong>{{ m.month_name }}/{{ year + 1 }}</strong> <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
+        {% elif is_current_mo %}
+        <tr style="background:rgba(107,141,181,0.12);border-left:3px solid var(--accent);position:relative;">
+          <td><strong style="color:var(--accent);">{{ m.month_name }}/{{ year }}</strong>
+            <span style="font-size:0.6rem;background:var(--accent);color:white;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;">ATUAL</span>
+          </td>
+        {% else %}
+        <tr>
+          <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
         {% endif %}
-        {% endfor %}
-      </div>
-      {% endif %}
+          <td class="text-right amount cf-cell editable-cell" data-col="income_recurring" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="income_recurring" data-value="{{ m.income_recurring }}"
+              style="color:var(--green);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.income_recurring|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell editable-cell" data-col="income_eventual" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="income_eventual" data-value="{{ m.income_eventual }}"
+              style="color:var(--blue);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.income_eventual|brl }}</span>
+          </td>
+          <td class="text-right amount" style="color:var(--green);font-weight:800;background:rgba(100,200,100,0.08);padding:4px 8px;border-radius:4px;font-size:1.05em;">{{ m.income|brl }}</td>
+          <td class="text-right amount cf-cell editable-cell" data-col="fixed" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="fixed" data-value="{{ m.fixed_expense }}"
+              style="color:var(--gold);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.fixed_expense|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell editable-cell" data-col="eventual" data-idx="{{ loop.index0 }}"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="eventual" data-value="{{ m.eventual_expense }}"
+              style="color:var(--red);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
+          </td>
+          <td class="text-right amount" style="color:var(--red);font-weight:800;background:rgba(200,100,100,0.08);padding:4px 8px;border-radius:4px;font-size:1.05em;">{{ m.total_expense|brl }}</td>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}"{% if m.net_override is defined and m.net_override %} data-overridden="1"{% endif %} title="Duplo clique para editar / Clique para ver cálculo"
 
-      <table class="tbl" id="tbl-{{ mes_id }}">
-        <thead>
-          <tr>
-            <th style="width:32px;"></th>
-            <th class="th-sort" onclick="sortTable('tbl-{{ mes_id }}',1,this)">Descrição <span class="si">↕</span></th>
-            <th class="th-sort" style="text-align:center;" onclick="sortTable('tbl-{{ mes_id }}',2,this)">Parcela <span class="si">↕</span></th>
-            <th class="th-sort" onclick="sortTable('tbl-{{ mes_id }}',3,this)">Cartão <span class="si">↕</span></th>
-            <th class="th-sort text-right" onclick="sortTable('tbl-{{ mes_id }}',4,this)">Valor <span class="si">↕</span></th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for p in items %}
-        {% set is_ultima = p.installment_no == p.installments %}
-        <tr data-card="{{ p.card.name if p.card else '' }}"
-            {% if is_ultima %}style="background:rgba(255,80,80,0.08);color:var(--red);font-weight:600;"{% endif %}>
-          <td>
-            <input type="checkbox" name="ids" value="{{ p.id }}"
-                   class="item-check" onchange="atualizarContador()"
-                   style="width:16px;height:16px;cursor:pointer;">
+               data-mem="saldo">
+            {{ m.net|brl }}
           </td>
-          <td>
-            {{ p.description }}
-            {% if is_ultima %}<span class="badge" style="background:var(--red);color:white;font-size:0.6rem;padding:1px 5px;border-radius:4px;margin-left:4px;">ÚLTIMA</span>{% endif %}
-          </td>
-          <td style="text-align:center;">{{ p.installment_no }}/{{ p.installments }}</td>
-          <td>
-            {% if p.card %}
-            <span style="display:inline-flex;align-items:center;gap:5px;">
-              <span style="width:8px;height:8px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;flex-shrink:0;"></span>
-              {{ p.card.name }}
-            </span>
-            {% else %}<span class="text-faint">—</span>{% endif %}
-          </td>
-          <td class="text-right mono">{{ p.amount|brl }}</td>
-          <td>
-            <button type="button" class="btn btn-ghost btn-sm" style="color:var(--red);"
-                    onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}', this)">×</button>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
+               data-cum-month="{{ m.month_name }}"
+               data-mem="cum">
+            {{ m.cumulative|brl }}
           </td>
         </tr>
         {% endfor %}
-        </tbody>
-      </table>
-    </div>
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Ano</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income_recurring|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--blue);"><strong>{{ totals.income_eventual|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--gold);"><strong>{{ totals.fixed|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.eventual|brl }}</strong></td>
+          <td class="text-right amount text-dim"><strong>{{ totals.total_expense|brl }}</strong></td>
+          {% if totals.net >= 0 %}
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.net|brl }}</strong></td>
+          {% else %}
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.net|brl }}</strong></td>
+          {% endif %}
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
   </div>
-  {% endfor %}
-</form>
+</div>
 
-<style>
-.th-sort{cursor:pointer;user-select:none;white-space:nowrap}
-.th-sort:hover{color:var(--accent)}
-.si{font-size:.7rem;opacity:.5}
-.th-sort.asc .si::after{content:"↑"}
-.th-sort.desc .si::after{content:"↓"}
-.th-sort.asc .si,.th-sort.desc .si{opacity:1}
-</style>
+<!-- Modal de eventuais -->
+<div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;">Gastos eventuais</h3>
+      <button id="ev-close" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">x</button>
+    </div>
+    <table style="width:100%;">
+      <tbody id="ev-list"></tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Total</strong></td>
+          <td class="text-right mono" id="ev-total" style="color:var(--red);font-weight:700;"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- Modal memória de cálculo -->
+<div id="mem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <strong id="mem-title">Memória de cálculo</strong>
+      <button onclick="document.getElementById('mem-modal').style.display='none'"
+              style="background:none;border:none;font-size:1.4rem;cursor:pointer;">×</button>
+    </div>
+    <div id="mem-body"></div>
+    <button onclick="document.getElementById('mem-modal').style.display='none'"
+            class="btn btn-primary btn-sm" style="width:100%;margin-top:16px;">Fechar</button>
+  </div>
+</div>
+
 <script>
-function toggleMes(id){
-  const el=document.getElementById('mes-'+id);
-  const ic=document.getElementById('icon-'+id);
-  const open=el.style.display==='none';
-  el.style.display=open?'block':'none';
-  ic.textContent=open?'▼':'▶';
+var CASHFLOW_YEAR = {{ year }};
+
+// Edição inline — duplo clique em qualquer célula editável
+// Modal de memória de cálculo — Saldo
+// Lê os valores diretamente das células da mesma linha (mais confiável que data-attrs)
+function mostrarMemoria(td) {
+  try {
+    var row = td.closest('tr');
+    function cellVal(col) {
+      var cell = row.querySelector('[data-col="' + col + '"]');
+      if (!cell) return 0;
+      var v = parseFloat(cell.getAttribute('data-value') || '0');
+      return isNaN(v) ? 0 : v;
+    }
+    var rf = cellVal('income_recurring');
+    var re = cellVal('income_eventual');
+    var gf = cellVal('fixed');
+    var ge = cellVal('eventual');
+    var netExibido = parseFloat(td.getAttribute('data-value') || '0');
+    var netCalc = Math.round((rf + re - gf - ge) * 100) / 100;
+    var isOverride = Math.abs(netCalc - netExibido) > 0.05;
+
+    var html = '<div style="font-size:0.9rem;line-height:2;">';
+    html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda fixa</span><span class="mono" style="color:var(--green);">' + fmtBRL(rf) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(re) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(gf) + '</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(ge) + '</span></div>';
+    if (isOverride) {
+      html += '<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;color:var(--text-dim);">';
+      html += '<span>= Calculado</span><span class="mono">' + fmtBRL(netCalc) + '</span></div>';
+      var ajuste = netExibido - netCalc;
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;color:var(--gold);font-size:0.8rem;gap:8px;">';
+      html += '<span>± Ajuste manual: <strong>' + fmtBRL(ajuste) + '</strong></span>';
+      var yr = td.getAttribute("data-year") || '';
+      var mo = td.getAttribute("data-month") || '';
+      html += '<button onclick="limparAjuste(this,' + yr + ',' + mo + ')" style="font-size:0.7rem;background:none;border:1px solid var(--gold);color:var(--gold);border-radius:4px;padding:2px 6px;cursor:pointer;">✕ Limpar</button>';
+      html += '</div>';
+    }
+    html += '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">';
+    html += '<span>= Saldo</span><span class="mono" style="color:' + (netExibido >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(netExibido) + '</span></div>';
+    html += '</div>';
+
+    document.getElementById('mem-body').innerHTML = html;
+    document.getElementById('mem-title').textContent = 'Memória: Saldo';
+    document.getElementById('mem-modal').style.display = 'flex';
+  } catch(e) { console.error('mostrarMemoria:', e); }
 }
-function toggleAllMonths(expand){
-  document.querySelectorAll('[id^="mes-"]').forEach(el=>{
-    const id=el.id.replace('mes-','');
-    el.style.display=expand?'block':'none';
-    document.getElementById('icon-'+id).textContent=expand?'▼':'▶';
-  });
+
+// Modal de memória — Acumulado
+function mostrarMemoriaCum(td) {
+  var cum = parseFloat(td.getAttribute('data-value') || '0');
+  var mes = td.getAttribute('data-cum-month') || '';
+  var html =
+    '<div style="font-size:0.9rem;line-height:2;">' +
+    '<div>Soma dos saldos de janeiro até <strong>' + mes + '</strong>.</div>' +
+    '<div style="border-top:2px solid var(--border);margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
+    '<span>= Acumulado</span><span class="mono" style="color:' + (cum >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(cum) + '</span></div>' +
+    '</div>';
+  document.getElementById('mem-body').innerHTML = html;
+  document.getElementById('mem-title').textContent = 'Memória: Acumulado';
+  document.getElementById('mem-modal').style.display = 'flex';
 }
-function toggleAll(cb){
-  document.querySelectorAll('.item-check').forEach(c=>c.checked=cb.checked);
-  atualizarContador();
-}
-function atualizarContador(){
-  const n=document.querySelectorAll('.item-check:checked').length;
-  const t=document.querySelectorAll('.item-check').length;
-  document.getElementById('count-label').textContent=n+' selecionado(s)';
-  document.getElementById('btn-delete-bulk').disabled=n===0;
-  const sa=document.getElementById('select-all');
-  sa.indeterminate=n>0&&n<t;sa.checked=n>0&&n===t;
-}
-function confirmarExclusao(){
-  return confirm('Excluir '+document.querySelectorAll('.item-check:checked').length+' item(s) da projeção?');
-}
-function excluirUm(id, desc, btn) {
-  if (!confirm('Excluir "' + desc + '" da projeção?')) return;
-  btn.disabled = true;
-  btn.textContent = '...';
+
+function limparAjuste(btn, year, month) {
+  if (!confirm('Remover ajuste manual de ' + month + '/' + year + '? O saldo voltará ao valor calculado.')) return;
   var fd = new FormData();
-  fetch('/fluxo/planejados/' + id + '/delete', {
-    method: 'POST', body: fd, credentials: 'same-origin'
-  }).then(function(r) {
-    if (r.ok || r.redirected) {
-      // Remover a linha da tabela sem recarregar
-      var row = btn.closest('tr');
-      var tbody = row ? row.closest('tbody') : null;
-      if (row) row.remove();
-      // Se tbody ficou vazio, ocultar o card do mês
-      if (tbody && tbody.querySelectorAll('tr').length === 0) {
-        var card = tbody.closest('.card');
-        if (card) card.style.display = 'none';
+  fd.append('year', year);
+  fd.append('month', month);
+  fd.append('field', 'net');
+  fetch('/fluxo/limpar-override', {method:'POST', body:fd, credentials:'same-origin'})
+    .then(r => r.json()).then(d => {
+      if (d.ok) { document.getElementById('mem-modal').style.display='none'; window.location.reload(); }
+    });
+}
+
+function fmtBRL(v) {
+  return 'R$ ' + (parseFloat(v) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function getVal(row, col) {
+  var cell = row.querySelector('[data-col="' + col + '"]');
+  return cell ? (parseFloat(cell.getAttribute('data-value')) || 0) : 0;
+}
+
+function setVal(row, col, val) {
+  var cell = row.querySelector('[data-col="' + col + '"]');
+  if (!cell) return;
+  cell.setAttribute('data-value', val);
+  cell.textContent = (val >= 0 ? '' : '-') + 'R$ ' + Math.abs(val).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  cell.style.color = col === 'net' ? (val >= 0 ? 'var(--green)' : 'var(--red)') :
+                     col === 'cumulative' ? (val >= 0 ? 'var(--green)' : 'var(--red)') : '';
+}
+
+function recalcularTabela() {
+  var rows = document.querySelectorAll('tbody tr');
+  var cumAcc = 0;
+
+  rows.forEach(function(row) {
+    var netCell = row.querySelector('[data-field="net"]');
+    var cumCell = row.querySelector('[data-field="cumulative"]');
+    if (!netCell || !cumCell) return;
+
+    // Calcular saldo da linha (salvo ou calculado)
+    var netVal;
+    if (netCell.getAttribute('data-overridden')) {
+      netVal = parseFloat(netCell.getAttribute('data-value') || '0');
+    } else {
+      var rf = getVal(row, 'income_recurring');
+      var re = getVal(row, 'income_eventual');
+      var gf = getVal(row, 'fixed');
+      var ge = getVal(row, 'eventual');
+      netVal = Math.round((rf + re - gf - ge) * 100) / 100;
+      // Atualizar display do saldo se mudou
+      if (Math.abs(netVal - parseFloat(netCell.getAttribute('data-value')||'0')) > 0.01) {
+        netCell.setAttribute('data-value', netVal);
+        var nc = netVal >= 0 ? 'var(--green)' : 'var(--red)';
+        netCell.innerHTML = '<span style="color:' + nc + ';font-weight:700;">' +
+          (netVal < 0 ? '-' : '') + 'R$ ' + Math.abs(netVal).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
       }
-      // Atualizar total do mês
-      atualizarTotalMes(btn);
-    } else {
-      btn.disabled = false;
-      btn.textContent = '×';
     }
-  }).catch(function() {
-    btn.disabled = false;
-    btn.textContent = '×';
-  });
-}
 
-function atualizarTotalMes(el) {
-  // Recalcular total do mês após exclusão
-  var card = el ? el.closest('.card') : null;
-  if (!card) return;
-  var rows = card.querySelectorAll('tbody tr');
-  var total = 0;
-  rows.forEach(function(r) {
-    var amtCell = r.querySelector('.mono');
-    if (amtCell) {
-      var txt = amtCell.textContent.replace(/[^0-9,]/g,'').replace(',','.');
-      total += parseFloat(txt) || 0;
-    }
-  });
-  var totalEl = card.querySelector('[data-total-mes]');
-  if (totalEl) {
-    totalEl.textContent = 'R$ ' + total.toLocaleString('pt-BR',{minimumFractionDigits:2});
-  }
-}
-function filtrarCartao(tblId, cardName, btn) {
-  // Destacar botão ativo
-  var container = btn.parentElement;
-  container.querySelectorAll('.filtro-card').forEach(function(b) {
-    b.style.borderColor = '';
-    b.style.color = '';
-  });
-  if (cardName) {
-    btn.style.borderColor = 'var(--accent)';
-    btn.style.color = 'var(--accent)';
-  }
-  // Filtrar linhas
-  var tbl = document.getElementById(tblId);
-  if (!tbl) return;
-  tbl.querySelectorAll('tbody tr').forEach(function(row) {
-    if (!cardName || row.getAttribute('data-card') === cardName) {
-      row.style.display = '';
+    // Acumulado: se override, usar esse valor E redefinir o cumAcc
+    if (cumCell.getAttribute('data-overridden')) {
+      cumAcc = parseFloat(cumCell.getAttribute('data-value') || '0');
+      // não altera o display — o valor override é o que vale
     } else {
-      row.style.display = 'none';
+      cumAcc = Math.round((cumAcc + netVal) * 100) / 100;
+      cumCell.setAttribute('data-value', cumAcc);
+      var cc = cumAcc >= 0 ? 'var(--green)' : 'var(--red)';
+      cumCell.innerHTML = '<span style="color:' + cc + ';">' +
+        (cumAcc < 0 ? '-' : '') + 'R$ ' + Math.abs(cumAcc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
     }
   });
 }
 
-function sortTable(tblId,col,th){
-  const tbl=document.getElementById(tblId);
-  if(!tbl)return;
-  const tbody=tbl.querySelector('tbody');
-  const rows=Array.from(tbody.querySelectorAll('tr'));
-  const asc=!th.classList.contains('asc');
-  tbl.querySelectorAll('.th-sort').forEach(t=>t.classList.remove('asc','desc'));
-  th.classList.add(asc?'asc':'desc');
-  rows.sort((a,b)=>{
-    const ca=a.children[col]?.innerText.trim()||'';
-    const cb=b.children[col]?.innerText.trim()||'';
-    const na=parseFloat(ca.replace(/[^\d,]/g,'').replace(',','.'));
-    const nb=parseFloat(cb.replace(/[^\d,]/g,'').replace(',','.'));
-    if(!isNaN(na)&&!isNaN(nb))return asc?na-nb:nb-na;
-    const pa=parseInt(ca.split('/')[0])||0;
-    const pb=parseInt(cb.split('/')[0])||0;
-    if(ca.includes('/')&&cb.includes('/'))return asc?pa-pb:pb-pa;
-    return asc?ca.localeCompare(cb,'pt'):cb.localeCompare(ca,'pt');
+function abrirEdicao(td) {
+  if (td.querySelector('input')) return;
+  var val = td.getAttribute('data-value') || '0';
+  var numVal = parseFloat(val).toFixed(2).replace('.', ',');
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.value = numVal;
+  input.style.cssText = 'width:100%;text-align:right;background:var(--bg);border:2px solid var(--accent);border-radius:4px;padding:2px 4px;color:inherit;font-family:inherit;font-size:inherit;';
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  function salvar() {
+    var raw = input.value.trim();
+    // Normalizar para formato BR antes de enviar ao Python:
+    // "1000.50" (US) → "1000,50" | "1.000,50" (BR) → "1000,50" | "1000" → "1000"
+    var v;
+    if (raw.indexOf(',') > -1) {
+      // Tem vírgula: ponto é separador de milhar → remover pontos
+      v = raw.replace(/[.]/g, '');   // "1.000,50" → "1000,50"
+    } else if (raw.indexOf('.') > -1) {
+      // Só tem ponto: é decimal americano → converter para vírgula
+      v = raw.replace('.', ',');    // "1000.50" → "1000,50"
+    } else {
+      v = raw;                       // "1000" → "1000"
+    }
+    var fd = new FormData();
+    fd.append('year', td.getAttribute('data-year'));
+    fd.append('month', td.getAttribute('data-month'));
+    fd.append('field', td.getAttribute('data-field'));
+    fd.append('value', v);
+    fetch('/fluxo/ajustar', {method:'POST', body:fd, credentials:'same-origin'})
+      .then(function(r) {
+        var ct = r.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          if (r.status === 401 || r.url.includes('login')) {
+            alert('Sessão expirada. Faça login novamente.');
+            window.location.href = '/login';
+          } else {
+            r.text().then(function(t) { alert('Erro do servidor: ' + t.substring(0,200)); });
+          }
+          return null;
+        }
+        return r.json();
+      })
+      .then(function(j) {
+        if (!j) return;
+        if (j.ok) {
+          // Atualizar data-value da célula editada e marcar como override
+          var numVal = parseFloat(v.replace(/[.]/g,'').replace(',','.')) || 0;
+          td.setAttribute('data-value', numVal);
+          td.setAttribute('data-overridden', '1');
+          td.innerHTML = fmtBRL(numVal);
+          // Recalcular Saldo e Acumulado inline
+          recalcularTabela();
+        }
+        else if (j.error === 'sessao_expirada') {
+          alert('Sessão expirada. Faça login novamente.');
+          window.location.href = '/auth/login';
+        }
+        else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); }
+      })
+      .catch(function(err) { alert('Falha de rede: ' + err); });
+  }
+  input.addEventListener('blur', salvar);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { window.location.reload(); }
   });
-  rows.forEach(r=>tbody.appendChild(r));
 }
+
+// Clique simples = memória (saldo/acumulado) ou detalhe (cf-cell)
+// Duplo clique = editar qualquer célula editável
+document.querySelectorAll('.editable-cell').forEach(function(td) {
+  var clickTimer = null;
+
+  td.addEventListener('click', function(e) {
+    if (td.querySelector('input')) return; // já em edição
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(function() {
+      // Clique simples: só abre memória (não edita)
+      if (td.getAttribute('data-mem') === 'saldo') mostrarMemoria(td);
+      else if (td.getAttribute('data-mem') === 'cum') mostrarMemoriaCum(td);
+      // cf-cell: abre modal de itens — tratado pelo listener da .cf-cell abaixo
+    }, 220);
+  });
+
+  td.addEventListener('dblclick', function(e) {
+    e.stopPropagation();
+    clearTimeout(clickTimer); // cancelar clique simples
+    abrirEdicao(td);          // editar
+  });
+});
+// Fechar modal de memória clicando fora
+var _mm = document.getElementById('mem-modal');
+if (_mm) _mm.addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
+
+document.getElementById('ev-close').addEventListener('click', function() {
+  document.getElementById('ev-modal').style.display = 'none';
+});
+
+document.getElementById('ev-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
+
+var COL_LABELS = {
+  "income_recurring": {title: "Renda fixa", color: "var(--green)"},
+  "income_eventual":  {title: "Renda eventual", color: "var(--blue)"},
+  "fixed":            {title: "Gastos fixos", color: "var(--gold)"},
+  "eventual":         {title: "Gastos eventuais", color: "var(--red)"},
+};
+
+document.querySelectorAll('.cf-cell').forEach(function(td) {
+  td.addEventListener('click', function() {
+    if (td.querySelector('input')) return;
+    // cf-cell single click: só abre modal se NÃO for duplo clique (timer)
+    // O timer de 220ms no editable-cell acima já garante isso // em edição, ignora
+    var col = td.getAttribute('data-col');
+    var idx = parseInt(td.getAttribute('data-idx') || '0');
+    var meta = COL_LABELS[col] || {title: col, color: 'inherit'};
+    fetch('/fluxo/items-json?year=' + CASHFLOW_YEAR + '&col=' + col)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var items = data[idx] || [];
+        var list = document.getElementById('ev-list');
+        var total = document.getElementById('ev-total');
+        document.getElementById('ev-modal').querySelector('h3').textContent = meta.title;
+        list.innerHTML = '';
+        var sum = 0;
+        items.forEach(function(item) {
+          sum += item.amount;
+          var tr = document.createElement('tr');
+          tr.style.borderTop = '1px solid var(--border)';
+          var td1 = document.createElement('td'); td1.style.padding = '6px 4px'; td1.textContent = item.desc;
+          var td2 = document.createElement('td'); td2.className = 'text-right mono';
+          td2.style.padding = '6px 4px'; td2.style.color = meta.color;
+          td2.textContent = item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2});
+          var td3 = document.createElement('td'); td3.style.padding = '2px';
+          if (item._block_key) {
+            var btn = document.createElement('button');
+            btn.textContent = '×';
+            btn.title = 'Excluir da projeção';
+            btn.style.cssText = 'background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 4px;';
+            btn.onclick = function() {
+              fetch('/fluxo/bloquear-projecao', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(item._block_key),
+                credentials: 'same-origin'
+              }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d.ok) { tr.style.opacity='0.3'; btn.textContent='✓'; btn.disabled=true; }
+              });
+            };
+            td3.appendChild(btn);
+          }
+          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); list.appendChild(tr);
+        });
+        total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2});
+        var modal = document.getElementById('ev-modal');
+        modal.style.display = 'flex';
+        modal.onclick = function(e) { if(e.target===modal) modal.style.display='none'; };
+      });
+  });
+});
 </script>
-{% endif %}
+
 {% endblock %}
