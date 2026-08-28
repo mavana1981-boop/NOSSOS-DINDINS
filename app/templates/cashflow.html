@@ -1,659 +1,278 @@
-from datetime import date
-from flask import Blueprint, render_template, request, flash, redirect, url_for
-from flask_login import login_required, current_user
-from app.utils import get_yearly_cashflow
-from app import db
+{% extends "base.html" %}
+{% block title %}Parcelados Projetados{% endblock %}
+{% block content %}
 
-cashflow_bp = Blueprint("cashflow", __name__)
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>📋 Parcelados Projetados</h1>
+    <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
+  </div>
+  <a href="/fluxo/planejados/adicionar" class="btn btn-ghost btn-sm">➕ Adicionar parcela</a>
+  <a href="{{ url_for('cashflow.comparativo_parcelados') }}" class="btn btn-ghost btn-sm">🔍 Diagnóstico</a>
+</div>
 
+{% if not por_mes %}
+<div class="card text-center text-faint" style="padding:40px;">
+  Nenhuma parcela planejada.
+</div>
+{% else %}
+<form method="POST" action="{{ url_for('cashflow.delete_planejados_bulk') }}" id="bulk-form">
 
-def _limpar_excedentes_invalidos():
-    from app.models import Expense, ExpenseShare
-    try:
-        todos = Expense.query.filter(
-            Expense.description.like("% - excedente %"),
-            Expense.kind == "pontual"
-        ).order_by(Expense.id).all()
-        seen = {}
-        for exp in todos:
-            key = (exp.payer_id, exp.description, exp.spent_at.year, exp.spent_at.month)
-            if key in seen:
-                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                db.session.delete(exp)
-            else:
-                seen[key] = exp.id
-        todos2 = Expense.query.filter(
-            Expense.description.like("% - excedente %"),
-            Expense.kind == "pontual"
-        ).all()
-        for exp in todos2:
-            parts = exp.description.split(" - excedente ")
-            if len(parts) < 2:
-                continue
-            nome_base = parts[0].strip()
-            original = Expense.query.filter(
-                Expense.payer_id == exp.payer_id,
-                Expense.description == nome_base,
-                Expense.id != exp.id
-            ).first()
-            if not original:
-                ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-                db.session.delete(exp)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        print(f"[cashflow] erro limpeza excedentes: {e}")
+  <!-- Barra de ações -->
+  <div class="card mb-3" style="background:var(--surface2);padding:12px 16px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+      <div class="flex flex-gap" style="gap:12px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+          <input type="checkbox" id="select-all" onchange="toggleAll(this)" style="width:18px;height:18px;">
+          Todos
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAllMonths(true)">▼ Expandir</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAllMonths(false)">▶ Recolher</button>
+      </div>
+      <div class="flex flex-gap" style="gap:8px;align-items:center;">
+        <span id="count-label" class="text-dim text-small">0 selecionado(s)</span>
+        <button type="submit" class="btn btn-sm"
+                style="background:var(--red);color:white;border:none;"
+                onclick="return confirmarExclusao()"
+                id="btn-delete-bulk" disabled>
+          🗑 Excluir selecionados
+        </button>
+      </div>
+    </div>
+  </div>
 
+  {% set prev_year = namespace(v='') %}
+  {% for bm, items in por_mes.items() %}
+  {% set bm_year = bm[:4] %}
+  {% set total_mes = items | sum(attribute='amount') | float %}
+  {% set mes_id = bm | replace('-','') %}
 
-@cashflow_bp.route("/")
-@login_required
-def index():
-    db.session.remove()
-    db.session.expire_all() if hasattr(db.session, "expire_all") else None
-    year = request.args.get("year", type=int) or date.today().year
-    _limpar_excedentes_invalidos()
-    months = get_yearly_cashflow(current_user.id, year)
+  {# Separador de ano #}
+  {% if bm_year != prev_year.v %}
+  {% set prev_year.v = bm_year %}
+  <div style="display:flex;align-items:center;gap:12px;margin:{% if loop.index > 1 %}28px{% else %}8px{% endif %} 0 10px;">
+    <div style="flex:1;height:2px;background:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};opacity:0.5;"></div>
+    <span style="font-size:1.1rem;font-weight:800;letter-spacing:2px;color:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};">{{ bm_year }}</span>
+    <div style="flex:1;height:2px;background:{% if bm_year == '2026' %}var(--accent){% elif bm_year == '2027' %}var(--gold){% elif bm_year == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};opacity:0.5;"></div>
+  </div>
+  {% endif %}
+  {% set ultima_count = namespace(v=0) %}
+  {% for p in items %}{% if p.installment_no == p.installments %}{% set ultima_count.v = ultima_count.v + 1 %}{% endif %}{% endfor %}
+  <div class="card mb-2" style="border-left:3px solid {% if bm[:4] == '2026' %}var(--accent){% elif bm[:4] == '2027' %}var(--gold){% elif bm[:4] == '2028' %}#7ea66b{% else %}var(--text-dim){% endif %};">
+    <!-- Header colapsável -->
+    <div class="flex-between" style="cursor:pointer;padding:4px 0;"
+         onclick="toggleMes('{{ mes_id }}')">
+      <div class="flex flex-gap" style="align-items:center;gap:10px;">
+        <span id="icon-{{ mes_id }}">▶</span>
+        <strong>{{ bm }}</strong>
+        <span class="text-dim text-small">({{ items|length }} parcela(s)
+          {%- if ultima_count.v %} · <span style="color:var(--red);">{{ ultima_count.v }} última(s)</span>{% endif %})</span>
+      </div>
+      {% if total_mes > 5000 %}{% set cor_total = "#e07a30" %}
+      {% elif total_mes > 2000 %}{% set cor_total = "#c9a800" %}
+      {% else %}{% set cor_total = "#5a9e6f" %}{% endif %}
+      <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
+    </div>
 
-    jan_next = get_yearly_cashflow(current_user.id, year + 1)
-    if jan_next:
-        jan = dict(jan_next[0])
-        jan["is_next_year"] = True
-        if "eventual_items" not in jan:
-            jan["eventual_items"] = []
-        dec_cumulative = months[-1]["cumulative"] if months else 0.0
-        jan["cumulative"] = dec_cumulative + jan["net"]
-        months = months + [jan]
+    <!-- Conteúdo colapsável -->
+    <div id="mes-{{ mes_id }}" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+      <!-- Filtro por cartão -->
+      {% set cartoes_mes = items | map(attribute='card') | select | unique | list %}
+      {% if cartoes_mes | length > 1 %}
+      <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="text-small text-dim">Filtrar:</span>
+        <button type="button" class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;"
+                onclick="filtrarCartao('tbl-{{ mes_id }}', '', this)">Todos</button>
+        {% for card in cartoes_mes %}
+        {% if card %}
+        <button type="button" class="btn btn-ghost btn-sm filtro-card" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:4px;"
+                onclick="filtrarCartao('tbl-{{ mes_id }}', '{{ card.name }}', this)">
+          <span style="width:8px;height:8px;border-radius:50%;background:{{ card.color or '#6b8db5' }};display:inline-block;"></span>
+          {{ card.name }}
+        </button>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
 
-    months12 = months[:12]
-    totals = {
-        "income":           sum(m["income"] for m in months12),
-        "income_recurring": sum(m["income_recurring"] for m in months12),
-        "income_eventual":  sum(m["income_eventual"] for m in months12),
-        "fixed":            sum(m["fixed_expense"] for m in months12),
-        "eventual":         sum(m["eventual_expense"] for m in months12),
-        "net":              sum(m["net"] for m in months12),
+      <table class="tbl" id="tbl-{{ mes_id }}">
+        <thead>
+          <tr>
+            <th style="width:32px;"></th>
+            <th class="th-sort" onclick="sortTable('tbl-{{ mes_id }}',1,this)">Descrição <span class="si">↕</span></th>
+            <th class="th-sort" style="text-align:center;" onclick="sortTable('tbl-{{ mes_id }}',2,this)">Parcela <span class="si">↕</span></th>
+            <th class="th-sort" onclick="sortTable('tbl-{{ mes_id }}',3,this)">Cartão <span class="si">↕</span></th>
+            <th class="th-sort text-right" onclick="sortTable('tbl-{{ mes_id }}',4,this)">Valor <span class="si">↕</span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in items %}
+        {% set is_ultima = p.installment_no == p.installments %}
+        <tr data-card="{{ p.card.name if p.card else '' }}"
+            {% if is_ultima %}style="background:rgba(255,80,80,0.08);color:var(--red);font-weight:600;"{% endif %}>
+          <td>
+            <input type="checkbox" name="ids" value="{{ p.id }}"
+                   class="item-check" onchange="atualizarContador()"
+                   style="width:16px;height:16px;cursor:pointer;">
+          </td>
+          <td>
+            {{ p.description }}
+            {% if is_ultima %}<span class="badge" style="background:var(--red);color:white;font-size:0.6rem;padding:1px 5px;border-radius:4px;margin-left:4px;">ÚLTIMA</span>{% endif %}
+          </td>
+          <td style="text-align:center;">{{ p.installment_no }}/{{ p.installments }}</td>
+          <td>
+            {% if p.card %}
+            <span style="display:inline-flex;align-items:center;gap:5px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:{{ p.card.color or '#6b8db5' }};display:inline-block;flex-shrink:0;"></span>
+              {{ p.card.name }}
+            </span>
+            {% else %}<span class="text-faint">—</span>{% endif %}
+          </td>
+          <td class="text-right mono">{{ p.amount|brl }}</td>
+          <td>
+            <button type="button" class="btn btn-ghost btn-sm" style="color:var(--red);"
+                    onclick="excluirUm({{ p.id }}, '{{ p.description }} {{ p.installment_no }}/{{ p.installments }}', this)">×</button>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+</form>
+
+<style>
+.th-sort{cursor:pointer;user-select:none;white-space:nowrap}
+.th-sort:hover{color:var(--accent)}
+.si{font-size:.7rem;opacity:.5}
+.th-sort.asc .si::after{content:"↑"}
+.th-sort.desc .si::after{content:"↓"}
+.th-sort.asc .si,.th-sort.desc .si{opacity:1}
+</style>
+<script>
+function toggleMes(id){
+  const el=document.getElementById('mes-'+id);
+  const ic=document.getElementById('icon-'+id);
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  ic.textContent=open?'▼':'▶';
+}
+function toggleAllMonths(expand){
+  document.querySelectorAll('[id^="mes-"]').forEach(el=>{
+    const id=el.id.replace('mes-','');
+    el.style.display=expand?'block':'none';
+    document.getElementById('icon-'+id).textContent=expand?'▼':'▶';
+  });
+}
+function toggleAll(cb){
+  document.querySelectorAll('.item-check').forEach(c=>c.checked=cb.checked);
+  atualizarContador();
+}
+function atualizarContador(){
+  const n=document.querySelectorAll('.item-check:checked').length;
+  const t=document.querySelectorAll('.item-check').length;
+  document.getElementById('count-label').textContent=n+' selecionado(s)';
+  document.getElementById('btn-delete-bulk').disabled=n===0;
+  const sa=document.getElementById('select-all');
+  sa.indeterminate=n>0&&n<t;sa.checked=n>0&&n===t;
+}
+function confirmarExclusao(){
+  return confirm('Excluir '+document.querySelectorAll('.item-check:checked').length+' item(s) da projeção?');
+}
+function excluirUm(id, desc, btn) {
+  if (!confirm('Excluir "' + desc + '" da projeção?')) return;
+  btn.disabled = true;
+  btn.textContent = '...';
+  var fd = new FormData();
+  fetch('/fluxo/planejados/' + id + '/delete', {
+    method: 'POST', body: fd, credentials: 'same-origin'
+  }).then(function(r) {
+    if (r.ok || r.redirected) {
+      // Remover a linha da tabela sem recarregar
+      var row = btn.closest('tr');
+      var tbody = row ? row.closest('tbody') : null;
+      if (row) row.remove();
+      // Se tbody ficou vazio, ocultar o card do mês
+      if (tbody && tbody.querySelectorAll('tr').length === 0) {
+        var card = tbody.closest('.card');
+        if (card) card.style.display = 'none';
+      }
+      // Atualizar total do mês
+      atualizarTotalMes(btn);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '×';
     }
-    totals["total_expense"] = totals["fixed"] + totals["eventual"]
-    max_value = max(
-        max((m["income"] for m in months), default=0),
-        max((m["total_expense"] for m in months), default=0),
-        1,
-    )
-    # Dados do mês atual para os cards — usa primeiro mês aberto (não fechado)
-    today = date.today()
-    from app.utils import get_open_billing_month as _gobm_cf
-    _mes_aberto = _gobm_cf(current_user.id, today.strftime("%Y-%m"))
-    _aberto_yr = int(_mes_aberto[:4])
-    _aberto_mo = int(_mes_aberto[5:7])
-    if _aberto_yr == year:
-        current_month = next(
-            (m for m in months if m["month"] == _aberto_mo and not m.get("is_next_year")),
-            months[0] if months else {}
-        )
-    else:
-        # Mês aberto está em outro ano (ex: janeiro do próximo ano)
-        current_month = next(
-            (m for m in months if m.get("is_next_year") and m["month"] == _aberto_mo),
-            months[0] if months else {}
-        )
-    # Saldo do ano = acumulado de dezembro
-    dec = next((m for m in months12 if m["month"] == 12), months12[-1] if months12 else {})
+  }).catch(function() {
+    btn.disabled = false;
+    btn.textContent = '×';
+  });
+}
 
-    return render_template("cashflow.html",
-                           year=year, months=months, totals=totals,
-                           max_value=max_value,
-                           current_year=today.year,
-                           current_month=current_month,
-                           current_month_num=_aberto_mo,
-                           current_month_year=_aberto_yr,
-                           saldo_ano=dec.get("cumulative", 0))
-
-
-@cashflow_bp.route("/ajustar", methods=["POST"])
-def ajustar():
-    """Salva ajuste manual de qualquer coluna do fluxo."""
-    from flask import request as req, jsonify
-    from app.models import CashflowOverride
-    from decimal import Decimal, InvalidOperation
-    if not current_user.is_authenticated:
-        return jsonify({"ok": False, "error": "sessao_expirada"}), 401
-    year  = req.form.get("year", type=int)
-    month = req.form.get("month", type=int)
-    field = req.form.get("field")
-    value = req.form.get("value", "").strip()
-
-    def parse(s):
-        try:
-            return Decimal(str(s).replace(".", "").replace(",", "."))
-        except (InvalidOperation, ValueError):
-            return None
-
-    v = parse(value)
-    override = CashflowOverride.query.filter_by(
-        user_id=current_user.id, year=year, month=month
-    ).first()
-    if override is None:
-        override = CashflowOverride(user_id=current_user.id, year=year, month=month)
-        db.session.add(override)
-
-    field_map = {
-        "net":              "net_override",
-        "cumulative":       "cumulative_override",
-        "income_recurring": "income_recurring_override",
-        "income_eventual":  "income_eventual_override",
-        "fixed":            "fixed_override",
-        "eventual":         "eventual_override",
+function atualizarTotalMes(el) {
+  // Recalcular total do mês após exclusão
+  var card = el ? el.closest('.card') : null;
+  if (!card) return;
+  var rows = card.querySelectorAll('tbody tr');
+  var total = 0;
+  rows.forEach(function(r) {
+    var amtCell = r.querySelector('.mono');
+    if (amtCell) {
+      var txt = amtCell.textContent.replace(/[^0-9,]/g,'').replace(',','.');
+      total += parseFloat(txt) || 0;
     }
-    col = field_map.get(field)
-    if col:
-        setattr(override, col, v)
-
-    try:
-        db.session.commit()
-        return jsonify({"ok": True})
-    except Exception as e:
-        db.session.rollback()
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
-
-
-@cashflow_bp.route("/limpar-override", methods=["POST"])
-@login_required
-def limpar_override():
-    """Remove o override manual de um mês/coluna específico."""
-    from flask import request as req, jsonify
-    from app.models import CashflowOverride
-    year  = req.form.get("year", type=int)
-    month = req.form.get("month", type=int)
-    field = req.form.get("field", "net")
-    override = CashflowOverride.query.filter_by(
-        user_id=current_user.id, year=year, month=month
-    ).first()
-    if override:
-        field_map = {
-            "net": "net_override", "cumulative": "cumulative_override",
-            "income_recurring": "income_recurring_override",
-            "income_eventual": "income_eventual_override",
-            "fixed": "fixed_override", "eventual": "eventual_override",
-        }
-        col = field_map.get(field)
-        if col:
-            setattr(override, col, None)
-        db.session.commit()
-    return jsonify({"ok": True})
-
-
-@cashflow_bp.route("/debug-tudo")
-@login_required
-def debug_tudo():
-    from flask import jsonify
-    from app.models import Income, Expense, CardEntry, Card
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        users   = conn.execute(text("SELECT id, username FROM users")).fetchall()
-        incomes = conn.execute(text("SELECT COUNT(*) FROM incomes")).fetchone()[0]
-        expenses= conn.execute(text("SELECT COUNT(*) FROM expenses")).fetchone()[0]
-        cards   = conn.execute(text("SELECT COUNT(*) FROM cards")).fetchone()[0]
-        entries = conn.execute(text("SELECT COUNT(*) FROM card_entries")).fetchone()[0]
-    my_incomes  = Income.query.filter_by(user_id=current_user.id).count()
-    my_expenses = Expense.query.filter_by(payer_id=current_user.id).count()
-    return jsonify({
-        "current_user": {"id": current_user.id, "username": current_user.username},
-        "todos_users": [{"id": u[0], "username": u[1]} for u in users],
-        "banco_total": {"incomes": incomes, "expenses": expenses, "cards": cards, "entries": entries},
-        "meu_user":    {"incomes": my_incomes, "expenses": my_expenses},
-    })
-
-@cashflow_bp.route("/debug-entries")
-@login_required
-def debug_entries():
-    from flask import jsonify
-    from app.models import Card, CardEntry
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_ids = [c.id for c in cards]
-    entries = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None)
-    ).order_by(CardEntry.entry_date.desc()).all()
-    result = [{"id": e.id, "desc": e.description[:30], "amount": float(e.amount),
-               "entry_date": str(e.entry_date), "card_id": e.card_id} for e in entries]
-    by_month = {}
-    for r in result:
-        key = r["entry_date"][:7]
-        by_month[key] = by_month.get(key, 0) + 1
-    return jsonify({"total": len(result), "por_mes": by_month, "primeiros_10": result[:10]})
-
-@cashflow_bp.route("/limpar-excedentes", methods=["POST"])
-@login_required
-def limpar_excedentes():
-    """Remove excedentes antigos e define billing_month nos entries sem ele."""
-    from app.models import Expense, ExpenseShare, Card, CardEntry
-    from app.utils import get_billing_month
-
-    # 1. Apaga excedentes existentes do usuário
-    todos = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-        Expense.description.like("% - excedente %"),
-        Expense.kind == "pontual"
-    ).all()
-    count_exc = len(todos)
-    for exp in todos:
-        ExpenseShare.query.filter_by(expense_id=exp.id).delete()
-        db.session.delete(exp)
-
-    # 2. Preencher billing_month nos entries que não têm
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_closing = {c.id: c.closing_day for c in cards}
-    card_ids = [c.id for c in cards]
-    entries_sem_bm = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        CardEntry.status == "ativo",
-        CardEntry.billing_month == None,
-    ).all() if card_ids else []
-    count_bm = 0
-    for e in entries_sem_bm:
-        closing = card_closing.get(e.card_id)
-        yr, mo = get_billing_month(e.entry_date, closing)
-        e.billing_month = f"{yr}-{mo:02d}"
-        count_bm += 1
-
-    db.session.commit()
-    flash(f"✅ {count_exc} excedente(s) removidos. {count_bm} lançamento(s) com fatura corrigida.", "success")
-    return redirect(url_for("cashflow.index"))
-
-@cashflow_bp.route("/debug-parcelados")
-@login_required
-def debug_parcelados():
-    from flask import jsonify
-    from app.models import CardEntry, Card
-    from app.utils import get_billing_month
-    import calendar as _cal
-    from datetime import date as _d
-
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_closing = {c.id: c.closing_day for c in cards}
-    card_names = {c.id: c.name for c in cards}
-    card_ids = [c.id for c in cards]
-
-    parcelados = CardEntry.query.filter(
-        CardEntry.user_id == current_user.id,
-        CardEntry.status == "ativo",
-        CardEntry.installments > 1,
-    ).all()
-
-    def add_m(dt, n):
-        month = dt.month - 1 + n
-        yr = dt.year + month // 12
-        month = month % 12 + 1
-        return _d(yr, month, min(dt.day, _cal.monthrange(yr, month)[1]))
-
-    proj = {}
-    for e in parcelados:
-        first = add_m(e.entry_date, 1 - (e.installment_no or 1))
-        for i in range(e.installment_no or 1, e.installments + 1):
-            d = add_m(first, i - 1)
-            if i == (e.installment_no or 1) and e.billing_month:
-                try:
-                    bm_yr = int(e.billing_month[:4])
-                    bm_mo = int(e.billing_month[5:7])
-                    extra = i - (e.installment_no or 1)
-                    mo_t = bm_mo - 1 + extra
-                    key = f"{bm_yr + mo_t // 12}-{mo_t % 12 + 1:02d}"
-                except:
-                    key = f"{d.year}-{d.month:02d}"
-            else:
-                closing = card_closing.get(e.card_id)
-                byr, bmo = get_billing_month(d, closing)
-                key = f"{byr}-{bmo:02d}"
-            if key not in proj:
-                proj[key] = 0.0
-            proj[key] += float(e.amount)
-
-    return jsonify({
-        "total_parcelados_encontrados": len(parcelados),
-        "cartoes": [{"id": c.id, "nome": c.name, "closing": c.closing_day} for c in cards],
-        "projecao_por_mes": dict(sorted(proj.items())),
-        "amostra_entries": [
-            {"desc": e.description, "amount": float(e.amount),
-             "installment_no": e.installment_no, "installments": e.installments,
-             "kind": e.kind, "billing_month": e.billing_month,
-             "card": card_names.get(e.card_id)}
-            for e in parcelados[:5]
-        ]
-    })
-
-@cashflow_bp.route("/debug-parc-junho")
-@login_required
-def debug_parc_junho():
-    from app.models import Card, CardEntry
-    from app.utils import get_billing_month
-    cards = Card.query.filter_by(user_id=current_user.id, is_active=True).all()
-    card_ids = [c.id for c in cards]
-    card_map = {c.id: c.name for c in cards}
-    card_closing = {c.id: c.closing_day for c in cards}
-
-    parcelados = CardEntry.query.filter(
-        CardEntry.card_id.in_(card_ids),
-        CardEntry.status == "ativo",
-        CardEntry.installments > 1,
-    ).all() if card_ids else []
-
-    import calendar as _cal
-    from datetime import date as _d
-
-    def add_m(dt, n):
-        mo = dt.month - 1 + n
-        yr = dt.year + mo // 12
-        mo = mo % 12 + 1
-        return _d(yr, mo, min(dt.day, _cal.monthrange(yr, mo)[1]))
-
-    junho = []
-    total = 0.0
-    for e in parcelados:
-        if e.billing_month:
-            try: bm_yr, bm_mo = int(e.billing_month[:4]), int(e.billing_month[5:7])
-            except: bm_yr, bm_mo = e.entry_date.year, e.entry_date.month
-        else:
-            bm_yr, bm_mo = get_billing_month(e.entry_date, card_closing.get(e.card_id))
-
-        for i in range(e.installment_no, e.installments + 1):
-            extra = i - e.installment_no
-            mo_t = bm_mo - 1 + extra
-            key = (bm_yr + mo_t // 12, mo_t % 12 + 1)
-            if key == (2026, 6):
-                total += float(e.amount)
-                junho.append({
-                    "id": e.id,
-                    "desc": e.description,
-                    "amount": float(e.amount),
-                    "parcela": f"{i}/{e.installments}",
-                    "billing_month": e.billing_month,
-                    "entry_date": str(e.entry_date),
-                    "cartao": card_map.get(e.card_id, "?"),
-                })
-
-    junho.sort(key=lambda x: x["amount"], reverse=True)
-
-    rows = "".join(
-        f"<tr><td>{r['id']}</td><td>{r['desc'][:40]}</td><td>{r['cartao']}</td>"
-        f"<td>{r['parcela']}</td><td>R$ {r['amount']:.2f}</td>"
-        f"<td>{r['billing_month']}</td><td>{r['entry_date']}</td></tr>"
-        for r in junho
-    )
-    return f"""<html><body style='font-family:monospace;padding:20px'>
-    <h2>Parcelados junho/2026 — Total: R$ {total:.2f}</h2>
-    <p>{len(junho)} parcelas</p>
-    <table border=1 cellpadding=4>
-    <tr><th>ID</th><th>Descrição</th><th>Cartão</th><th>Parcela</th>
-        <th>Valor</th><th>billing_month</th><th>entry_date</th></tr>
-    {rows}
-    </table></body></html>"""
-
-@cashflow_bp.route("/debug-env")
-@login_required
-def debug_env():
-    from flask import jsonify
-    import os
-    keys = {k: (v[:6]+"***" if len(v)>6 else "***") for k,v in os.environ.items()
-            if any(x in k.upper() for x in ["GEMINI","GROQ","CLOUD","API","KEY","TOKEN"])}
-    return jsonify(keys)
-
-@cashflow_bp.route("/debug-billing")
-@login_required
-def debug_billing():
-    from flask import jsonify
-    from app.models import CardEntry, Card
-    from sqlalchemy import text
-    # Verifica coluna diretamente no banco
-    with db.engine.connect() as conn:
-        result = conn.execute(text("""
-            SELECT 
-                COUNT(*) as total,
-                COUNT(billing_month) as com_billing,
-                SUM(CASE WHEN billing_month IS NULL THEN 1 ELSE 0 END) as sem_billing,
-                array_agg(DISTINCT billing_month) as valores
-            FROM card_entries
-            WHERE card_id IN (
-                SELECT id FROM cards WHERE user_id = :uid AND is_active = true
-            )
-        """), {"uid": current_user.id})
-        row = result.fetchone()
-    return jsonify({
-        "total": row[0],
-        "com_billing_month": row[1],
-        "sem_billing_month_null": row[2],
-        "valores_billing_month": str(row[3]),
-    })
-
-@cashflow_bp.route("/items-json")
-@login_required
-def items_json():
-    from flask import jsonify, request as req
-    year = req.args.get("year", type=int) or date.today().year
-    col  = req.args.get("col", "eventual")
-    months = get_yearly_cashflow(current_user.id, year)
-    key_map = {
-        "eventual":         "eventual_items",
-        "fixed":            "fixed_items",
-        "income_recurring": "income_recurring_items",
-        "income_eventual":  "income_eventual_items",
+  });
+  var totalEl = card.querySelector('[data-total-mes]');
+  if (totalEl) {
+    totalEl.textContent = 'R$ ' + total.toLocaleString('pt-BR',{minimumFractionDigits:2});
+  }
+}
+function filtrarCartao(tblId, cardName, btn) {
+  // Destacar botão ativo
+  var container = btn.parentElement;
+  container.querySelectorAll('.filtro-card').forEach(function(b) {
+    b.style.borderColor = '';
+    b.style.color = '';
+  });
+  if (cardName) {
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+  }
+  // Filtrar linhas
+  var tbl = document.getElementById(tblId);
+  if (!tbl) return;
+  tbl.querySelectorAll('tbody tr').forEach(function(row) {
+    if (!cardName || row.getAttribute('data-card') === cardName) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
     }
-    key  = key_map.get(col, "eventual_items")
-    data = [m.get(key, []) for m in months]
-    return jsonify(data)
+  });
+}
 
-
-@cashflow_bp.route("/parcelados")
-@login_required
-def planejados():
-    from app.models import PlannedInstallment, CardEntry as _CE
-    from app import db
-
-    # Sincronizar valores: atualizar PIs com base no CardEntry vinculado
-    # Só atualiza — não cria novos, não toca em excluídos
-    synced = 0
-    pis = PlannedInstallment.query.filter_by(user_id=current_user.id).all()
-    for p in pis:
-        if p.origin_entry_id:
-            ce = _CE.query.get(p.origin_entry_id)
-            if ce and ce.status == "ativo":
-                # Atualizar valor, installments e description se mudaram
-                changed = False
-                if float(p.amount) != float(ce.amount):
-                    p.amount = ce.amount
-                    changed = True
-                if p.installments != ce.installments:
-                    p.installments = ce.installments
-                    changed = True
-                if p.description != ce.description:
-                    p.description = ce.description
-                    changed = True
-                if changed:
-                    synced += 1
-    if synced:
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-
-    items = PlannedInstallment.query.filter_by(user_id=current_user.id)        .order_by(PlannedInstallment.billing_month, PlannedInstallment.description)        .all()
-    from collections import defaultdict
-    por_mes = defaultdict(list)
-    for p in items:
-        por_mes[p.billing_month].append(p)
-    return render_template("cashflow/planejados.html",
-                           por_mes=dict(sorted(por_mes.items())))
-
-
-@cashflow_bp.route("/planejados/<int:planned_id>/delete", methods=["POST"])
-@login_required
-def delete_planejado(planned_id):
-    from app.models import PlannedInstallment, PlannedInstallmentDeletion
-    from app import db
-    p = PlannedInstallment.query.get_or_404(planned_id)
-    if p.user_id != current_user.id:
-        abort(403)
-    # Registrar exclusão por billing_month — impede recriar qualquer parcela
-    # desta série neste mesmo mês
-    try:
-        exists_del = PlannedInstallmentDeletion.query.filter_by(
-            user_id=p.user_id, card_id=p.card_id,
-            description=p.description, billing_month=p.billing_month,
-        ).first()
-        if not exists_del:
-            db.session.add(PlannedInstallmentDeletion(
-                user_id=p.user_id, card_id=p.card_id,
-                description=p.description, billing_month=p.billing_month,
-            ))
-    except Exception:
-        pass
-    db.session.delete(p)
-    db.session.commit()
-    from flask import request as _req_del, jsonify as _jdel
-    if _req_del.method == "POST" and "XMLHttpRequest" not in _req_del.headers.get("X-Requested-With",""):
-        return _jdel({"ok": True})
-    flash("Lançamento removido da projeção.", "success")
-    return redirect(url_for("cashflow.planejados"))
-
-
-@cashflow_bp.route("/planejados/delete-bulk", methods=["POST"])
-@login_required
-def delete_planejados_bulk():
-    from app.models import PlannedInstallment
-    from app import db
-    ids = request.form.getlist("ids")
-    year = request.form.get("year", str(date.today().year))
-    if not ids:
-        flash("Nenhum item selecionado.", "warning")
-        return redirect(url_for("cashflow.planejados", year=year))
-    count = 0
-    for id_str in ids:
-        try:
-            p = PlannedInstallment.query.get(int(id_str))
-            if p and p.user_id == current_user.id:
-                try:
-                    from app.models import PlannedInstallmentDeletion
-                    _ed = PlannedInstallmentDeletion.query.filter_by(
-                        user_id=p.user_id, card_id=p.card_id,
-                        description=p.description, billing_month=p.billing_month,
-                    ).first()
-                    if not _ed:
-                        db.session.add(PlannedInstallmentDeletion(
-                            user_id=p.user_id, card_id=p.card_id,
-                            description=p.description, billing_month=p.billing_month,
-                        ))
-                except Exception:
-                    pass
-                db.session.delete(p)
-                count += 1
-        except Exception:
-            continue
-    db.session.commit()
-    flash(f"{count} item(s) removido(s) da projeção.", "success")
-    return redirect(url_for("cashflow.planejados"))
-
-
-@cashflow_bp.route("/parcelados/comparativo")
-@login_required
-def comparativo_parcelados():
-    from app.models import PlannedInstallment
-    m7 = PlannedInstallment.query.filter_by(user_id=current_user.id, billing_month="2026-07")        .order_by(PlannedInstallment.description).all()
-    m8 = PlannedInstallment.query.filter_by(user_id=current_user.id, billing_month="2026-08")        .order_by(PlannedInstallment.description).all()
-
-    # Series em julho
-    set7 = {(p.description, p.installment_no, p.installments): p for p in m7}
-    set8 = {(p.description, p.installment_no, p.installments): p for p in m8}
-
-    # Ultimas em julho que deveriam sumir em agosto
-    ultimas_jul = [(k, v) for k, v in set7.items() if k[1] == k[2]]
-    # Dessas, quais ainda aparecem em agosto (com installment_no+1)?
-    erros = []
-    for (desc, ino, itot), p in ultimas_jul:
-        # Se é a última (ino==itot), agosto NÃO deveria ter essa série
-        # Verifica se há qualquer item em agosto com mesma desc
-        agos_items = [v for (d,i,t), v in set8.items() if d == desc]
-        if agos_items:
-            erros.append({
-                "desc": desc,
-                "jul": f"{ino}/{itot} (ÚLTIMA)",
-                "ago": f"{agos_items[0].installment_no}/{agos_items[0].installments}",
-                "card": agos_items[0].card.name if agos_items[0].card else "—",
-                "valor": float(agos_items[0].amount),
-            })
-
-    return render_template("cashflow/comparativo.html",
-                           m7=m7, m8=m8, erros=erros,
-                           total7=sum(float(p.amount) for p in m7),
-                           total8=sum(float(p.amount) for p in m8))
-
-
-@cashflow_bp.route("/planejados/adicionar", methods=["GET", "POST"])
-@login_required
-def adicionar_planejado():
-    """Adiciona manualmente uma parcela projetada para regularizar série."""
-    from app.models import PlannedInstallment, Card
-    cards = Card.query.filter_by(user_id=current_user.id).all()
-
-    if request.method == "POST":
-        try:
-            desc         = request.form.get("description", "").strip()
-            amount       = request.form.get("amount", "0").replace(".", "").replace(",", ".")
-            billing_month= request.form.get("billing_month", "").strip()
-            inst_no      = int(request.form.get("installment_no", 1))
-            installments = int(request.form.get("installments", 1))
-            card_id_f    = request.form.get("card_id") or None
-            if card_id_f:
-                card_id_f = int(card_id_f)
-
-            if not desc or not billing_month:
-                flash("Descrição e mês são obrigatórios.", "danger")
-                return redirect(url_for("cashflow.adicionar_planejado"))
-
-            from decimal import Decimal, InvalidOperation
-            try:
-                amt = Decimal(amount)
-            except InvalidOperation:
-                flash("Valor inválido.", "danger")
-                return redirect(url_for("cashflow.adicionar_planejado"))
-
-            # Verificar se já existe
-            existente = PlannedInstallment.query.filter_by(
-                user_id=current_user.id,
-                description=desc,
-                installment_no=inst_no,
-                billing_month=billing_month,
-            ).first()
-            if existente:
-                flash(f"Já existe: {desc} {inst_no}/{installments} em {billing_month}.", "warning")
-                return redirect(url_for("cashflow.planejados"))
-
-            pi = PlannedInstallment(
-                user_id=current_user.id,
-                card_id=card_id_f,
-                description=desc,
-                amount=amt,
-                installment_no=inst_no,
-                installments=installments,
-                billing_month=billing_month,
-                origin_entry_id=None,
-            )
-            db.session.add(pi)
-            db.session.commit()
-            flash(f"Parcela {inst_no}/{installments} de '{desc}' adicionada em {billing_month}.", "success")
-            return redirect(url_for("cashflow.planejados"))
-        except Exception as _e:
-            db.session.rollback()
-            flash(f"Erro: {_e}", "danger")
-            return redirect(url_for("cashflow.adicionar_planejado"))
-
-    # GET — mostrar formulário
-    mes_default = request.args.get("mes", "")
-    desc_default = request.args.get("desc", "")
-    inst_default = request.args.get("inst_no", "")
-    total_default = request.args.get("total", "")
-    return render_template("cashflow/adicionar_planejado.html",
-                           cards=cards,
-                           mes_default=mes_default,
-                           desc_default=desc_default,
-                           inst_default=inst_default,
-                           total_default=total_default)
+function sortTable(tblId,col,th){
+  const tbl=document.getElementById(tblId);
+  if(!tbl)return;
+  const tbody=tbl.querySelector('tbody');
+  const rows=Array.from(tbody.querySelectorAll('tr'));
+  const asc=!th.classList.contains('asc');
+  tbl.querySelectorAll('.th-sort').forEach(t=>t.classList.remove('asc','desc'));
+  th.classList.add(asc?'asc':'desc');
+  rows.sort((a,b)=>{
+    const ca=a.children[col]?.innerText.trim()||'';
+    const cb=b.children[col]?.innerText.trim()||'';
+    const na=parseFloat(ca.replace(/[^\d,]/g,'').replace(',','.'));
+    const nb=parseFloat(cb.replace(/[^\d,]/g,'').replace(',','.'));
+    if(!isNaN(na)&&!isNaN(nb))return asc?na-nb:nb-na;
+    const pa=parseInt(ca.split('/')[0])||0;
+    const pb=parseInt(cb.split('/')[0])||0;
+    if(ca.includes('/')&&cb.includes('/'))return asc?pa-pb:pb-pa;
+    return asc?ca.localeCompare(cb,'pt'):cb.localeCompare(ca,'pt');
+  });
+  rows.forEach(r=>tbody.appendChild(r));
+}
+</script>
+{% endif %}
+{% endblock %}
