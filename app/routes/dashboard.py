@@ -579,41 +579,27 @@ def relatorio_membros():
         _total_pi_s = sum(float(p.amount) for p in _pis_s)
         _exc_s = max(0.0, _total_pi_s - _planned_cards)
 
-        # Eventuais = lançamentos do mês que NÃO são de expenses recorrentes
-        # (mesma lógica da coluna "Eventual" do fluxo de caixa)
+        # Excedentes: EXATAMENTE os eventual_items do fluxo de caixa
+        # EXCLUINDO apenas o item de excedente de cartão parcelado
         _ev_itens_s = []
         _total_ev_s = 0.0
-        if _is_passado or _st == 0:
-            # IDs de expenses recorrentes (fixos) — excluir das eventuais
-            _rec_ids = {e.id for e in _all_rec_exps_proj}
-            # Buscar todos os entries do mês que não são fixos e não são parcelados de cartão
-            _all_entries_s = CardEntry.query.filter(
-                CardEntry.user_id == current_user.id,
-                CardEntry.billing_month == _proj_mes_s,
-                CardEntry.status == "ativo",
-            ).all()
-            _ev_group = {}
-            for _ee in _all_entries_s:
-                # Excluir: fixos (recorrentes) e parcelados (installments > 1)
-                if _ee.expense_id and _ee.expense_id in _rec_ids:
+        try:
+            from app.utils import get_user_monthly_summary as _gums
+            _summary_s = _gums(current_user.id, _pyr_s, _pmo_s)
+            for _ei in _summary_s.get("eventual_items", []):
+                _desc_ei = str(_ei.get("desc", ""))
+                _amt_ei  = float(_ei.get("amount", 0))
+                # Excluir excedente de parcelados cartão (tem coluna própria)
+                if _norm_acc(_desc_ei).startswith("CARTAO PARCELADO"):
                     continue
-                if _ee.installments and _ee.installments > 1:
+                if _norm_acc(_desc_ei).startswith("CARTAO PARCELADO - EXCEDENTE"):
                     continue
-                _chave = _ee.expense_id or f"avulso_{_ee.description[:20]}"
-                _ev_group.setdefault(_chave, []).append(_ee)
-            for _chave2, _ees in _ev_group.items():
-                if isinstance(_chave2, int):
-                    _eexp = Expense.query.get(_chave2)
-                    _desc_ev = _eexp.description if _eexp else "Avulso"
-                    # Excluir cartão parcelado planejado
-                    if _eexp and "CARTAO PARCELADO" in _norm_acc(_eexp.description):
-                        continue
-                else:
-                    _desc_ev = _ees[0].description[:30]
-                _tot_ee = sum(float(e.amount) for e in _ees)
-                _ev_itens_s.append({"desc": _desc_ev, "valor": _tot_ee})
-                _total_ev_s += _tot_ee
-            _ev_itens_s.sort(key=lambda x: x["valor"], reverse=True)
+                if _amt_ei <= 0:
+                    continue
+                _ev_itens_s.append({"desc": _desc_ei, "valor": _amt_ei})
+                _total_ev_s += _amt_ei
+        except Exception:
+            pass
 
         _saldo_s = round(_renda_s - _fixos_s - _exc_s - _total_ev_s, 2)
         projecao_saldo.append({
