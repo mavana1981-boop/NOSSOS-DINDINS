@@ -263,15 +263,28 @@
     </td>
     <td>
       <div style="background:#eee;border-radius:4px;height:8px;position:relative;">
-        <!-- Linha do ideal -->
         <div style="position:absolute;left:{{ pct_mes_ideal }}%;top:-2px;bottom:-2px;width:1px;background:#6b8db5;"></div>
-        <!-- Barra de progresso -->
         <div style="width:{{ [a.pct, 100]|min }}%;height:8px;border-radius:4px;
                     background:{% if a.pct > pct_mes_ideal + 10 %}#c4654a{% elif a.pct > pct_mes_ideal %}#b8860b{% else %}#5a9e6f{% endif %};"></div>
       </div>
     </td>
   </tr>
   {% endfor %}
+  <!-- Totais -->
+  {% set total_plan = andamento_mes|sum(attribute='planned') %}
+  {% set total_spent = andamento_mes|sum(attribute='spent') %}
+  {% set saldo_and = total_plan - total_spent %}
+  <tr class="total-row">
+    <td><strong>TOTAL</strong></td>
+    <td class="right"><strong>{{ total_plan|brl }}</strong></td>
+    <td class="right"><strong>{{ total_spent|brl }}</strong></td>
+    <td class="right" style="color:{% if total_spent > total_plan %}#c4654a{% else %}#5a9e6f{% endif %};font-weight:700;">
+      {{ (total_spent / total_plan * 100)|round(1) if total_plan > 0 else 0 }}%
+    </td>
+    <td class="right" style="color:{% if saldo_and < 0 %}#c4654a{% else %}#5a9e6f{% endif %};font-weight:700;">
+      Saldo: {{ saldo_and|brl }}
+    </td>
+  </tr>
   </tbody>
 </table>
 {% endif %}
