@@ -628,8 +628,15 @@ def relatorio_membros():
     _hoje_and = _dt_and.today()
     _dias_mes = _cal_and.monthrange(filter_year, filter_month)[1]
     _dia_ref = min(_hoje_and.day, _dias_mes) if (filter_year == _hoje_and.year and filter_month == _hoje_and.month) else _dias_mes
-    _pct_mes_ideal = round(_dia_ref / _dias_mes * 100, 1)
-
+# Percentual baseado no ciclo de fechamento (dia 16)
+if _hoje_and.day >= 16:
+    _cs = _hoje_and.replace(day=16)
+    _ce = _hoje_and.replace(month=_hoje_and.month % 12 + 1, day=16) if _hoje_and.month < 12 else _hoje_and.replace(year=_hoje_and.year+1, month=1, day=16)
+else:
+    _cs = _hoje_and.replace(month=_hoje_and.month-1, day=16) if _hoje_and.month > 1 else _hoje_and.replace(year=_hoje_and.year-1, month=12, day=16)
+    _ce = _hoje_and.replace(day=16)
+_total_days = (_ce - _cs).days
+_pct_mes_ideal = min(round((_hoje_and - _cs).days / _total_days * 100, 1) if _total_days > 0 else 0, 100)
     andamento_mes = []
     for hh in household_links:
         exp = hh.expense
