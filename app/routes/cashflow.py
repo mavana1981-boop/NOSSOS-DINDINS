@@ -553,22 +553,113 @@ def delete_planejados_bulk():
     return redirect(url_for("cashflow.planejados"))
 
 
+def _add_mes_bm(bm, n):
+    """Avança billing_month 'YYYY-MM' em n meses."""
+    y, m = int(bm[:4]), int(bm[5:7])
+    m += n
+    y += (m - 1) // 12
+    m = ((m - 1) % 12) + 1
+    return f"{y}-{m:02d}"
+
+
+# Corte do diagnóstico: séries com âncora anterior a este mês são
+# ignoradas por inteiro — dado desatualizado, não vale a pena varrer.
+DIAGNOSTICO_CORTE_MES = "2026-08"
+
+
+def _gaps_series_nao_projetadas(user_id):
+    """Varre card_entries (parcela 1/N ativa) em busca de séries que NUNCA
+    geraram planned_installments para as parcelas futuras.
+
+    Cobre o caso que o diagnóstico por planned_installments não enxerga:
+    uma compra parcelada nova (ex: 1145,00 em setembro) cujo processo de
+    projeção falhou/não rodou, então a 2ª parcela em diante simplesmente
+    não existe em lugar nenhum — nem como CardEntry, nem como planejada.
+    """
+    from app.models import CardEntry, PlannedInstallment, PlannedInstallmentDeletion
+    from datetime import date as _dt_now
+
+    origens = CardEntry.query.filter(
+        CardEntry.user_id == user_id,
+        CardEntry.kind == "parcelado",
+        CardEntry.installments > 1,
+        CardEntry.installment_no == 1,
+        CardEntry.status == "ativo",
+        CardEntry.billing_month.isnot(None),
+        CardEntry.billing_month >= DIAGNOSTICO_CORTE_MES,
+    ).all()
+
+    mes_atual = _dt_now.today().strftime("%Y-%m")
+    gaps = []
+
+    for origem in origens:
+        # Série já tem QUALQUER parcela planejada vinculada a essa origem?
+        tem_plan = PlannedInstallment.query.filter(
+            PlannedInstallment.user_id == user_id,
+            PlannedInstallment.origin_entry_id == origem.id,
+        ).first()
+        if not tem_plan:
+            # Casar também por descrição+installments, caso origin_entry_id
+            # não tenha sido preenchido (import antigo, por exemplo)
+            tem_plan = PlannedInstallment.query.filter(
+                PlannedInstallment.user_id == user_id,
+                PlannedInstallment.description == origem.description,
+                PlannedInstallment.installments == origem.installments,
+            ).first()
+        if tem_plan:
+            continue  # série já é acompanhada — o diagnóstico normal cobre buracos nela
+
+        for i in range(2, origem.installments + 1):
+            bm_esperado = _add_mes_bm(origem.billing_month, i - 1)
+            if bm_esperado < mes_atual:
+                continue
+
+            # Já foi lançada manualmente como CardEntry?
+            ja_lancado = CardEntry.query.filter(
+                CardEntry.user_id == user_id,
+                CardEntry.card_id == origem.card_id,
+                CardEntry.description == origem.description,
+                CardEntry.installment_no == i,
+                CardEntry.billing_month == bm_esperado,
+                CardEntry.status == "ativo",
+            ).first()
+            if ja_lancado:
+                continue
+
+            # Foi ignorada intencionalmente?
+            foi_del = PlannedInstallmentDeletion.query.filter_by(
+                user_id=user_id, card_id=origem.card_id,
+                description=origem.description, billing_month=bm_esperado,
+            ).first()
+            if foi_del:
+                continue
+
+            gaps.append({
+                "desc": origem.description,
+                "installment_no": i,
+                "installments": origem.installments,
+                "billing_month": bm_esperado,
+                "amount": float(origem.amount),
+                "card_id": origem.card_id,
+                "card_name": origem.card.name if origem.card else "—",
+                "origem": "nao_projetada",
+            })
+
+    return gaps
+
+
 @cashflow_bp.route("/parcelados/diagnostico")
 @login_required
 def comparativo_parcelados():
-    """Varre planned_installments em busca de parcelas ausentes na série."""
+    """Varre planned_installments em busca de parcelas ausentes na série,
+    e também card_entries em busca de séries inteiras nunca projetadas."""
     from app.models import PlannedInstallment, Card
     from collections import defaultdict
     from datetime import date as _dt
     import calendar as _cal
 
     def _add_mes(bm, n):
-        """Avança billing_month 'YYYY-MM' em n meses."""
-        y, m = int(bm[:4]), int(bm[5:7])
-        m += n
-        y += (m - 1) // 12
-        m = ((m - 1) % 12) + 1
-        return f"{y}-{m:02d}"
+        return _add_mes_bm(bm, n)
 
     pis = PlannedInstallment.query.filter_by(
         user_id=current_user.id
@@ -597,6 +688,9 @@ def comparativo_parcelados():
         inst_base = p1.installment_no
         amount_ref = float(p1.amount)
         card_id_ref = p1.card_id
+
+        if bm_base < DIAGNOSTICO_CORTE_MES:
+            continue  # série antiga (anterior ao corte) — ignorar por inteiro
 
         # Verificar todas as parcelas de 1 até total
         for i in range(1, total + 1):
@@ -630,6 +724,7 @@ def comparativo_parcelados():
                 "amount": amount_ref,
                 "card_id": card_id_ref,
                 "card_name": itens_ord[0].card.name if itens_ord[0].card else "—",
+                "origem": "lacuna",
             })
 
     # Excluir gaps de meses anteriores ao atual
@@ -637,11 +732,28 @@ def comparativo_parcelados():
     _mes_atual = _dt_now.today().strftime("%Y-%m")
     gaps = [g for g in gaps if g["billing_month"] >= _mes_atual]
 
+    # Séries que nunca foram projetadas (não aparecem em planned_installments)
+    gaps += _gaps_series_nao_projetadas(current_user.id)
+
+    # Dedup por (desc, installment_no, billing_month, card_id) —
+    # uma mesma parcela ausente pode ser encontrada pelos dois métodos
+    _vistos = set()
+    _gaps_dedup = []
+    for g in gaps:
+        chave = (g["desc"], g["installment_no"], g["billing_month"], g["card_id"])
+        if chave in _vistos:
+            continue
+        _vistos.add(chave)
+        _gaps_dedup.append(g)
+    gaps = _gaps_dedup
+
     gaps.sort(key=lambda x: (x["billing_month"], x["desc"], x["installment_no"]))
     cards = Card.query.filter_by(user_id=current_user.id).all()
+    n_nao_projetadas = sum(1 for g in gaps if g["origem"] == "nao_projetada")
 
     return render_template("cashflow/comparativo.html",
-                           gaps=gaps, cards=cards)
+                           gaps=gaps, cards=cards,
+                           n_nao_projetadas=n_nao_projetadas)
 
 
 @cashflow_bp.route("/parcelados/diagnostico/adicionar", methods=["POST"])
