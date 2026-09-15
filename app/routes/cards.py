@@ -938,6 +938,15 @@ def _save_entry(entry, card):
                 ))
 
             # Projetar parcelas 2..N
+            # NÃO criar se já existe CardEntry real para aquela parcela
+            import re as _re_norm_sv
+            def _norm_sv(s):
+                s = (s or "").upper().strip()
+                s = _re_norm_sv.sub(r"\s+\d{1,2}\s+DE\s+\d{1,2}", "", s)
+                s = _re_norm_sv.sub(r"\s+\d{1,2}/\d{1,2}", "", s)
+                s = _re_norm_sv.sub(r"\s+\d{1,2}\s+\d{1,2}(?=\s|$)", "", s)
+                return s.strip()
+
             for _i in range(2, entry.installments + 1):
                 _steps = _i - 1
                 _pmo = _bmo + _steps - 1
@@ -946,6 +955,22 @@ def _save_entry(entry, card):
                 _proj_bm = f"{_pyr}-{_pmo:02d}"
                 if _excluido_sv3(_proj_bm):
                     continue
+
+                # Verificar se já existe CardEntry real importado para esta parcela
+                _real_exists = CardEntry.query.filter(
+                    CardEntry.card_id == entry.card_id,
+                    CardEntry.user_id == entry.user_id,
+                    CardEntry.installment_no == _i,
+                    CardEntry.installments == entry.installments,
+                    CardEntry.status == "ativo",
+                ).filter(
+                    db.func.upper(CardEntry.description).contains(
+                        _norm_sv(entry.description)[:20]
+                    )
+                ).first()
+                if _real_exists:
+                    continue  # parcela já importada — não projetar
+
                 _pi_ex = PlannedInstallment.query.filter_by(
                     user_id=entry.user_id, card_id=entry.card_id,
                     description=entry.description, installment_no=_i).first()
@@ -1640,12 +1665,13 @@ def _process_batch(card):
                     ))
 
         else:
-            # 2ª+ parcela: remover PI projetado para este installment_no
-            # (a parcela agora é real — não precisa mais de projeção)
+            # 2ª+ parcela: remover PI projetado EXATO (desc + installment_no + installments)
+            # Filtrar por installments evita apagar PIs de série diferente com mesma descrição
             _pi_proj = PlannedInstallment.query.filter_by(
                 user_id=current_user.id, card_id=card.id,
                 description=_e.description,
                 installment_no=_e.installment_no,
+                installments=_e.installments,  # ← chave: evita cruzamento entre séries
             ).first()
             if _pi_proj:
                 db.session.delete(_pi_proj)
