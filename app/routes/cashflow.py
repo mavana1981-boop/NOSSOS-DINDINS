@@ -716,6 +716,20 @@ def comparativo_parcelados():
             if foi_del:
                 continue  # excluída intencionalmente
 
+            # Já foi lançada manualmente como CardEntry (fora do fluxo
+            # de planned_installments)? Então não é mais um gap.
+            from app.models import CardEntry as _CE_check
+            ja_lancado = _CE_check.query.filter(
+                _CE_check.user_id == current_user.id,
+                _CE_check.card_id == card_id_ref,
+                _CE_check.description == desc,
+                _CE_check.installment_no == i,
+                _CE_check.billing_month == bm_esperado,
+                _CE_check.status == "ativo",
+            ).first()
+            if ja_lancado:
+                continue
+
             gaps.append({
                 "desc": desc,
                 "installment_no": i,
