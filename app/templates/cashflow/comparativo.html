@@ -20,6 +20,11 @@
   <div class="flex-between">
     <div>
       <strong style="color:var(--gold);">⚠️ {{ gaps|length }} parcela(s) faltando</strong>
+      {% if n_nao_projetadas %}
+      <span class="badge" style="margin-left:6px;background:#c0392b;color:white;font-size:0.7rem;padding:2px 6px;border-radius:4px;">
+        {{ n_nao_projetadas }} série(s) nunca projetada(s)
+      </span>
+      {% endif %}
       <span class="text-faint text-small" style="margin-left:8px;">Selecione uma ou mais e use as ações abaixo.</span>
     </div>
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;">
@@ -65,6 +70,12 @@
         <span class="badge" style="margin-left:4px;background:var(--surface2);color:var(--text-dim);font-size:0.7rem;padding:2px 6px;border-radius:4px;">
           {{ g.billing_month }}
         </span>
+        {% if g.origem == 'nao_projetada' %}
+        <span class="badge" style="margin-left:4px;background:#c0392b;color:white;font-size:0.65rem;padding:2px 6px;border-radius:4px;"
+              title="A compra existe no cartão mas nunca gerou parcelas futuras planejadas">
+          série não projetada
+        </span>
+        {% endif %}
         <div class="text-faint text-small" style="margin-top:2px;">
           {{ g.card_name }} · {{ g.amount|brl }}
         </div>
