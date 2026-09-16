@@ -429,6 +429,22 @@ def relatorio_membros():
         })
         total_eventual += excedente_parcelados
 
+    # Excedentes de outras categorias de cartão (Mercado, Avulso, etc.) —
+    # mesma lógica e mesma função (get_consolidated_cards) que o Fluxo de
+    # Caixa já usa, pra não ficar uma conta divergente aqui no relatório.
+    from app.utils import get_consolidated_cards as _gcc_rel
+    _consolidated_rel = _gcc_rel(current_user.id, filter_year, filter_month)
+    for _key_cc, _grp_cc in _consolidated_rel.items():
+        if "cartao parcelado" in _key_cc.lower() or "cartão parcelado" in _key_cc.lower():
+            continue  # já contabilizado acima, via planned_installments
+        if _grp_cc["planned"] > 0 and _grp_cc["total"] > _grp_cc["planned"]:
+            _exc_cc_rel = round(_grp_cc["total"] - _grp_cc["planned"], 2)
+            gastos_eventuais.append({
+                "desc": f"Excedente: {_key_cc}",
+                "planned": _exc_cc_rel,
+            })
+            total_eventual += _exc_cc_rel
+
     # Saldo final = Renda - Fixos - Eventuais (inclui parcelados)
     saldo_final = total_renda - total_fixo - total_eventual
 
