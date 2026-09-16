@@ -269,6 +269,40 @@ def relatorio_membros():
     prev_mes = f"{_prev_yr}-{_prev_mo:02d}"
     next_mes = f"{_next_yr}-{_next_mo:02d}"
 
+    # ── 0. Parcelados: MESMA fonte de dados do menu /parcelados ────────────
+    # Reaproveita exatamente a query + sincronização do menu Parcelados,
+    # pra garantir que o relatório NUNCA divirja do que aparece lá.
+    from collections import defaultdict
+    from app.models import PlannedInstallment as _PI_all, CardEntry as _CE_sync
+    _synced = 0
+    _pis_all = _PI_all.query.filter_by(user_id=current_user.id).all()
+    for _p in _pis_all:
+        if _p.origin_entry_id:
+            _ce = _CE_sync.query.get(_p.origin_entry_id)
+            if _ce and _ce.status == "ativo":
+                _changed = False
+                if float(_p.amount) != float(_ce.amount):
+                    _p.amount = _ce.amount
+                    _changed = True
+                if _p.installments != _ce.installments:
+                    _p.installments = _ce.installments
+                    _changed = True
+                if _p.description != _ce.description:
+                    _p.description = _ce.description
+                    _changed = True
+                if _changed:
+                    _synced += 1
+    if _synced:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        _pis_all = _PI_all.query.filter_by(user_id=current_user.id).all()
+
+    por_mes_pi = defaultdict(list)
+    for _p in _pis_all:
+        por_mes_pi[_p.billing_month].append(_p)
+
     # ── 1. Renda fixa do mês ──────────────────────────────────────────────
     # Income não tem is_active_on — filtrar por is_recurring
     rendas_ativas = _Inc.query.filter(
@@ -367,11 +401,8 @@ def relatorio_membros():
             "planned": minha_ev,
         })
         total_eventual += minha_ev
-    # Parcelados projetados do mês (planned_installments)
-    from app.models import PlannedInstallment as _PI_rel
-    pis_mes = _PI_rel.query.filter_by(
-        user_id=current_user.id, billing_month=_mes
-    ).all()
+    # Parcelados projetados do mês — mesma fonte unificada (por_mes_pi)
+    pis_mes = por_mes_pi.get(_mes, [])
     total_parcelados = sum(float(p.amount) for p in pis_mes)
 
     # Planejado de cartão: buscar diretamente no DB por nome normalizado
@@ -513,13 +544,12 @@ def relatorio_membros():
 
     # ── 4. Projeção eventuais próximos 12 meses ───────────────────────────
     projecao_12 = []
-    from app.models import PlannedInstallment as _PI
     for _step in range(1, 13):
         _pmo = filter_month + _step - 1
         _pyr = filter_year + _pmo // 12
         _pmo = (_pmo % 12) + 1
         _proj_mes = f"{_pyr}-{_pmo:02d}"
-        pis = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes).all()
+        pis = por_mes_pi.get(_proj_mes, [])
         total_pi = sum(float(p.amount) for p in pis)
         # Marcar últimas parcelas
         pis_detail = []
@@ -577,8 +607,8 @@ def relatorio_membros():
         _renda_s = float(_cf_mes.get("income_recurring", 0) or 0)
         _fixos_s = float(_cf_mes.get("fixed_expense", 0) or 0)
 
-        # Parcelados projetados
-        _pis_s = _PI.query.filter_by(user_id=current_user.id, billing_month=_proj_mes_s).all()
+        # Parcelados projetados — mesma fonte unificada (por_mes_pi)
+        _pis_s = por_mes_pi.get(_proj_mes_s, [])
         _total_pi_s = sum(float(p.amount) for p in _pis_s)
         _exc_s = max(0.0, _total_pi_s - _planned_cards)
 
