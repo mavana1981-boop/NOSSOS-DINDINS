@@ -17,8 +17,11 @@ def create_app():
 
     # Database URL - Railway provides DATABASE_URL but with postgres:// prefix
     db_url = os.environ.get("DATABASE_URL", "sqlite:///finapp.db")
+    # Força o driver psycopg2 (SQLAlchemy 2.1+ usa psycopg 3 por padrão)
     if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
+        db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url
