@@ -5,339 +5,575 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Relatório — {{ mes_label }}</title>
 <style>
+  :root {
+    --azul:#6b8db5; --azul-esc:#4f6f96; --azul-claro:#e8eef5; --fundo:#f3f5f9;
+    --verde:#5a9e6f; --vermelho:#c4654a; --ouro:#b8860b; --texto:#222; --cinza:#8a8f98; --borda:#e3e7ee;
+  }
   * { box-sizing:border-box; margin:0; padding:0; }
-  body { font-family: Arial, sans-serif; font-size: 13px; color: #222; background: #fff; padding: 28px; }
-  @media print { .no-print { display:none !important; } @page { margin:1.5cm; } }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size:13px; color:var(--texto); background:var(--fundo); }
+  .wrap { max-width:1100px; margin:0 auto; padding:20px 16px 40px; }
 
-  .header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #6b8db5; padding-bottom:12px; margin-bottom:20px; }
-  .header h1 { font-size:20px; font-weight:700; color:#6b8db5; }
-  .mes-nav { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
-  .mes-nav a { color:#6b8db5; text-decoration:none; font-size:18px; font-weight:700; }
-  .mes-nav strong { font-size:14px; color:#333; min-width:110px; text-align:center; display:inline-block; }
+  /* Cabeçalho */
+  .header { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;
+            background:#fff; border-radius:12px; padding:16px 20px; box-shadow:0 1px 3px rgba(0,0,0,.06); margin-bottom:14px; }
+  .header h1 { font-size:20px; font-weight:700; color:var(--azul); }
+  .header .sub { font-size:11px; color:var(--cinza); margin-top:2px; }
+  .mes-box { text-align:right; }
+  .mes-nav { display:flex; align-items:center; gap:8px; justify-content:flex-end; margin-bottom:4px; }
+  .mes-nav a { color:var(--azul); text-decoration:none; font-size:18px; font-weight:700; padding:0 6px; }
+  .mes-nav input { font-size:12px; padding:3px 6px; border:1px solid #ccc; border-radius:6px; }
+  .mes-label { font-size:15px; font-weight:700; color:var(--azul); }
+  .gerado { font-size:10px; color:var(--cinza); }
 
-  h2 { font-size:13px; font-weight:700; color:#6b8db5; margin:18px 0 6px; padding-bottom:4px; border-bottom:1px solid #ddd; text-transform:uppercase; letter-spacing:.5px; }
-  h3 { font-size:12px; font-weight:700; color:#444; margin:10px 0 4px; }
+  /* Barra de abas */
+  .tabbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:8px;
+            background:var(--fundo); padding:6px 0 10px; }
+  .tabs { display:flex; gap:6px; overflow-x:auto; flex:1; scrollbar-width:thin; padding-bottom:2px; }
+  .tab { flex:0 0 auto; display:flex; align-items:center; gap:6px; border:1px solid var(--borda); background:#fff;
+         color:#444; padding:8px 14px; border-radius:999px; cursor:pointer; font-size:13px; font-weight:600;
+         white-space:nowrap; user-select:none; transition:background .15s, color .15s, border-color .15s; }
+  .tab:hover { border-color:var(--azul); }
+  .tab.active { background:var(--azul); border-color:var(--azul); color:#fff; }
+  .tab .grip { display:none; opacity:.6; cursor:grab; }
+  .ordering .tab .grip { display:inline; }
+  .ordering .tab { border-style:dashed; }
+  .tab.dragging { opacity:.4; }
+  .tab.drop-before { box-shadow:-3px 0 0 var(--azul-esc); }
+  .tab.drop-after  { box-shadow: 3px 0 0 var(--azul-esc); }
+  .btn { border:1px solid var(--borda); background:#fff; color:var(--azul-esc); padding:8px 12px; border-radius:8px;
+         cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap; }
+  .btn:hover { border-color:var(--azul); }
+  .btn.primary { background:var(--azul); color:#fff; border-color:var(--azul); }
 
-  table { width:100%; border-collapse:collapse; margin-bottom:10px; font-size:12px; }
-  th { background:#6b8db5; color:white; padding:5px 8px; text-align:left; font-size:11px; }
-  td { padding:5px 8px; border-bottom:1px solid #f0f0f0; }
-  tr:nth-child(even) td { background:#f7f9fc; }
-  .right { text-align:right; }
-  .center { text-align:center; }
-  .red { color:#c4654a; font-weight:700; }
-  .green { color:#5a9e6f; font-weight:700; }
-  .gold { color:#b8860b; font-weight:700; }
-  .dim { color:#999; font-size:11px; }
-  .total-row td { background:#e8eef5 !important; font-weight:700; border-top:2px solid #6b8db5; }
-  .print-btn { display:block; margin:28px auto 0; background:#6b8db5; color:white; border:none;
-               padding:10px 28px; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600; }
+  /* Painel de ordenação */
+  .order-panel { display:none; background:#fff; border-radius:12px; padding:14px 16px; margin-bottom:12px;
+                 box-shadow:0 1px 3px rgba(0,0,0,.06); border:1px solid var(--borda); }
+  .order-panel.open { display:block; }
+  .order-panel p { font-size:12px; color:var(--cinza); margin-bottom:10px; }
+  .order-list { list-style:none; display:grid; gap:6px; max-width:420px; }
+  .order-list li { display:flex; align-items:center; gap:8px; padding:7px 10px; border:1px solid var(--borda);
+                   border-radius:8px; background:#fafbfd; }
+  .order-list li .pos { width:20px; color:var(--cinza); font-size:11px; text-align:right; }
+  .order-list li .nome { flex:1; font-weight:600; }
+  .order-list button { border:1px solid var(--borda); background:#fff; border-radius:6px; width:28px; height:26px;
+                       cursor:pointer; font-size:13px; color:var(--azul-esc); }
+  .order-list button:disabled { opacity:.3; cursor:default; }
+  .order-actions { display:flex; gap:8px; margin-top:12px; }
+
+  /* Painéis */
+  .panel { display:none; background:#fff; border-radius:12px; padding:18px 20px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .panel.active { display:block; }
+  .panel > h2 { font-size:15px; font-weight:700; color:var(--azul); margin-bottom:12px; }
+  h3 { font-size:13px; font-weight:700; color:#444; margin:16px 0 6px; }
+  h3:first-of-type { margin-top:0; }
+
+  /* Cards de resumo */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin-bottom:16px; }
+  .kpi { border:1px solid var(--borda); border-radius:10px; padding:12px 14px; background:#fafbfd; }
+  .kpi .rot { font-size:11px; color:var(--cinza); text-transform:uppercase; letter-spacing:.4px; }
+  .kpi .val { font-size:19px; font-weight:800; margin-top:4px; }
+  .kpi.destaque { background:#eaf5ee; border-color:#cfe7d6; }
+  .kpi.destaque.neg { background:#fbece8; border-color:#f2d2c9; }
+
+  /* Tabelas */
+  .tbl-wrap { overflow-x:auto; border:1px solid var(--borda); border-radius:10px; margin-bottom:12px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { background:var(--azul-claro); color:#3d5776; padding:8px 10px; text-align:left; font-size:11px;
+       text-transform:uppercase; letter-spacing:.3px; font-weight:700; }
+  td { padding:7px 10px; border-top:1px solid #f0f2f5; }
+  tbody tr:hover td { background:#f8fafc; }
+  .right { text-align:right; } .center { text-align:center; }
+  .red { color:var(--vermelho); font-weight:700; } .green { color:var(--verde); font-weight:700; }
+  .gold { color:var(--ouro); font-weight:700; } .dim { color:#999; font-size:11px; }
+  .total-row td { background:var(--azul-claro) !important; font-weight:700; border-top:2px solid var(--azul); }
+  .badge { display:inline-block; color:#fff; font-size:9px; padding:1px 5px; border-radius:3px; margin-left:4px; font-weight:700; vertical-align:middle; }
+  .b-verde { background:var(--verde); } .b-ouro { background:var(--ouro); } .b-azul { background:var(--azul); }
+  .vazio { text-align:center; color:#999; padding:24px; font-size:12px; }
+
+  /* Projeção de parcelados */
+  .mes-card { border:1px solid var(--borda); border-radius:10px; margin-bottom:10px; overflow:hidden; }
+  .mes-card .topo { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; border-left:4px solid; }
+  .mes-card table td { padding:4px 12px; font-size:11.5px; }
+
+  .footer { margin-top:18px; font-size:10px; color:#aaa; text-align:center; }
+  .print-btn { display:block; margin:18px auto 0; }
+
+  @media (max-width:600px) {
+    .header { padding:14px; } .mes-box { text-align:left; } .mes-nav { justify-content:flex-start; }
+    .panel { padding:14px; }
+  }
+
+  /* Impressão: todas as abas, na ordem escolhida */
+  @media print {
+    body { background:#fff; }
+    .no-print, .tabbar, .order-panel { display:none !important; }
+    .wrap { padding:0; max-width:none; }
+    .header, .panel { box-shadow:none; border-radius:0; padding:0 0 10px; }
+    .panel { display:block !important; margin-top:16px; break-inside:avoid-page; }
+    .panel > h2 { border-bottom:1px solid #ddd; padding-bottom:4px; }
+    @page { margin:1.5cm; }
+  }
 </style>
 </head>
 <body>
+<div class="wrap">
 
 <div class="header">
   <div>
     <h1>📋 Relatório Financeiro</h1>
-    <div style="font-size:11px;color:#888;margin-top:2px;">{{ user.full_name }}</div>
+    <div class="sub">{{ user.full_name }}</div>
   </div>
-  <div>
+  <div class="mes-box">
     <div class="mes-nav no-print">
-      <a href="/relatorio?mes={{ prev_mes }}">&#8592;</a>
+      <a href="/relatorio?mes={{ prev_mes }}" title="Mês anterior">&#8592;</a>
       <form method="GET" action="/relatorio" style="display:inline;">
-        <input type="month" name="mes" value="{{ mes }}" onchange="this.form.submit()"
-               style="font-size:12px;padding:2px 4px;border:1px solid #ccc;border-radius:4px;">
+        <input type="month" name="mes" value="{{ mes }}" onchange="this.form.submit()">
       </form>
-      <a href="/relatorio?mes={{ next_mes }}">&#8594;</a>
+      <a href="/relatorio?mes={{ next_mes }}" title="Próximo mês">&#8594;</a>
     </div>
-    <div style="font-size:14px;font-weight:700;color:#6b8db5;text-align:right;">{{ mes_label }}</div>
-    <div style="font-size:10px;color:#888;text-align:right;">Gerado em {{ hoje }}</div>
+    <div class="mes-label">{{ mes_label }}</div>
+    <div class="gerado">Gerado em {{ hoje }}</div>
   </div>
 </div>
 
-<!-- 1. RENDA FIXA -->
-<h2>💰 Renda Fixa</h2>
-<table>
-  <thead><tr><th>Descrição</th><th class="right">Valor</th></tr></thead>
-  <tbody>
-  {% for r in rendas_ativas %}
-  <tr><td>{{ r.description }}</td><td class="right green">{{ r.amount|brl }}</td></tr>
-  {% else %}
-  <tr><td colspan="2" class="center dim">Nenhuma renda fixa cadastrada</td></tr>
-  {% endfor %}
-  <tr class="total-row"><td>TOTAL RENDA</td><td class="right green">{{ total_renda|brl }}</td></tr>
-  </tbody>
-</table>
-
-<!-- 2. GASTOS FIXOS (valor planejado) -->
-<h2>🏠 Gastos — Valor Planejado</h2>
-<table>
-  <thead><tr><th>Descrição</th><th class="right">Planejado</th></tr></thead>
-  <tbody>
-  {% for g in gastos_fixos %}
-  <tr {% if g.is_ultima %}style="background:#e8f5e9;font-weight:700;"{% endif %}>
-    <td>
-      {{ g.desc }}
-      {% if g.is_ultima %}
-      <span style="background:#5a9e6f;color:white;font-size:8px;padding:1px 4px;border-radius:2px;margin-left:4px;">FIM ✓</span>
-      {% endif %}
-    </td>
-    <td class="right {% if g.is_ultima %}green{% else %}red{% endif %}">{{ g.planned|brl }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="2" class="center dim">Nenhum gasto cadastrado</td></tr>
-  {% endfor %}
-  <tr class="total-row"><td>TOTAL GASTOS FIXOS</td><td class="right red">{{ total_fixo|brl }}</td></tr>
-  </tbody>
-</table>
-
-<!-- 2b. GASTOS EVENTUAIS DO MÊS -->
-{% if gastos_eventuais %}
-<h2>⚡ Gastos Eventuais — {{ mes_label }}</h2>
-<table>
-  <thead><tr><th>Descrição</th><th class="right">Minha parte</th></tr></thead>
-  <tbody>
-  {% for g in gastos_eventuais %}
-  <tr>
-    <td>{{ g.desc }}</td>
-    <td class="right red">{{ g.planned|brl }}</td>
-  </tr>
-  {% endfor %}
-  <tr class="total-row">
-    <td>TOTAL EVENTUAIS</td>
-    <td class="right red">{{ total_eventual|brl }}</td>
-  </tr>
-  </tbody>
-</table>
-{% endif %}
-
-
-<!-- Saldo Final do Mês -->
-<table>
-  <tbody>
-  <tr class="total-row"><td>💰 Renda Fixa</td><td class="right green">{{ total_renda|brl }}</td></tr>
-  <tr class="total-row"><td>🏠 Gastos Fixos</td><td class="right red">&#8722; {{ total_fixo|brl }}</td></tr>
-  {% if total_eventual > 0 %}
-  <tr class="total-row"><td>⚡ Eventuais</td><td class="right red">&#8722; {{ total_eventual|brl }}</td></tr>
-  {% endif %}
-  <tr style="background:#d4edda;font-weight:800;font-size:14px;">
-    <td>&#128181; SALDO DO MÊS</td>
-    <td class="right {% if saldo_final >= 0 %}green{% else %}red{% endif %}" style="font-size:15px;">
-      {{ saldo_final|brl }}
-    </td>
-  </tr>
-  </tbody>
-</table>
-
-<!-- 3. CONTAS ENTRE MEMBROS -->
-<h2>🤝 Contas entre Membros — {{ mes_label }}</h2>
-{% for m in membros_detalhe %}
-<h3>Com {{ m.name }} &nbsp;
-  <span class="{% if m.saldo > 0 %}green{% elif m.saldo < 0 %}red{% endif %}">
-    {% if m.saldo > 0 %}(a receber: {{ m.saldo|brl }})
-    {% elif m.saldo < 0 %}(a pagar: {{ (m.saldo * -1)|brl }})
-    {% else %}(quitado){% endif %}
-  </span>
-</h3>
-
-{% if m.a_receber %}
-<p class="dim" style="margin:4px 0 2px;">Eu paguei / {{ m.name }} deve:</p>
-<table>
-  <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Cota</th></tr></thead>
-  <tbody>
-  {% for i in m.a_receber %}
-  <tr {% if i.is_ultima %}style="background:#fff8e1;font-weight:700;border-left:3px solid #b8860b;"{% endif %}>
-    <td>
-      {{ i.desc }}
-      {% if i.is_ultima %}<span style="background:#b8860b;color:white;font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px;">ÚLTIMA</span>{% endif %}
-    </td>
-    <td>{{ i.data_str or '—' }}</td>
-    <td class="center">{{ i.parcela }}</td>
-    <td class="right green">{{ i.share|brl }}</td>
-  </tr>
-  {% endfor %}
-  <tr class="total-row">
-    <td colspan="3">Subtotal a receber</td>
-    <td class="right green">{{ m.a_receber|sum(attribute='share')|brl }}</td>
-  </tr>
-  </tbody>
-</table>
-{% endif %}
-
-{% if m.a_pagar %}
-<p class="dim" style="margin:4px 0 2px;">{{ m.name }} pagou / eu devo:</p>
-<table>
-  <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Minha cota</th></tr></thead>
-  <tbody>
-  {% for i in m.a_pagar %}
-  <tr {% if i.is_ultima %}style="background:#fff8e1;font-weight:700;border-left:3px solid #b8860b;"{% endif %}>
-    <td>
-      {{ i.desc }}
-      {% if i.is_ultima %}<span style="background:#b8860b;color:white;font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px;">ÚLTIMA</span>{% endif %}
-    </td>
-    <td>{{ i.data_str or '—' }}</td>
-    <td class="center">{{ i.parcela }}</td>
-    <td class="right red">{{ i.share|brl }}</td>
-  </tr>
-  {% endfor %}
-  <tr class="total-row">
-    <td colspan="3">Subtotal a pagar</td>
-    <td class="right red">{{ m.a_pagar|sum(attribute='share')|brl }}</td>
-  </tr>
-  </tbody>
-</table>
-{% endif %}
-{% else %}
-<p class="dim">Nenhum membro para exibir.</p>
-{% endfor %}
-
-<!-- 5. PROJEÇÃO DE SALDO MÊS A MÊS -->
-<h2>📈 Projeção de Saldo — 6 meses anteriores + 12 futuros</h2>
-<div style="overflow-x:auto;">
-<table style="min-width:700px;">
-  <thead>
-    <tr>
-      <th>Mês</th>
-      <th class="right">Renda</th>
-      <th class="right">Fixos</th>
-      <th class="right">Excedentes</th>
-      <th class="right">Parcel. Exc.</th>
-      <th class="right" style="font-size:12px;background:#5a7da5;">Saldo Proj.</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for s in projecao_saldo %}
-  <tr {% if s.is_atual %}style="background:#e3eaf5;font-weight:700;border-left:3px solid #6b8db5;"
-      {% elif s.is_passado %}style="background:#f9f9f9;opacity:0.85;"
-      {% elif s.saldo < 0 %}style="background:#fde8e4;"{% endif %}>
-    <td>
-      <strong>{{ s.label }}</strong>
-      {% if s.is_atual %}<span style="font-size:9px;background:#6b8db5;color:white;padding:1px 4px;border-radius:2px;margin-left:4px;">ATUAL</span>{% endif %}
-      {% if s.is_passado %}<span style="font-size:9px;color:#aaa;margin-left:4px;">◀</span>{% endif %}
-    </td>
-    <td class="right green">{{ s.renda|brl }}</td>
-    <td class="right red">{{ s.fixos|brl }}</td>
-    <td class="right">
-      {% if s.ev_itens %}
-      <span style="color:#c4654a;">{{ s.total_ev|brl }}</span>
-      <div style="font-size:10px;color:#999;">
-        {% for ev in s.ev_itens %}{{ ev.desc[:20] }}: {{ ev.valor|brl }}{% if not loop.last %}<br>{% endif %}{% endfor %}
-      </div>
-      {% else %}—{% endif %}
-    </td>
-    <td class="right {% if s.excedente > 0 %}red{% else %}dim{% endif %}">
-      {% if s.excedente > 0 %}{{ s.excedente|brl }}{% else %}—{% endif %}
-    </td>
-    <td class="right" style="font-weight:700;font-size:13px;color:{% if s.saldo >= 0 %}#5a9e6f{% else %}#c4654a{% endif %};">
-      {{ s.saldo|brl }}
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="tabbar no-print">
+  <div class="tabs" id="tabs"></div>
+  <button class="btn" id="btnOrdenar" type="button" title="Reordenar abas">⇅ Ordenar abas</button>
 </div>
 
-<!-- 3b. ANDAMENTO DO MÊS -->
-{% if andamento_mes %}
-<h2>📊 Andamento do Mês — {{ mes_label }}</h2>
-<div style="font-size:11px;color:#888;margin-bottom:8px;">
-  Percentual ideal do mês ({{ pct_mes_ideal }}% do tempo decorrido)
-</div>
-<table>
-  <thead>
-    <tr>
-      <th>Gasto</th>
-      <th class="right">Planejado</th>
-      <th class="right">Realizado</th>
-      <th class="right">% Gasto</th>
-      <th style="width:100px;">Progresso</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for a in andamento_mes %}
-  <tr {% if not a.ok %}style="background:#fde8e4;"{% elif a.pct == 0 %}style="opacity:0.6;"{% endif %}>
-    <td>{{ a.desc }}</td>
-    <td class="right dim">{{ a.planned|brl }}</td>
-    <td class="right">{{ a.spent|brl }}</td>
-    <td class="right" style="font-weight:700;color:{% if a.pct > pct_mes_ideal + 10 %}#c4654a{% elif a.pct > pct_mes_ideal %}#b8860b{% else %}#5a9e6f{% endif %};">
-      {{ a.pct }}%
-    </td>
-    <td>
-      <div style="background:#eee;border-radius:4px;height:8px;position:relative;">
-        <div style="position:absolute;left:{{ pct_mes_ideal }}%;top:-2px;bottom:-2px;width:1px;background:#6b8db5;"></div>
-        <div style="width:{{ [a.pct, 100]|min }}%;height:8px;border-radius:4px;
-                    background:{% if a.pct > pct_mes_ideal + 10 %}#c4654a{% elif a.pct > pct_mes_ideal %}#b8860b{% else %}#5a9e6f{% endif %};"></div>
-      </div>
-    </td>
-  </tr>
-  {% endfor %}
-  <!-- Totais -->
-  {% set total_plan = andamento_mes|sum(attribute='planned') %}
-  {% set total_spent = andamento_mes|sum(attribute='spent') %}
-  {% set saldo_and = total_plan - total_spent %}
-  <tr class="total-row">
-    <td><strong>TOTAL</strong></td>
-    <td class="right"><strong>{{ total_plan|brl }}</strong></td>
-    <td class="right"><strong>{{ total_spent|brl }}</strong></td>
-    <td class="right" style="color:{% if total_spent > total_plan %}#c4654a{% else %}#5a9e6f{% endif %};font-weight:700;">
-      {{ (total_spent / total_plan * 100)|round(1) if total_plan > 0 else 0 }}%
-    </td>
-    <td class="right" style="color:{% if saldo_and < 0 %}#c4654a{% else %}#5a9e6f{% endif %};font-weight:700;">
-      Saldo: {{ saldo_and|brl }}
-    </td>
-  </tr>
-  </tbody>
-</table>
-{% endif %}
-
-<!-- 4. PROJEÇÃO PARCELADOS 12 MESES -->
-<h2>📅 Projeção de Parcelados — Próximos 12 Meses</h2>
-{% for p in projecao_12 %}
-<div style="margin-bottom:10px;">
-  <div style="display:flex;justify-content:space-between;align-items:center;
-              padding:5px 8px;border-radius:4px;
-              background:{% if p.tem_ultima %}#fff8e1{% else %}#f7f9fc{% endif %};
-              border-left:3px solid {% if p.parcelados > 5000 %}#c4654a{% elif p.parcelados > 2000 %}#b8860b{% else %}#5a9e6f{% endif %};">
-    <strong>{{ p.label }}</strong>
-    {% if p.tem_ultima %}
-    <span style="background:#b8860b;color:white;font-size:9px;padding:1px 5px;border-radius:3px;">
-      {{ p.n_ultimas }} ÚLTIMA(S)
-    </span>
-    {% endif %}
-    <span style="font-weight:700;color:{% if p.parcelados > 5000 %}#c4654a{% elif p.parcelados > 2000 %}#b8860b{% else %}#5a9e6f{% endif %};">
-      {{ p.parcelados|brl }}
-    </span>
+<div class="order-panel no-print" id="orderPanel">
+  <p>Arraste as abas na barra acima ou use as setas abaixo. A ordem fica salva neste navegador.</p>
+  <ul class="order-list" id="orderList"></ul>
+  <div class="order-actions">
+    <button class="btn primary" id="btnConcluir" type="button">Concluir</button>
+    <button class="btn" id="btnPadrao" type="button">Restaurar ordem padrão</button>
   </div>
-  {% if p.pis %}
-  <table style="margin-top:2px;font-size:11px;">
+</div>
+
+<div id="panels">
+
+<!-- RESUMO / SALDO DO MÊS -->
+<section class="panel" data-tab="resumo" data-label="💵 Saldo do Mês">
+  <h2>💵 Saldo do Mês — {{ mes_label }}</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="rot">Renda fixa</div><div class="val green">{{ total_renda|brl }}</div></div>
+    <div class="kpi"><div class="rot">Gastos fixos</div><div class="val red">{{ total_fixo|brl }}</div></div>
+    <div class="kpi"><div class="rot">Eventuais</div><div class="val red">{{ total_eventual|brl }}</div></div>
+    <div class="kpi destaque {% if saldo_final < 0 %}neg{% endif %}">
+      <div class="rot">Saldo do mês</div>
+      <div class="val {% if saldo_final >= 0 %}green{% else %}red{% endif %}">{{ saldo_final|brl }}</div>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+  <table>
     <tbody>
-    {% for pi in p.pis %}
-    <tr {% if pi.is_ultima %}style="background:#fff3cd;font-weight:700;"{% endif %}>
-      <td style="padding:2px 8px;border-bottom:1px solid #f0f0f0;width:55%;">
-        {{ pi.desc }}
-        {% if pi.is_ultima %}
-        <span style="background:#b8860b;color:white;font-size:8px;padding:0px 3px;border-radius:2px;margin-left:3px;">FIM</span>
-        {% endif %}
+    <tr><td>💰 Renda Fixa</td><td class="right green">{{ total_renda|brl }}</td></tr>
+    <tr><td>🏠 Gastos Fixos</td><td class="right red">&#8722; {{ total_fixo|brl }}</td></tr>
+    {% if total_eventual > 0 %}
+    <tr><td>⚡ Eventuais</td><td class="right red">&#8722; {{ total_eventual|brl }}</td></tr>
+    {% endif %}
+    <tr class="total-row" style="font-size:14px;">
+      <td>💵 SALDO DO MÊS</td>
+      <td class="right {% if saldo_final >= 0 %}green{% else %}red{% endif %}" style="font-size:15px;">{{ saldo_final|brl }}</td>
+    </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- RENDA FIXA -->
+<section class="panel" data-tab="renda" data-label="💰 Renda Fixa">
+  <h2>💰 Renda Fixa</h2>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Descrição</th><th class="right">Valor</th></tr></thead>
+    <tbody>
+    {% for r in rendas_ativas %}
+    <tr><td>{{ r.description }}</td><td class="right green">{{ r.amount|brl }}</td></tr>
+    {% else %}
+    <tr><td colspan="2" class="vazio">Nenhuma renda fixa cadastrada</td></tr>
+    {% endfor %}
+    <tr class="total-row"><td>TOTAL RENDA</td><td class="right green">{{ total_renda|brl }}</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- GASTOS FIXOS (valor planejado) -->
+<section class="panel" data-tab="fixos" data-label="🏠 Gastos Fixos">
+  <h2>🏠 Gastos — Valor Planejado</h2>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Descrição</th><th class="right">Planejado</th></tr></thead>
+    <tbody>
+    {% for g in gastos_fixos %}
+    <tr {% if g.is_ultima %}style="background:#e8f5e9;font-weight:700;"{% endif %}>
+      <td>{{ g.desc }}{% if g.is_ultima %}<span class="badge b-verde">FIM ✓</span>{% endif %}</td>
+      <td class="right {% if g.is_ultima %}green{% else %}red{% endif %}">{{ g.planned|brl }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="2" class="vazio">Nenhum gasto cadastrado</td></tr>
+    {% endfor %}
+    <tr class="total-row"><td>TOTAL GASTOS FIXOS</td><td class="right red">{{ total_fixo|brl }}</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- GASTOS EVENTUAIS -->
+<section class="panel" data-tab="eventuais" data-label="⚡ Eventuais">
+  <h2>⚡ Gastos Eventuais — {{ mes_label }}</h2>
+  {% if gastos_eventuais %}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Descrição</th><th class="right">Minha parte</th></tr></thead>
+    <tbody>
+    {% for g in gastos_eventuais %}
+    <tr><td>{{ g.desc }}</td><td class="right red">{{ g.planned|brl }}</td></tr>
+    {% endfor %}
+    <tr class="total-row"><td>TOTAL EVENTUAIS</td><td class="right red">{{ total_eventual|brl }}</td></tr>
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vazio">Nenhum gasto eventual neste mês.</div>
+  {% endif %}
+</section>
+
+<!-- CONTAS ENTRE MEMBROS -->
+<section class="panel" data-tab="membros" data-label="🤝 Membros">
+  <h2>🤝 Contas entre Membros — {{ mes_label }}</h2>
+  {% for m in membros_detalhe %}
+  <h3>Com {{ m.name }} &nbsp;
+    <span class="{% if m.saldo > 0 %}green{% elif m.saldo < 0 %}red{% endif %}">
+      {% if m.saldo > 0 %}(a receber: {{ m.saldo|brl }})
+      {% elif m.saldo < 0 %}(a pagar: {{ (m.saldo * -1)|brl }})
+      {% else %}(quitado){% endif %}
+    </span>
+  </h3>
+
+  {% if m.a_receber %}
+  <p class="dim" style="margin:4px 0 4px;">Eu paguei / {{ m.name }} deve:</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Cota</th></tr></thead>
+    <tbody>
+    {% for i in m.a_receber %}
+    <tr {% if i.is_ultima %}style="background:#fff8e1;font-weight:700;"{% endif %}>
+      <td>{{ i.desc }}{% if i.is_ultima %}<span class="badge b-ouro">ÚLTIMA</span>{% endif %}</td>
+      <td>{{ i.data_str or '—' }}</td>
+      <td class="center">{{ i.parcela }}</td>
+      <td class="right green">{{ i.share|brl }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="total-row"><td colspan="3">Subtotal a receber</td><td class="right green">{{ m.a_receber|sum(attribute='share')|brl }}</td></tr>
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if m.a_pagar %}
+  <p class="dim" style="margin:4px 0 4px;">{{ m.name }} pagou / eu devo:</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Gasto</th><th>Data</th><th class="center">Parcela</th><th class="right">Minha cota</th></tr></thead>
+    <tbody>
+    {% for i in m.a_pagar %}
+    <tr {% if i.is_ultima %}style="background:#fff8e1;font-weight:700;"{% endif %}>
+      <td>{{ i.desc }}{% if i.is_ultima %}<span class="badge b-ouro">ÚLTIMA</span>{% endif %}</td>
+      <td>{{ i.data_str or '—' }}</td>
+      <td class="center">{{ i.parcela }}</td>
+      <td class="right red">{{ i.share|brl }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="total-row"><td colspan="3">Subtotal a pagar</td><td class="right red">{{ m.a_pagar|sum(attribute='share')|brl }}</td></tr>
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="vazio">Nenhum membro para exibir.</div>
+  {% endfor %}
+</section>
+
+<!-- ANDAMENTO DO MÊS -->
+<section class="panel" data-tab="andamento" data-label="📊 Andamento">
+  <h2>📊 Andamento do Mês — {{ mes_label }}</h2>
+  {% if andamento_mes %}
+  <div class="dim" style="margin-bottom:10px;">Percentual ideal do mês: {{ pct_mes_ideal }}% do tempo decorrido</div>
+  <div class="tbl-wrap">
+  <table>
+    <thead>
+      <tr><th>Gasto</th><th class="right">Planejado</th><th class="right">Realizado</th><th class="right">% Gasto</th><th style="width:120px;">Progresso</th></tr>
+    </thead>
+    <tbody>
+    {% for a in andamento_mes %}
+    {% set cor = '#c4654a' if a.pct > pct_mes_ideal + 10 else ('#b8860b' if a.pct > pct_mes_ideal else '#5a9e6f') %}
+    <tr {% if not a.ok %}style="background:#fde8e4;"{% elif a.pct == 0 %}style="opacity:0.6;"{% endif %}>
+      <td>{{ a.desc }}</td>
+      <td class="right dim">{{ a.planned|brl }}</td>
+      <td class="right">{{ a.spent|brl }}</td>
+      <td class="right" style="font-weight:700;color:{{ cor }};">{{ a.pct }}%</td>
+      <td>
+        <div style="background:#eee;border-radius:4px;height:8px;position:relative;">
+          <div style="position:absolute;left:{{ pct_mes_ideal }}%;top:-2px;bottom:-2px;width:1px;background:#6b8db5;"></div>
+          <div style="width:{{ [a.pct, 100]|min }}%;height:8px;border-radius:4px;background:{{ cor }};"></div>
+        </div>
       </td>
-      <td style="padding:2px 8px;border-bottom:1px solid #f0f0f0;text-align:center;color:#666;">{{ pi.parcela }}</td>
-      <td style="padding:2px 8px;border-bottom:1px solid #f0f0f0;text-align:right;color:{% if pi.is_ultima %}#5a9e6f{% else %}#c4654a{% endif %};">
-        {{ pi.amount|brl }}
+    </tr>
+    {% endfor %}
+    {% set total_plan = andamento_mes|sum(attribute='planned') %}
+    {% set total_spent = andamento_mes|sum(attribute='spent') %}
+    {% set saldo_and = total_plan - total_spent %}
+    <tr class="total-row">
+      <td>TOTAL</td>
+      <td class="right">{{ total_plan|brl }}</td>
+      <td class="right">{{ total_spent|brl }}</td>
+      <td class="right" style="color:{% if total_spent > total_plan %}#c4654a{% else %}#5a9e6f{% endif %};">
+        {{ (total_spent / total_plan * 100)|round(1) if total_plan > 0 else 0 }}%
       </td>
+      <td class="right" style="color:{% if saldo_and < 0 %}#c4654a{% else %}#5a9e6f{% endif %};">Saldo: {{ saldo_and|brl }}</td>
+    </tr>
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vazio">Sem dados de andamento para este mês.</div>
+  {% endif %}
+</section>
+
+<!-- PROJEÇÃO DE SALDO -->
+<section class="panel" data-tab="projecao" data-label="📈 Projeção de Saldo">
+  <h2>📈 Projeção de Saldo — 6 meses anteriores + 12 futuros</h2>
+  <div class="tbl-wrap">
+  <table style="min-width:700px;">
+    <thead>
+      <tr>
+        <th>Mês</th><th class="right">Renda</th><th class="right">Fixos</th><th class="right">Excedentes</th>
+        <th class="right">Parcel. Exc.</th><th class="right">Saldo Proj.</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in projecao_saldo %}
+    <tr {% if s.is_atual %}style="background:#e3eaf5;font-weight:700;"
+        {% elif s.is_passado %}style="background:#f9f9f9;opacity:0.85;"
+        {% elif s.saldo < 0 %}style="background:#fde8e4;"{% endif %}>
+      <td>
+        <strong>{{ s.label }}</strong>
+        {% if s.is_atual %}<span class="badge b-azul">ATUAL</span>{% endif %}
+        {% if s.is_passado %}<span style="font-size:9px;color:#aaa;margin-left:4px;">◀</span>{% endif %}
+      </td>
+      <td class="right green">{{ s.renda|brl }}</td>
+      <td class="right red">{{ s.fixos|brl }}</td>
+      <td class="right">
+        {% if s.ev_itens %}
+        <span style="color:#c4654a;">{{ s.total_ev|brl }}</span>
+        <div style="font-size:10px;color:#999;">
+          {% for ev in s.ev_itens %}{{ ev.desc[:20] }}: {{ ev.valor|brl }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+        </div>
+        {% else %}—{% endif %}
+      </td>
+      <td class="right {% if s.excedente > 0 %}red{% else %}dim{% endif %}">
+        {% if s.excedente > 0 %}{{ s.excedente|brl }}{% else %}—{% endif %}
+      </td>
+      <td class="right" style="font-weight:700;font-size:13px;color:{% if s.saldo >= 0 %}#5a9e6f{% else %}#c4654a{% endif %};">{{ s.saldo|brl }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
-  {% endif %}
-</div>
-{% else %}
-<p class="dim">Nenhuma projeção cadastrada.</p>
-{% endfor %}
+  </div>
+</section>
 
-<div style="margin-top:24px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#aaa;text-align:center;">
-  Nosso Dindin · {{ hoje }} · {{ mes_label }}
-</div>
+<!-- PROJEÇÃO DE PARCELADOS -->
+<section class="panel" data-tab="parcelados" data-label="📅 Parcelados">
+  <h2>📅 Projeção de Parcelados — Próximos 12 Meses</h2>
+  {% for p in projecao_12 %}
+  {% set corp = '#c4654a' if p.parcelados > 5000 else ('#b8860b' if p.parcelados > 2000 else '#5a9e6f') %}
+  <div class="mes-card">
+    <div class="topo" style="border-left-color:{{ corp }};background:{% if p.tem_ultima %}#fff8e1{% else %}#f7f9fc{% endif %};">
+      <strong>{{ p.label }}</strong>
+      {% if p.tem_ultima %}<span class="badge b-ouro">{{ p.n_ultimas }} ÚLTIMA(S)</span>{% endif %}
+      <span style="font-weight:700;color:{{ corp }};">{{ p.parcelados|brl }}</span>
+    </div>
+    {% if p.pis %}
+    <table>
+      <tbody>
+      {% for pi in p.pis %}
+      <tr {% if pi.is_ultima %}style="background:#fff3cd;font-weight:700;"{% endif %}>
+        <td style="width:55%;">{{ pi.desc }}{% if pi.is_ultima %}<span class="badge b-ouro">FIM</span>{% endif %}</td>
+        <td class="center" style="color:#666;">{{ pi.parcela }}</td>
+        <td class="right" style="color:{% if pi.is_ultima %}#5a9e6f{% else %}#c4654a{% endif %};">{{ pi.amount|brl }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="vazio">Nenhuma projeção cadastrada.</div>
+  {% endfor %}
+</section>
 
-<!-- Botão imprimir no final -->
-<button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+</div><!-- /panels -->
 
+<div class="footer">Nosso Dindin · {{ hoje }} · {{ mes_label }}</div>
+<button class="btn primary print-btn no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+
+</div><!-- /wrap -->
+
+<script>
+(function () {
+  var KEY_ORDEM = 'nd_relatorio_ordem_abas';
+  var KEY_ATIVA = 'nd_relatorio_aba_ativa';
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+  var panelsBox = document.getElementById('panels');
+  var tabsBox   = document.getElementById('tabs');
+  var orderList = document.getElementById('orderList');
+  var orderPanel = document.getElementById('orderPanel');
+  var tabbar    = document.querySelector('.tabbar');
+
+  var panels = {};
+  var ordemPadrao = [];
+  Array.prototype.forEach.call(panelsBox.querySelectorAll('.panel'), function (p) {
+    panels[p.dataset.tab] = p;
+    ordemPadrao.push(p.dataset.tab);
+  });
+
+  // Ordem salva (ignora abas que não existem mais e acrescenta novas no fim)
+  function carregarOrdem() {
+    var salva = [];
+    try { salva = JSON.parse(lsGet(KEY_ORDEM) || '[]'); } catch (e) {}
+    var ordem = (Array.isArray(salva) ? salva : []).filter(function (id) { return panels[id]; });
+    ordemPadrao.forEach(function (id) { if (ordem.indexOf(id) < 0) ordem.push(id); });
+    return ordem;
+  }
+
+  var ordem = carregarOrdem();
+  var ativa = lsGet(KEY_ATIVA);
+  var hash = location.hash.replace('#', '');
+  if (panels[hash]) ativa = hash;
+  if (!panels[ativa]) ativa = ordem[0];
+
+  function salvarOrdem() { lsSet(KEY_ORDEM, JSON.stringify(ordem)); }
+
+  function ativar(id) {
+    ativa = id;
+    lsSet(KEY_ATIVA, id);
+    Object.keys(panels).forEach(function (k) { panels[k].classList.toggle('active', k === id); });
+    Array.prototype.forEach.call(tabsBox.children, function (t) {
+      var on = t.dataset.tab === id;
+      t.classList.toggle('active', on);
+      if (on) { var l = t.offsetLeft - tabsBox.offsetLeft, r = l + t.offsetWidth;
+        if (l < tabsBox.scrollLeft) tabsBox.scrollLeft = l;
+        else if (r > tabsBox.scrollLeft + tabsBox.clientWidth) tabsBox.scrollLeft = r - tabsBox.clientWidth; }
+    });
+    if (history.replaceState) history.replaceState(null, '', '#' + id);
+  }
+
+  function render() {
+    // Reordena os painéis no DOM (a impressão segue a mesma ordem)
+    ordem.forEach(function (id) { panelsBox.appendChild(panels[id]); });
+
+    tabsBox.innerHTML = '';
+    ordem.forEach(function (id) {
+      var b = document.createElement('div');
+      b.className = 'tab' + (id === ativa ? ' active' : '');
+      b.dataset.tab = id;
+      b.setAttribute('role', 'tab');
+      b.innerHTML = '<span class="grip">⠿</span><span></span>';
+      b.lastChild.textContent = panels[id].dataset.label;
+      b.addEventListener('click', function () { ativar(id); });
+      ligarArraste(b);
+      tabsBox.appendChild(b);
+    });
+
+    orderList.innerHTML = '';
+    ordem.forEach(function (id, i) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="pos"></span><span class="nome"></span>' +
+                     '<button type="button" title="Subir">↑</button><button type="button" title="Descer">↓</button>';
+      li.children[0].textContent = (i + 1) + '.';
+      li.children[1].textContent = panels[id].dataset.label;
+      var up = li.children[2], down = li.children[3];
+      up.disabled = i === 0;
+      down.disabled = i === ordem.length - 1;
+      up.addEventListener('click', function () { mover(i, i - 1); });
+      down.addEventListener('click', function () { mover(i, i + 1); });
+      orderList.appendChild(li);
+    });
+
+    ativar(ativa);
+  }
+
+  function mover(de, para) {
+    if (para < 0 || para >= ordem.length) return;
+    var id = ordem.splice(de, 1)[0];
+    ordem.splice(para, 0, id);
+    salvarOrdem();
+    render();
+  }
+
+  // Arrastar e soltar na barra de abas (ativo no modo "Ordenar")
+  var arrastando = null;
+  function limparMarcas() {
+    Array.prototype.forEach.call(tabsBox.children, function (t) { t.classList.remove('drop-before', 'drop-after'); });
+  }
+  function ligarArraste(el) {
+    el.draggable = tabbar.classList.contains('ordering');
+    el.addEventListener('dragstart', function (e) {
+      arrastando = el.dataset.tab; el.classList.add('dragging');
+      try { e.dataTransfer.setData('text/plain', arrastando); } catch (x) {}
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', function () { el.classList.remove('dragging'); limparMarcas(); arrastando = null; });
+    el.addEventListener('dragover', function (e) {
+      if (!arrastando || arrastando === el.dataset.tab) return;
+      e.preventDefault();
+      var r = el.getBoundingClientRect();
+      var depois = (e.clientX - r.left) > r.width / 2;
+      limparMarcas();
+      el.classList.add(depois ? 'drop-after' : 'drop-before');
+    });
+    el.addEventListener('drop', function (e) {
+      e.preventDefault();
+      if (!arrastando || arrastando === el.dataset.tab) return;
+      var depois = el.classList.contains('drop-after');
+      var de = ordem.indexOf(arrastando);
+      ordem.splice(de, 1);
+      var alvo = ordem.indexOf(el.dataset.tab) + (depois ? 1 : 0);
+      ordem.splice(alvo, 0, arrastando);
+      salvarOrdem();
+      render();
+    });
+  }
+
+  function modoOrdenar(on) {
+    tabbar.classList.toggle('ordering', on);
+    orderPanel.classList.toggle('open', on);
+    document.getElementById('btnOrdenar').classList.toggle('primary', on);
+    Array.prototype.forEach.call(tabsBox.children, function (t) { t.draggable = on; });
+  }
+
+  document.getElementById('btnOrdenar').addEventListener('click', function () {
+    modoOrdenar(!tabbar.classList.contains('ordering'));
+  });
+  document.getElementById('btnConcluir').addEventListener('click', function () { modoOrdenar(false); });
+  document.getElementById('btnPadrao').addEventListener('click', function () {
+    ordem = ordemPadrao.slice(); lsDel(KEY_ORDEM); render();
+    if (tabbar.classList.contains('ordering')) modoOrdenar(true);
+  });
+
+  // Mantém a aba atual ao navegar entre meses
+  Array.prototype.forEach.call(document.querySelectorAll('.mes-nav a'), function (a) {
+    a.addEventListener('click', function () { lsSet(KEY_ATIVA, ativa); });
+  });
+
+  render();
+})();
+</script>
 </body>
 </html>
