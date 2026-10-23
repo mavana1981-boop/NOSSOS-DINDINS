@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Avisos{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Avisos</h1>
+    <p>
+      O agente confere o <strong>Andamento do Mês</strong> todo dia às
+      <strong>{{ hora }}:{{ '%02d'|format(minuto) }}</strong> e avisa quando um gasto
+      entra ou sai da faixa desejável (até {{ tolerancia }} p.p. acima do % ideal do ciclo).
+    </p>
+  </div>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <form method="POST" action="{{ url_for('dashboard.notificacoes_rodar_agora') }}" style="margin:0;">
+      <button class="btn btn-ghost btn-sm" type="submit">▶ Rodar agora</button>
+    </form>
+    {% if itens|selectattr('lida', 'equalto', false)|list %}
+    <form method="POST" action="{{ url_for('dashboard.notificacoes_lidas') }}" style="margin:0;">
+      <button class="btn btn-primary btn-sm" type="submit">Marcar todas como lidas</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="alert {{ 'alert-success' if email_ok else 'alert-info' }}">
+  {% if email_ok %}
+    ✉️ Os avisos também são enviados por e-mail para <strong>{{ email_destino }}</strong>.
+  {% else %}
+    ✉️ E-mail ainda não configurado — os avisos aparecem só aqui no app.
+    Para receber por e-mail, defina SMTP_HOST, SMTP_USER e SMTP_PASSWORD no Railway.
+  {% endif %}
+</div>
+
+<div class="card">
+  {% if itens %}
+    {% for n in itens %}
+    <a href="{{ url_for('dashboard.notificacao_abrir', nid=n.id) }}"
+       style="display:block;text-decoration:none;color:inherit;padding:12px 4px;border-bottom:1px solid rgba(128,128,128,.2);{% if n.lida %}opacity:.6;{% endif %}">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;">
+        <strong>{% if not n.lida %}• {% endif %}{{ n.titulo }}</strong>
+        <span style="font-size:12px;white-space:nowrap;opacity:.7;">{{ n.created_at|hora_brt }}</span>
+      </div>
+      {% if n.mensagem %}<div style="font-size:13px;margin-top:4px;opacity:.85;">{{ n.mensagem }}</div>{% endif %}
+    </a>
+    {% endfor %}
+  {% else %}
+    <div style="padding:24px;text-align:center;opacity:.7;">
+      Nenhum aviso ainda. Quando algum gasto do Andamento sair (ou voltar) da faixa desejável, ele aparece aqui.
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

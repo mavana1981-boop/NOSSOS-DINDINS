@@ -49,6 +49,12 @@
       Projetos
     </a>
 
+    <a href="{{ url_for('dashboard.notificacoes') }}" class="nav-link {% if request.endpoint == 'dashboard.notificacoes' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+      Avisos
+      {% if notificacoes_nao_lidas %}<span style="margin-left:auto;background:#c4654a;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;">{{ notificacoes_nao_lidas }}</span>{% endif %}
+    </a>
+
     {% if current_user.is_admin %}
     <div class="nav-section">Administração</div>
     <a href="{{ url_for('admin.list_users') }}" class="nav-link {% if 'admin' in request.endpoint %}active{% endif %}">
@@ -87,6 +93,12 @@
         {% endfor %}
       {% endif %}
     {% endwith %}
+
+    {% if notificacoes_nao_lidas and request.endpoint != 'dashboard.notificacoes' %}
+      <a href="{{ url_for('dashboard.notificacoes') }}" class="alert alert-warning" style="display:block;text-decoration:none;">
+        🔔 {{ notificacoes_nao_lidas }} aviso(s) novo(s) do Andamento do Mês — ver
+      </a>
+    {% endif %}
 
     {% block content %}{% endblock %}
   </main>

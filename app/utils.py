@@ -66,13 +66,33 @@ def register_filters(app):
     app.jinja_env.filters["brl"] = format_brl
     app.jinja_env.filters["data_br"] = format_date_br
 
+    def _hora_brt(dt):
+        """datetime gravado em UTC → texto dd/mm HH:MM no horário de Brasília."""
+        if not dt:
+            return ""
+        from datetime import timezone
+        from zoneinfo import ZoneInfo
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m %H:%M")
+    app.jinja_env.filters["hora_brt"] = _hora_brt
+
 
 def register_context(app):
     @app.context_processor
     def inject_globals():
+        _nao_lidas = 0
+        try:
+            from flask_login import current_user as _cu
+            if _cu.is_authenticated:
+                from app.models import Notificacao
+                _nao_lidas = Notificacao.query.filter_by(user_id=_cu.id, lida=False).count()
+        except Exception:
+            _nao_lidas = 0
         return {
             "current_year": datetime.now().year,
             "app_name": "Nosso Dindin",
+            "notificacoes_nao_lidas": _nao_lidas,
         }
 
 
