@@ -558,9 +558,9 @@ def relatorio_membros():
             "saldo": saldo,
         })
 
-    # ── 4. Projeção eventuais próximos 12 meses ───────────────────────────
+    # ── 4. Projeção parcelados: mês atual + próximos 12 meses ─────────────
     projecao_12 = []
-    for _step in range(1, 13):
+    for _step in range(0, 13):
         _pmo = filter_month + _step - 1
         _pyr = filter_year + _pmo // 12
         _pmo = (_pmo % 12) + 1
@@ -587,6 +587,7 @@ def relatorio_membros():
             "pis": pis_detail,
             "tem_ultima": len(ultimas) > 0,
             "n_ultimas": len(ultimas),
+            "is_atual": _step == 0,
         })
 
     # Pré-carregar cashflow dos anos relevantes para o loop de projeção
@@ -703,6 +704,7 @@ def relatorio_membros():
         planned_hh = float(exp.amount)
         pct_gasto = round(spent_hh / planned_hh * 100, 1) if planned_hh > 0 else 0
         andamento_mes.append({
+            "expense_id": exp.id,
             "desc": exp.description,
             "planned": planned_hh,
             "spent": spent_hh,
@@ -710,6 +712,14 @@ def relatorio_membros():
             "ok": pct_gasto <= _pct_mes_ideal + 5,
         })
     andamento_mes.sort(key=lambda x: x["pct"], reverse=True)
+
+    # Gastos que o usuário pode incluir no Andamento (ainda não incluídos)
+    _ids_andamento = {a["expense_id"] for a in andamento_mes}
+    gastos_disponiveis = [
+        e for e in Expense.query.filter(Expense.payer_id == current_user.id)
+                                .order_by(Expense.description).all()
+        if e.id not in _ids_andamento
+    ]
 
     return render_template("DASHBOARD/relatorio_membros.html",
                            mes_label=mes_label, mes=_mes,
@@ -728,7 +738,72 @@ def relatorio_membros():
                            projecao_12=projecao_12,
                            projecao_saldo=projecao_saldo,
                            andamento_mes=andamento_mes,
+                           gastos_disponiveis=gastos_disponiveis,
                            pct_mes_ideal=_pct_mes_ideal)
+
+
+def _voltar_andamento():
+    mes = request.form.get("mes", "")
+    if mes:
+        return redirect(url_for("dashboard.relatorio_membros", mes=mes) + "#andamento")
+    return redirect(url_for("dashboard.relatorio_membros") + "#andamento")
+
+
+@dashboard_bp.route("/relatorio/andamento/incluir", methods=["POST"])
+@login_required
+def andamento_incluir():
+    """Inclui um gasto no Andamento do Mês (mesmo flag do painel)."""
+    try:
+        exp_id = int(request.form.get("expense_id", "0"))
+    except ValueError:
+        exp_id = 0
+    exp = Expense.query.get(exp_id) if exp_id else None
+    if not exp or exp.payer_id != current_user.id:
+        flash("Gasto inválido.", "danger")
+        return _voltar_andamento()
+    try:
+        hh = HouseholdExpense.query.filter_by(expense_id=exp_id).first()
+        if not hh:
+            _outro = User.query.filter(User.id != current_user.id).first()
+            hh = HouseholdExpense(
+                expense_id=exp_id,
+                owner_id=current_user.id,
+                shared_with_id=_outro.id if _outro else current_user.id,
+            )
+            db.session.add(hh)
+        elif hh.owner_id != current_user.id and hh.shared_with_id != current_user.id:
+            hh.owner_id = current_user.id
+        _max = db.session.query(db.func.max(HouseholdExpense.display_order)).filter(
+            or_(HouseholdExpense.owner_id == current_user.id,
+                HouseholdExpense.shared_with_id == current_user.id)
+        ).scalar() or 0
+        hh.show_on_dashboard = True
+        hh.display_order = _max + 1
+        db.session.commit()
+        flash(f"“{exp.description}” incluído no Andamento do Mês.", "success")
+    except Exception as _e:
+        db.session.rollback()
+        flash(f"Erro ao incluir: {_e}", "danger")
+    return _voltar_andamento()
+
+
+@dashboard_bp.route("/relatorio/andamento/remover", methods=["POST"])
+@login_required
+def andamento_remover():
+    """Retira um gasto do Andamento do Mês (não apaga o gasto)."""
+    try:
+        exp_id = int(request.form.get("expense_id", "0"))
+    except ValueError:
+        exp_id = 0
+    hh = HouseholdExpense.query.filter_by(expense_id=exp_id).first() if exp_id else None
+    if hh and (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id):
+        try:
+            hh.show_on_dashboard = False
+            db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            flash(f"Erro ao remover: {_e}", "danger")
+    return _voltar_andamento()
 
 
 
