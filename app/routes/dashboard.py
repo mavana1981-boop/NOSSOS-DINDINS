@@ -660,58 +660,9 @@ def relatorio_membros():
         })
 
     # Andamento do Mês: gastos da casa selecionados com percentual
-    # household_links para o relatório (mesma lógica do index)
-    household_links = sorted(
-        [hh for hh in HouseholdExpense.query.filter(
-            or_(HouseholdExpense.owner_id == current_user.id,
-                HouseholdExpense.shared_with_id == current_user.id)
-         ).all()
-         if (hh.owner_id == current_user.id or hh.shared_with_id == current_user.id)
-         and getattr(hh, "show_on_dashboard", True) is not False],
-        key=lambda h: h.display_order or 0
-    )
-    from datetime import date as _dt_and
-    import calendar as _cal_and
-    _hoje_and = _dt_and.today()
-    _dias_mes = _cal_and.monthrange(filter_year, filter_month)[1]
-    # Percentual desejável = % do ciclo de fechamento (dia 16) decorrido
-    if _hoje_and.day >= 16:
-        _cs = _hoje_and.replace(day=16)
-        _ce = (_hoje_and.replace(month=_hoje_and.month % 12 + 1, day=16)
-               if _hoje_and.month < 12
-               else _hoje_and.replace(year=_hoje_and.year+1, month=1, day=16))
-    else:
-        _cs = (_hoje_and.replace(month=_hoje_and.month-1, day=16)
-               if _hoje_and.month > 1
-               else _hoje_and.replace(year=_hoje_and.year-1, month=12, day=16))
-        _ce = _hoje_and.replace(day=16)
-    _total_days_ciclo = (_ce - _cs).days
-    _pct_mes_ideal = min(
-        round((_hoje_and - _cs).days / _total_days_ciclo * 100, 1)
-        if _total_days_ciclo > 0 else 0, 100
-    )
-    andamento_mes = []
-    for hh in household_links:
-        exp = hh.expense
-        if not exp:
-            continue
-        entries_hh = CardEntry.query.filter(
-            CardEntry.expense_id == exp.id,
-            CardEntry.billing_month == _mes,
-            CardEntry.status == "ativo",
-        ).all()
-        spent_hh = sum(float(e.amount) for e in entries_hh)
-        planned_hh = float(exp.amount)
-        pct_gasto = round(spent_hh / planned_hh * 100, 1) if planned_hh > 0 else 0
-        andamento_mes.append({
-            "expense_id": exp.id,
-            "desc": exp.description,
-            "planned": planned_hh,
-            "spent": spent_hh,
-            "pct": pct_gasto,
-            "ok": pct_gasto <= _pct_mes_ideal + 5,
-        })
-    andamento_mes.sort(key=lambda x: x["pct"], reverse=True)
+    # (mesma função usada pelo agente noturno de alertas)
+    from app.agente_andamento import calcular_andamento, hoje_brasilia
+    andamento_mes, _pct_mes_ideal = calcular_andamento(current_user.id, _mes, hoje_brasilia())
 
     # Gastos que o usuário pode incluir no Andamento (ainda não incluídos)
     _ids_andamento = {a["expense_id"] for a in andamento_mes}
@@ -893,3 +844,56 @@ def salvar_config_gastos_casa():
         flash(f"Erro ao salvar: {_e}", "danger")
 
     return redirect(url_for("dashboard.index"))
+
+
+# ─────────────────────────────────────────────────────────────
+#  Notificações (avisos do agente do Andamento do Mês)
+# ─────────────────────────────────────────────────────────────
+@dashboard_bp.route("/notificacoes")
+@login_required
+def notificacoes():
+    from app.models import Notificacao
+    from app.agente_andamento import email_configurado, TOLERANCIA_PP
+    import os as _os
+    itens = (Notificacao.query.filter_by(user_id=current_user.id)
+             .order_by(Notificacao.created_at.desc()).limit(100).all())
+    return render_template("notificacoes.html", itens=itens,
+                           email_ok=email_configurado(),
+                           email_destino=_os.environ.get("ALERTA_EMAIL_TO") or current_user.email,
+                           hora=_os.environ.get("AGENTE_ANDAMENTO_HORA", "21"),
+                           minuto=int(_os.environ.get("AGENTE_ANDAMENTO_MINUTO", "0")),
+                           tolerancia=TOLERANCIA_PP)
+
+
+@dashboard_bp.route("/notificacoes/lidas", methods=["POST"])
+@login_required
+def notificacoes_lidas():
+    from app.models import Notificacao
+    Notificacao.query.filter_by(user_id=current_user.id, lida=False).update({"lida": True})
+    db.session.commit()
+    return redirect(url_for("dashboard.notificacoes"))
+
+
+@dashboard_bp.route("/notificacoes/abrir/<int:nid>")
+@login_required
+def notificacao_abrir(nid):
+    from app.models import Notificacao
+    n = Notificacao.query.filter_by(id=nid, user_id=current_user.id).first_or_404()
+    n.lida = True
+    db.session.commit()
+    return redirect(n.link or url_for("dashboard.notificacoes"))
+
+
+@dashboard_bp.route("/notificacoes/rodar-agora", methods=["POST"])
+@login_required
+def notificacoes_rodar_agora():
+    """Roda o agente na hora, só para o usuário logado (para testar)."""
+    from flask import current_app
+    from app.agente_andamento import rodar_agente
+    res = rodar_agente(current_app._get_current_object(), forcar=True,
+                       somente_user_id=current_user.id)
+    n = len(res.get(current_user.id, []))
+    flash(f"Agente executado: {n} mudança(s) desde a última verificação." if n
+          else "Agente executado: nenhuma mudança desde a última verificação.",
+          "success")
+    return redirect(url_for("dashboard.notificacoes"))

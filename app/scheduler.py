@@ -57,6 +57,19 @@ def start_scheduler(app):
         id="auto_contrib",
         replace_existing=True,
     )
+    # Agente do Andamento do Mês — todo dia à noite (padrão 21:00, horário de Brasília)
+    from app.agente_andamento import rodar_agente
+    import os as _os
+    scheduler.add_job(
+        func=lambda: rodar_agente(app),
+        trigger="cron",
+        hour=int(_os.environ.get("AGENTE_ANDAMENTO_HORA", "21")),
+        minute=int(_os.environ.get("AGENTE_ANDAMENTO_MINUTO", "0")),
+        id="agente_andamento",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
     try:
         scheduler.start()
         print("[scheduler] iniciado")

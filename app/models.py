@@ -451,3 +451,38 @@ class PaymentDefault(db.Model):
     __table_args__ = (db.UniqueConstraint("user_id", "expense_id"),)
     user    = db.relationship("User", backref="payment_defaults")
     expense = db.relationship("Expense", backref="payment_defaults")
+
+
+class AndamentoAlertaEstado(db.Model):
+    """Última leitura do agente para cada gasto do Andamento (dentro/fora da faixa)."""
+    __tablename__ = "andamento_alerta_estado"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expense_id    = db.Column(db.Integer, db.ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False)
+    billing_month = db.Column(db.String(7), nullable=False)
+    status        = db.Column(db.String(10), nullable=False)   # 'dentro' | 'fora'
+    pct           = db.Column(db.Float)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("user_id", "expense_id", "billing_month"),)
+
+
+class Notificacao(db.Model):
+    """Avisos exibidos no sininho do app."""
+    __tablename__ = "notificacoes"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    titulo     = db.Column(db.String(200), nullable=False)
+    mensagem   = db.Column(db.Text)
+    link       = db.Column(db.String(300))
+    lida       = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class AgenteExecucao(db.Model):
+    """Trava de 1 execução por dia (evita duplicar com vários workers)."""
+    __tablename__ = "agente_execucoes"
+    id         = db.Column(db.Integer, primary_key=True)
+    job        = db.Column(db.String(50), nullable=False)
+    run_date   = db.Column(db.Date, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("job", "run_date"),)
