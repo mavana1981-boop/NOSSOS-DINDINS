@@ -378,6 +378,16 @@
 <!-- PROJEÇÃO DE SALDO -->
 <section class="panel" data-tab="projecao" data-label="📈 Projeção de Saldo">
   <h2>📈 Projeção de Saldo — 6 meses anteriores + 12 futuros</h2>
+  <style>
+    .proj-det summary{cursor:pointer;list-style:none;white-space:nowrap;}
+    .proj-det summary::-webkit-details-marker{display:none;}
+    .proj-det summary::before{content:"▸ ";font-size:9px;color:#999;}
+    .proj-det[open] summary::before{content:"▾ ";}
+    .proj-itens{margin-top:4px;font-size:10px;color:#777;font-weight:400;text-align:left;min-width:170px;}
+    .proj-itens div{display:flex;justify-content:space-between;gap:8px;border-top:1px dotted #ddd;padding:2px 0;}
+    .proj-itens span:last-child{white-space:nowrap;}
+  </style>
+  <p style="font-size:11px;color:#888;margin:-4px 0 8px;">Toque em Renda ou Fixos para ver os itens. O Saldo Proj. é o mesmo valor da coluna Saldo do Fluxo de Caixa.</p>
   <div class="tbl-wrap">
   <table style="min-width:700px;">
     <thead>
@@ -396,8 +406,20 @@
         {% if s.is_atual %}<span class="badge b-azul">ATUAL</span>{% endif %}
         {% if s.is_passado %}<span style="font-size:9px;color:#aaa;margin-left:4px;">◀</span>{% endif %}
       </td>
-      <td class="right green">{{ s.renda|brl }}</td>
-      <td class="right red">{{ s.fixos|brl }}</td>
+      <td class="right green">
+        {% if s.renda_itens %}
+        <details class="proj-det"><summary>{{ s.renda|brl }}</summary>
+          <div class="proj-itens">{% for i in s.renda_itens %}<div><span>{{ i.desc }}</span><span>{{ i.valor|brl }}</span></div>{% endfor %}</div>
+        </details>
+        {% else %}{{ s.renda|brl }}{% endif %}
+      </td>
+      <td class="right red">
+        {% if s.fixos_itens %}
+        <details class="proj-det"><summary>{{ s.fixos|brl }}</summary>
+          <div class="proj-itens">{% for i in s.fixos_itens %}<div><span>{{ i.desc }}</span><span>{{ i.valor|brl }}</span></div>{% endfor %}</div>
+        </details>
+        {% else %}{{ s.fixos|brl }}{% endif %}
+      </td>
       <td class="right">
         {% if s.ev_itens %}
         <span style="color:#c4654a;">{{ s.total_ev|brl }}</span>

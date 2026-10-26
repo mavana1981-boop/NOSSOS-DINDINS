@@ -571,3 +571,99 @@ def get_yearly_cashflow(user_id, year):
             "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
         })
     return result
+
+
+# ─────────────────────────────────────────────────────────────
+#  Saldo projetado do mês — fonte única usada pelo Relatório
+#  (Projeção de Saldo) e pelo Fluxo de Caixa (coluna Saldo)
+#  Saldo Proj. = Renda fixa − Fixos − Excedentes − Excedente parcelados
+# ─────────────────────────────────────────────────────────────
+def _norm_sem_acento(s):
+    import unicodedata as _ud
+    return _ud.normalize("NFKD", (s or "")).encode("ascii", "ignore").decode().upper()
+
+
+def saldo_projetado_meses(user_id, meses, cf_cache=None):
+    """meses: lista de (ano, mes). Devolve {(ano, mes): {...}} com renda,
+    fixos, parcelados, excedente, ev_itens, total_ev, saldo e os itens que
+    compõem renda e fixos. cf_cache opcional: {(ano, mes): mês do
+    get_yearly_cashflow} para evitar recalcular."""
+    from app.models import Expense, PlannedInstallment
+    cf_cache = dict(cf_cache or {})
+    for _ano in {a for a, _ in meses}:
+        if not any(k[0] == _ano for k in cf_cache):
+            for _m in get_yearly_cashflow(user_id, _ano):
+                cf_cache[(_ano, _m["month"])] = _m
+
+    # Parcelados projetados (mesma tabela do menu Parcelados)
+    por_mes_pi = {}
+    for _p in PlannedInstallment.query.filter_by(user_id=user_id).all():
+        por_mes_pi.setdefault(_p.billing_month, []).append(float(_p.amount))
+
+    # Planejado do gasto "Cartão Parcelado"
+    planned_cards = 0.0
+    for _ec in Expense.query.filter(Expense.payer_id == user_id).all():
+        if "CARTAO PARCELADO" in _norm_sem_acento(_ec.description):
+            planned_cards = float(_ec.amount)
+            break
+
+    out = {}
+    for ano, mes in meses:
+        cf = cf_cache.get((ano, mes), {})
+        renda = float(cf.get("income_recurring", 0) or 0)
+        fixos = float(cf.get("fixed_expense", 0) or 0)
+        total_pi = sum(por_mes_pi.get(f"{ano}-{mes:02d}", []))
+        exc = max(0.0, total_pi - planned_cards)
+        ev_itens, total_ev = [], 0.0
+        for ei in cf.get("eventual_items", []):
+            desc = str(ei.get("desc", ""))
+            amt = float(ei.get("amount", 0))
+            dn = _norm_sem_acento(desc)
+            # Excedente de cartão parcelado tem coluna própria
+            if "CARTAO PARCELADO" in dn and "EXCEDENTE" in dn:
+                continue
+            if amt <= 0:
+                continue
+            ev_itens.append({"desc": desc, "valor": amt})
+            total_ev += amt
+        out[(ano, mes)] = {
+            "renda": round(renda, 2),
+            "fixos": round(fixos, 2),
+            "parcelados": round(total_pi, 2),
+            "excedente": round(exc, 2),
+            "ev_itens": ev_itens,
+            "total_ev": round(total_ev, 2),
+            "saldo": round(renda - fixos - exc - total_ev, 2),
+            "renda_itens": [{"desc": i["desc"], "valor": i["amount"]}
+                            for i in cf.get("income_recurring_items", [])],
+            "fixos_itens": [{"desc": i["desc"], "valor": i["amount"]}
+                            for i in cf.get("fixed_items", [])],
+        }
+    return out
+
+
+def aplicar_saldo_projetado(user_id, meses_cf):
+    """meses_cf: lista de (ano, dict do mês do get_yearly_cashflow), em ordem.
+    Troca 'net' pelo saldo projetado (mantém ajuste manual de saldo, se houver)
+    e recalcula 'cumulative' preservando os acumulados fixados manualmente."""
+    from app.models import CashflowOverride
+    ovs = {(o.year, o.month): o for o in
+           CashflowOverride.query.filter_by(user_id=user_id).all()}
+    cache = {(a, m["month"]): m for a, m in meses_cf}
+    proj = saldo_projetado_meses(user_id, list(cache.keys()), cf_cache=cache)
+    ajuste = 0.0
+    for ano, m in meses_cf:
+        ov = ovs.get((ano, m["month"]))
+        p = proj[(ano, m["month"])]
+        m["saldo_proj"] = p
+        m["net_fluxo"] = m["net"]
+        m["net_override"] = bool(ov and ov.net_override is not None)
+        fixo_manual = (ano == 2026 and m["month"] == 5) or m["net_override"]
+        novo = m["net"] if fixo_manual else p["saldo"]
+        if (ov and ov.cumulative_override is not None) or (ano == 2026 and m["month"] == 5):
+            ajuste = 0.0
+        else:
+            ajuste += novo - m["net"]
+            m["cumulative"] = round(m["cumulative"] + ajuste, 2)
+        m["net"] = round(novo, 2)
+    return meses_cf

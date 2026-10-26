@@ -43,6 +43,9 @@ def index():
 
     # Dados do fluxo de caixa para os cards do dashboard
     cf_months = get_yearly_cashflow(current_user.id, filter_year)
+    # Saldo do mês = Saldo Proj. do Relatório (mesma regra do Fluxo de Caixa)
+    from app.utils import aplicar_saldo_projetado
+    aplicar_saldo_projetado(current_user.id, [(filter_year, m) for m in cf_months])
     cf_current = next(
         (m for m in cf_months if m["month"] == filter_month),
         cf_months[0] if cf_months else {}
@@ -693,60 +696,24 @@ def relatorio_membros():
             _cf_cache[(_yr_c, _mc["month"])] = _mc
 
     # Projeção de saldo: 6 meses anteriores + atual + 12 futuros
-    _all_rec_inc  = [r for r in rendas_ativas]
-    _all_rec_exps_proj = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-        Expense.kind == "recorrente",
-    ).all()
-
-    projecao_saldo = []
+    # (mesma função usada pela coluna Saldo do Fluxo de Caixa)
+    from app.utils import saldo_projetado_meses
+    _meses_proj = []
     for _st in range(-6, 13):
         _base_m = filter_month + _st - 1
-        _pyr_s = filter_year + _base_m // 12
-        _pmo_s = (_base_m % 12) + 1
-        _proj_mes_s = f"{_pyr_s}-{_pmo_s:02d}"
-        _label_s = f"{MESES_PT[_pmo_s-1]}/{_pyr_s}"
-        _is_passado = _st < 0
-
-        # Usar cache do cashflow — mesma fonte da coluna Fixos do fluxo
-        _cf_mes = _cf_cache.get((_pyr_s, _pmo_s), {})
-        _renda_s = float(_cf_mes.get("income_recurring", 0) or 0)
-        _fixos_s = float(_cf_mes.get("fixed_expense", 0) or 0)
-
-        # Parcelados projetados — mesma fonte unificada (por_mes_pi)
-        _pis_s = por_mes_pi.get(_proj_mes_s, [])
-        _total_pi_s = sum(float(p.amount) for p in _pis_s)
-        _exc_s = max(0.0, _total_pi_s - _planned_cards)
-
-        # Excedentes: direto do cache do get_yearly_cashflow (igual à coluna Eventuais)
-        _ev_itens_s = []
-        _total_ev_s = 0.0
-        _cf_mes = _cf_cache.get((_pyr_s, _pmo_s), {})
-        for _ei in _cf_mes.get("eventual_items", []):
-            _desc_ei = str(_ei.get("desc", ""))
-            _amt_ei  = float(_ei.get("amount", 0))
-            # Excluir SOMENTE o excedente de cartão parcelado (tem coluna própria)
-            _dn = _norm_acc(_desc_ei)
-            if "CARTAO PARCELADO" in _dn and "EXCEDENTE" in _dn:
-                continue
-            if _amt_ei <= 0:
-                continue
-            _ev_itens_s.append({"desc": _desc_ei, "valor": _amt_ei})
-            _total_ev_s += _amt_ei
-
-        _saldo_s = round(_renda_s - _fixos_s - _exc_s - _total_ev_s, 2)
-        projecao_saldo.append({
-            "label": _label_s, "mes": _proj_mes_s,
-            "renda": round(_renda_s, 2),
-            "fixos": round(_fixos_s, 2),
-            "parcelados": round(_total_pi_s, 2),
-            "excedente": round(_exc_s, 2),
-            "ev_itens": _ev_itens_s,
-            "total_ev": round(_total_ev_s, 2),
-            "saldo": _saldo_s,
-            "is_atual": _st == 0,
-            "is_passado": _is_passado,
-        })
+        _meses_proj.append((_st, filter_year + _base_m // 12, (_base_m % 12) + 1))
+    _proj = saldo_projetado_meses(current_user.id,
+                                  [(y, m) for _, y, m in _meses_proj],
+                                  cf_cache=_cf_cache)
+    projecao_saldo = []
+    for _st, _pyr_s, _pmo_s in _meses_proj:
+        projecao_saldo.append(dict(
+            _proj[(_pyr_s, _pmo_s)],
+            label=f"{MESES_PT[_pmo_s-1]}/{_pyr_s}",
+            mes=f"{_pyr_s}-{_pmo_s:02d}",
+            is_atual=_st == 0,
+            is_passado=_st < 0,
+        ))
 
     # Andamento do Mês: gastos da casa selecionados com percentual
     # (mesma função usada pelo agente noturno de alertas)
