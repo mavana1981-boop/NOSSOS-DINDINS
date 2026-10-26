@@ -100,7 +100,7 @@
 <div class="card mt-3">
   <div class="card-title">
     <h3>Detalhamento mês a mês</h3>
-    <span class="text-faint text-small">clique = detalhar · duplo clique = editar</span>
+    <span class="text-faint text-small">clique = detalhar · duplo clique = editar · Saldo = Saldo Proj. do Relatório</span>
   </div>
   <div class="table-wrap">
     <table class="tbl">
@@ -157,7 +157,10 @@
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ year }}" data-month="{{ m.month }}"{% if m.net_override is defined and m.net_override %} data-overridden="1"{% endif %} title="Duplo clique para editar / Clique para ver cálculo"
 
-               data-mem="saldo">
+               data-mem="saldo"{% if m.saldo_proj %}
+               data-p-renda="{{ m.saldo_proj.renda }}" data-p-fixos="{{ m.saldo_proj.fixos }}"
+               data-p-ev="{{ m.saldo_proj.total_ev }}" data-p-exc="{{ m.saldo_proj.excedente }}"
+               data-p-calc="{{ m.saldo_proj.saldo }}"{% endif %}>
             {{ m.net|brl }}
           </td>
           <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
@@ -238,19 +241,21 @@ function mostrarMemoria(td) {
       var v = parseFloat(cell.getAttribute('data-value') || '0');
       return isNaN(v) ? 0 : v;
     }
-    var rf = cellVal('income_recurring');
-    var re = cellVal('income_eventual');
-    var gf = cellVal('fixed');
-    var ge = cellVal('eventual');
     var netExibido = parseFloat(td.getAttribute('data-value') || '0');
-    var netCalc = Math.round((rf + re - gf - ge) * 100) / 100;
-    var isOverride = Math.abs(netCalc - netExibido) > 0.05;
+    function pv(k) { var v = parseFloat(td.getAttribute('data-p-' + k) || '0'); return isNaN(v) ? 0 : v; }
+    function linha(rot, v, cor) {
+      return '<div style="display:flex;justify-content:space-between;gap:12px;"><span>' + rot +
+             '</span><span class="mono" style="color:' + cor + ';">' + fmtBRL(v) + '</span></div>';
+    }
+    var netCalc = pv('calc');
+    var isOverride = !!td.getAttribute('data-overridden') && Math.abs(netCalc - netExibido) > 0.05;
 
     var html = '<div style="font-size:0.9rem;line-height:2;">';
-    html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda fixa</span><span class="mono" style="color:var(--green);">' + fmtBRL(rf) + '</span></div>';
-    html += '<div style="display:flex;justify-content:space-between;"><span>+ Renda eventual</span><span class="mono" style="color:var(--blue);">' + fmtBRL(re) + '</span></div>';
-    html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos fixos</span><span class="mono" style="color:var(--red);">' + fmtBRL(gf) + '</span></div>';
-    html += '<div style="display:flex;justify-content:space-between;"><span>− Gastos eventuais</span><span class="mono" style="color:var(--red);">' + fmtBRL(ge) + '</span></div>';
+    html += '<div style="font-size:0.75rem;color:var(--text-dim);line-height:1.4;margin-bottom:6px;">Mesmo cálculo do Saldo Proj. da Projeção de Saldo do Relatório. Renda eventual não entra.</div>';
+    html += linha('+ Renda fixa', pv('renda'), 'var(--green)');
+    html += linha('− Gastos fixos', pv('fixos'), 'var(--red)');
+    html += linha('− Excedentes', pv('ev'), 'var(--red)');
+    html += linha('− Excedente parcelados', pv('exc'), 'var(--red)');
     if (isOverride) {
       html += '<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;color:var(--text-dim);">';
       html += '<span>= Calculado</span><span class="mono">' + fmtBRL(netCalc) + '</span></div>';
@@ -413,8 +418,8 @@ function abrirEdicao(td) {
           td.setAttribute('data-value', numVal);
           td.setAttribute('data-overridden', '1');
           td.innerHTML = fmtBRL(numVal);
-          // Recalcular Saldo e Acumulado inline
-          recalcularTabela();
+          // Saldo e acumulado são recalculados no servidor (saldo projetado)
+          window.location.reload();
         }
         else if (j.error === 'sessao_expirada') {
           alert('Sessão expirada. Faça login novamente.');

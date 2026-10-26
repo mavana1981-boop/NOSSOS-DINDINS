@@ -64,6 +64,11 @@ def index():
         jan["cumulative"] = dec_cumulative + jan["net"]
         months = months + [jan]
 
+    # Saldo = Saldo Proj. do Relatório (Projeção de Saldo); acumulado recalculado
+    from app.utils import aplicar_saldo_projetado
+    aplicar_saldo_projetado(current_user.id,
+                            [(year + 1 if m.get("is_next_year") else year, m) for m in months])
+
     months12 = months[:12]
     totals = {
         "income":           sum(m["income"] for m in months12),
