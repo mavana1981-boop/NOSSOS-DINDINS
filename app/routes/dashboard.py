@@ -214,6 +214,7 @@ def index():
         "dashboard.html",
         summary=summary,
         cf_current=cf_current,
+        cf_months=cf_months,
         cf_dec=cf_dec,
         credits_debits=credits_debits_detail,
         projects=projects[:4],
@@ -879,6 +880,8 @@ def notificacoes():
             evolucao.append({
                 "desc": exp.description if exp else f"#{exp_id}",
                 "planned": ult.planned, "spent": ult.spent, "pct": ult.pct,
+                # Projetado = quanto "deveria" ter sido gasto até a última foto (planejado × % ideal)
+                "projetado": round((ult.planned or 0) * (ult.pct_ideal or 0) / 100, 2),
                 "dias": [porDia.get(d) for d in dias_evo],
             })
         evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
