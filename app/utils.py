@@ -663,7 +663,10 @@ def aplicar_saldo_projetado(user_id, meses_cf):
         if (ov and ov.cumulative_override is not None) or (ano == 2026 and m["month"] == 5):
             ajuste = 0.0
         else:
-            ajuste += novo - m["net"]
+            # Acumulado soma o saldo projetado + a renda eventual do mês
+            # (ajuste manual de saldo já é o valor final do mês)
+            contrib = novo if fixo_manual else novo + float(m.get("income_eventual", 0) or 0)
+            ajuste += contrib - m["net"]
             m["cumulative"] = round(m["cumulative"] + ajuste, 2)
         m["net"] = round(novo, 2)
     return meses_cf
