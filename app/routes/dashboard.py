@@ -860,37 +860,62 @@ def notificacoes():
              .order_by(Notificacao.created_at.desc()).limit(100).all())
 
     # Evolução diária de cada gasto do Andamento (últimas 10 fotos)
+    # + balanço ATUAL (calculado agora, com os lançamentos de hoje)
     from app.models import AndamentoDiario, PushInscricao
+    from app.agente_andamento import (calcular_andamento, hoje_brasilia,
+                                      mes_fatura_do_ciclo)
+    from app.utils import get_open_billing_month as _gobm_evo
+    _hoje_evo = hoje_brasilia()
+    mes_evo = _gobm_evo(current_user.id, mes_fatura_do_ciclo(_hoje_evo))
+    agora, pct_ideal_agora = calcular_andamento(current_user.id, mes_evo, _hoje_evo,
+                                                somente_dono=True)
+
     _ult = (db.session.query(AndamentoDiario.dia)
-            .filter(AndamentoDiario.user_id == current_user.id)
+            .filter(AndamentoDiario.user_id == current_user.id,
+                    AndamentoDiario.billing_month == mes_evo)
             .distinct().order_by(AndamentoDiario.dia.desc()).limit(10).all())
     dias_evo = sorted(d for (d,) in _ult)
-    evolucao = []
+    por_gasto, ideal_dia = {}, {}
     if dias_evo:
-        fotos = AndamentoDiario.query.filter(
-            AndamentoDiario.user_id == current_user.id,
-            AndamentoDiario.dia.in_(dias_evo)).all()
-        por_gasto = {}
-        for f in fotos:
+        for f in AndamentoDiario.query.filter(
+                AndamentoDiario.user_id == current_user.id,
+                AndamentoDiario.billing_month == mes_evo,
+                AndamentoDiario.dia.in_(dias_evo)).all():
             por_gasto.setdefault(f.expense_id, {})[f.dia] = f
-        ideal_dia = {f.dia: f.pct_ideal for f in fotos}
-        for exp_id, porDia in por_gasto.items():
-            exp = Expense.query.get(exp_id)
-            ult = porDia[max(porDia)]
-            evolucao.append({
-                "desc": exp.description if exp else f"#{exp_id}",
-                "planned": ult.planned, "spent": ult.spent, "pct": ult.pct,
-                # Projetado = quanto "deveria" ter sido gasto até a última foto (planejado × % ideal)
-                "projetado": round((ult.planned or 0) * (ult.pct_ideal or 0) / 100, 2),
-                "dias": [porDia.get(d) for d in dias_evo],
-            })
-        evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
-    else:
-        ideal_dia = {}
+            ideal_dia[f.dia] = f.pct_ideal
+
+    evolucao = []
+    for it in agora:
+        porDia = por_gasto.get(it["expense_id"], {})
+        projetado = round(it["planned"] * pct_ideal_agora / 100, 2)
+        evolucao.append({
+            "desc": it["desc"],
+            "planned": it["planned"], "spent": it["spent"], "pct": it["pct"],
+            "ok": it["ok"],
+            "projetado": projetado,
+            "saldo": round(it["planned"] - it["spent"], 2),
+            "dias": [porDia.get(d) for d in dias_evo],
+        })
+    evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
+
+    _tp = sum(g["planned"] for g in evolucao)
+    _tg = sum(g["spent"] for g in evolucao)
+    _tj = sum(g["projetado"] for g in evolucao)
+    balanco = {
+        "planejado": round(_tp, 2),
+        "gasto": round(_tg, 2),
+        "saldo": round(_tp - _tg, 2),
+        "projetado": round(_tj, 2),
+        "vs_projetado": round(_tj - _tg, 2),   # >0 = abaixo do esperado (folga)
+        "pct": round(_tg / _tp * 100, 1) if _tp > 0 else 0,
+        "pct_ideal": pct_ideal_agora,
+        "mes": mes_evo,
+    }
     aparelhos = PushInscricao.query.filter_by(user_id=current_user.id).count()
 
     return render_template("notificacoes.html", itens=itens,
                            dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
+                           balanco=balanco,
                            aparelhos=aparelhos,
                            email_ok=email_configurado(),
                            email_destino=_os.environ.get("ALERTA_EMAIL_TO") or current_user.email,
