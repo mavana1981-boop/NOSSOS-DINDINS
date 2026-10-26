@@ -857,7 +857,38 @@ def notificacoes():
     import os as _os
     itens = (Notificacao.query.filter_by(user_id=current_user.id)
              .order_by(Notificacao.created_at.desc()).limit(100).all())
+
+    # Evolução diária de cada gasto do Andamento (últimas 10 fotos)
+    from app.models import AndamentoDiario, PushInscricao
+    _ult = (db.session.query(AndamentoDiario.dia)
+            .filter(AndamentoDiario.user_id == current_user.id)
+            .distinct().order_by(AndamentoDiario.dia.desc()).limit(10).all())
+    dias_evo = sorted(d for (d,) in _ult)
+    evolucao = []
+    if dias_evo:
+        fotos = AndamentoDiario.query.filter(
+            AndamentoDiario.user_id == current_user.id,
+            AndamentoDiario.dia.in_(dias_evo)).all()
+        por_gasto = {}
+        for f in fotos:
+            por_gasto.setdefault(f.expense_id, {})[f.dia] = f
+        ideal_dia = {f.dia: f.pct_ideal for f in fotos}
+        for exp_id, porDia in por_gasto.items():
+            exp = Expense.query.get(exp_id)
+            ult = porDia[max(porDia)]
+            evolucao.append({
+                "desc": exp.description if exp else f"#{exp_id}",
+                "planned": ult.planned, "spent": ult.spent, "pct": ult.pct,
+                "dias": [porDia.get(d) for d in dias_evo],
+            })
+        evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
+    else:
+        ideal_dia = {}
+    aparelhos = PushInscricao.query.filter_by(user_id=current_user.id).count()
+
     return render_template("notificacoes.html", itens=itens,
+                           dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
+                           aparelhos=aparelhos,
                            email_ok=email_configurado(),
                            email_destino=_os.environ.get("ALERTA_EMAIL_TO") or current_user.email,
                            hora=_os.environ.get("AGENTE_ANDAMENTO_HORA", "21"),
@@ -897,3 +928,94 @@ def notificacoes_rodar_agora():
           else "Agente executado: nenhuma mudança desde a última verificação.",
           "success")
     return redirect(url_for("dashboard.notificacoes"))
+
+
+# ─────────────────────────────────────────────────────────────
+#  App no celular (PWA) + notificações push
+# ─────────────────────────────────────────────────────────────
+@dashboard_bp.route("/sw.js")
+def service_worker():
+    from flask import send_from_directory, current_app
+    import os as _os
+    resp = send_from_directory(_os.path.join(current_app.static_folder, "pwa"), "sw.js",
+                               mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@dashboard_bp.route("/manifest.webmanifest")
+def manifest():
+    from flask import jsonify
+    resp = jsonify({
+        "name": "Nosso Dindin",
+        "short_name": "Dindin",
+        "start_url": "/dashboard",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#1a1612",
+        "theme_color": "#d97757",
+        "lang": "pt-BR",
+        "icons": [
+            {"src": "/static/pwa/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/pwa/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/pwa/icon-maskable-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+    })
+    resp.mimetype = "application/manifest+json"
+    return resp
+
+
+@dashboard_bp.route("/push/chave")
+@login_required
+def push_chave():
+    from flask import jsonify
+    from app.webpush import chaves_vapid
+    return jsonify({"publicKey": chaves_vapid()[1]})
+
+
+@dashboard_bp.route("/push/inscrever", methods=["POST"])
+@login_required
+def push_inscrever():
+    from flask import jsonify
+    from app.models import PushInscricao
+    d = request.get_json(silent=True) or {}
+    endpoint = d.get("endpoint")
+    keys = d.get("keys") or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify({"ok": False, "erro": "inscrição inválida"}), 400
+    uid = current_user.id
+    insc = PushInscricao.query.filter_by(endpoint=endpoint).first()
+    if insc is None:
+        insc = PushInscricao(endpoint=endpoint)
+    insc.user_id = uid
+    insc.p256dh = keys["p256dh"]
+    insc.auth = keys["auth"]
+    insc.aparelho = (request.headers.get("User-Agent") or "")[:200]
+    db.session.add(insc)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/push/cancelar", methods=["POST"])
+@login_required
+def push_cancelar():
+    from flask import jsonify
+    from app.models import PushInscricao
+    d = request.get_json(silent=True) or {}
+    PushInscricao.query.filter_by(user_id=current_user.id, endpoint=d.get("endpoint")).delete()
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/push/testar", methods=["POST"])
+@login_required
+def push_testar():
+    from flask import jsonify
+    from app.webpush import enviar_para_usuario
+    n = enviar_para_usuario(current_user.id, {
+        "title": "🔔 Nosso Dindin",
+        "body": "Notificações ativadas! Você vai receber o resumo do Andamento todo dia à noite.",
+        "url": "/notificacoes", "tag": "teste"})
+    return jsonify({"ok": n > 0, "enviados": n})

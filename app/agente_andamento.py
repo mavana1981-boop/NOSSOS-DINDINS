@@ -147,6 +147,48 @@ def enviar_email(destino: str, assunto: str, corpo: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 #  Execução
 # ─────────────────────────────────────────────────────────────
+def registrar_dia_e_resumir(user_id: int, mes: str, hoje: date, itens: list, pct_ideal: float):
+    """
+    Grava a foto de hoje de cada gasto e monta o resumo diário com a variação
+    desde a última foto (normalmente a de ontem). Retorna {"titulo", "texto"} ou None.
+    """
+    from app import db
+    from app.models import AndamentoDiario
+    if not itens:
+        return None
+    limite = round(pct_ideal + TOLERANCIA_PP, 1)
+    linhas = []
+    for it in itens:
+        anterior = (AndamentoDiario.query
+                    .filter(AndamentoDiario.user_id == user_id,
+                            AndamentoDiario.expense_id == it["expense_id"],
+                            AndamentoDiario.billing_month == mes,
+                            AndamentoDiario.dia < hoje)
+                    .order_by(AndamentoDiario.dia.desc()).first())
+        foto = AndamentoDiario.query.filter_by(
+            user_id=user_id, expense_id=it["expense_id"], dia=hoje).first()
+        if foto is None:
+            foto = AndamentoDiario(user_id=user_id, expense_id=it["expense_id"], dia=hoje)
+            db.session.add(foto)
+        foto.billing_month = mes
+        foto.planned, foto.spent, foto.pct, foto.pct_ideal = (
+            it["planned"], it["spent"], it["pct"], pct_ideal)
+
+        if anterior is None:
+            var = "novo"
+        else:
+            d = round(it["spent"] - (anterior.spent or 0), 2)
+            var = f"+{_brl(d)}" if d > 0.004 else ("=" if abs(d) <= 0.004 else f"−{_brl(-d)}")
+        bola = "🟢" if it["ok"] else "🔴"
+        linhas.append(f"{bola} {it['desc']}: {it['pct']:.0f}% · {_brl(it['spent'])} ({var})")
+
+    fora = sum(1 for it in itens if not it["ok"])
+    titulo = (f"📊 Andamento {hoje.strftime('%d/%m')} · ideal {pct_ideal:.0f}%"
+              + (f" · {fora} fora" if fora else " · tudo ok"))
+    texto = "\n".join(linhas) + f"\nFaixa desejável: até {limite:.0f}%"
+    return {"titulo": titulo, "texto": texto}
+
+
 def _trava_do_dia(hoje: date) -> bool:
     """Garante uma execução por dia mesmo com vários workers do gunicorn."""
     from app import db
@@ -193,19 +235,36 @@ def rodar_para_usuario(user, hoje: date) -> list:
                       else f"🔴 {it['desc']} começou o mês fora da faixa")
         else:
             titulo = f"🟢 {it['desc']} voltou para a faixa"
-        texto = (f"Gasto {it['pct']}% do planejado ({_brl(it['spent'])} de {_brl(it['planned'])}). "
-                 f"Desejável hoje: até {limite}% (ciclo em {pct_ideal}%).")
+        texto = (f"Gasto {it['pct']:.0f}% do planejado ({_brl(it['spent'])} de {_brl(it['planned'])}). "
+                 f"Desejável hoje: até {limite:.0f}% (ciclo em {pct_ideal:.0f}%).")
         avisos.append({"titulo": titulo, "texto": texto})
         db.session.add(Notificacao(
             user_id=user.id, titulo=titulo, mensagem=texto,
             link=f"/relatorio?mes={mes}#andamento",
         ))
 
+    # ── Foto do dia + resumo da evolução de cada gasto ──
+    resumo = registrar_dia_e_resumir(user.id, mes, hoje, itens, pct_ideal)
     db.session.commit()
+
+    # ── Notificações no celular (push) ──
+    try:
+        from app.webpush import enviar_para_usuario
+        link = f"/relatorio?mes={mes}#andamento"
+        for a in avisos:
+            enviar_para_usuario(user.id, {"title": a["titulo"], "body": a["texto"],
+                                          "url": link, "tag": "andamento-" + a["titulo"]})
+        if resumo:
+            enviar_para_usuario(user.id, {"title": resumo["titulo"], "body": resumo["texto"],
+                                          "url": "/notificacoes#evolucao", "tag": "andamento-resumo"})
+    except Exception as e:
+        print(f"[agente-andamento] push falhou para usuário {user.id}: {e}")
 
     if avisos:
         destino = os.environ.get("ALERTA_EMAIL_TO") or user.email
         corpo = "\n\n".join(f"{a['titulo']}\n{a['texto']}" for a in avisos)
+        if resumo:
+            corpo += f"\n\n{resumo['titulo']}\n{resumo['texto']}"
         corpo += f"\n\n— Nosso Dindin · Andamento de {mes} ({hoje.strftime('%d/%m/%Y')})"
         assunto = (avisos[0]["titulo"] if len(avisos) == 1
                    else f"Nosso Dindin: {len(avisos)} mudanças no Andamento do Mês")
