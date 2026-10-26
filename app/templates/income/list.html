@@ -1,26 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Rendas<script>
-function toggleRec(id, btn) {
-  fetch(`/rendas/${id}/toggle-recorrente`, {method:'POST', credentials:'same-origin'})
-    .then(r => r.json())
-    .then(d => {
-      btn.textContent = d.is_recurring ? '🔁 Recorrente' : '📅 Eventual';
-      btn.className = btn.className.replace(
-        d.is_recurring ? 'btn-ghost' : 'btn-primary',
-        d.is_recurring ? 'btn-primary' : 'btn-ghost'
-      );
-    });
-}
-</script>
-{% endblock %}
+{% block title %}Rendas{% endblock %}
 {% block content %}
 
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Rendas</h1>
-    <p>Total registrado: <strong style="color:var(--green);">{{ total|brl }}</strong></p>
+    <p>{{ mes_label }} · fixas que valem no mês + eventuais do próprio mês</p>
   </div>
-  <a href="{{ url_for('income.new_income') }}" class="btn btn-primary">+ Nova renda</a>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <a href="{{ url_for('income.list_incomes', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
+    <span style="font-weight:600;min-width:120px;text-align:center;">{{ mes_label }}</span>
+    <a href="{{ url_for('income.list_incomes', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
+    <a href="{{ url_for('income.new_income') }}" class="btn btn-primary btn-sm">+ Nova renda</a>
+  </div>
+</div>
+
+<!-- Totais do mês em destaque -->
+<div class="grid grid-3 mb-3">
+  <div class="stat">
+    <div class="stat-label">🔁 Renda fixa — {{ mes_label }}</div>
+    <div class="stat-value positive">{{ total_fixa|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">{{ fixas|length }} renda(s) recorrente(s)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">📅 Renda eventual — {{ mes_label }}</div>
+    <div class="stat-value" style="color:var(--blue);">{{ total_eventual|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">{{ eventuais|length }} lançamento(s) no mês</div>
+  </div>
+  <div class="stat" style="border:1px solid var(--green);">
+    <div class="stat-label">💰 Total do mês</div>
+    <div class="stat-value positive">{{ total|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">fixa + eventual</div>
+  </div>
 </div>
 
 <div class="card">
@@ -40,7 +51,7 @@ function toggleRec(id, btn) {
       <tbody>
         {% for i in incomes %}
         <tr>
-          <td class="text-dim">{{ i.received_at|data_br }}</td>
+          <td class="text-dim">{% if i.is_recurring %}desde {{ i.received_at.strftime('%m/%Y') }}{% else %}{{ i.received_at|data_br }}{% endif %}</td>
           <td><strong>{{ i.description }}</strong>
               {% if i.notes %}<div class="text-faint text-small">{{ i.notes }}</div>{% endif %}
           </td>
@@ -68,11 +79,20 @@ function toggleRec(id, btn) {
   </div>
   {% else %}
     <div class="empty-state">
-      <h4>Nenhuma renda registrada</h4>
-      <p>Registre seu salário e outras fontes de renda.</p>
+      <h4>Nenhuma renda neste mês</h4>
+      <p>Não há renda fixa vigente nem renda eventual em {{ mes_label }}.</p>
       <a href="{{ url_for('income.new_income') }}" class="btn btn-primary btn-sm mt-2">Registrar primeira</a>
     </div>
   {% endif %}
 </div>
 
+<script>
+function toggleRec(id, btn) {
+  btn.disabled = true;
+  fetch(`/rendas/${id}/toggle-recorrente`, {method:'POST', credentials:'same-origin'})
+    .then(r => r.json())
+    .then(() => window.location.reload())
+    .catch(() => { btn.disabled = false; });
+}
+</script>
 {% endblock %}

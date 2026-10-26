@@ -18,6 +18,30 @@
   </div>
 </div>
 
+<!-- Consolidado do mês em destaque -->
+<div class="grid grid-4 mb-3">
+  <div class="stat">
+    <div class="stat-label">🏠 Gastos fixos — {{ mes_label }}</div>
+    <div class="stat-value" style="color:var(--gold);">{{ total_fixos|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">{{ n_fixos }} gasto(s) fixo(s)/parcelado(s)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">⚡ Eventuais — {{ mes_label }}</div>
+    <div class="stat-value negative">{{ total_eventuais|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">{{ n_eventuais }} lançamento(s) no mês</div>
+  </div>
+  <div class="stat" style="border:1px solid var(--red);">
+    <div class="stat-label">💸 Total do mês</div>
+    <div class="stat-value negative">{{ (total_fixos + total_eventuais)|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">fixos + eventuais</div>
+  </div>
+  <div class="stat" style="opacity:.85;">
+    <div class="stat-label">🗓 Eventuais futuros</div>
+    <div class="stat-value" style="color:var(--text-dim);">{{ total_futuros|brl }}</div>
+    <div class="stat-foot text-faint" style="font-size:0.75rem;">{{ n_futuros }} lançamento(s) após {{ mes_label }} · fora do total</div>
+  </div>
+</div>
+
 <div class="card">
   {% if expenses %}
   <div class="table-wrap">
@@ -35,9 +59,11 @@
       </thead>
       <tbody>
         {% for e in expenses %}
-        <tr>
+        {% set _futuro = e.id in futuros_ids %}
+        <tr {% if _futuro %}style="opacity:.7;"{% endif %}>
           <td class="text-dim">
             {{ e.spent_at|data_br }}
+            {% if _futuro %}<div><span class="badge badge-solo" style="font-size:0.65rem;">futuro</span></div>{% endif %}
             {% if e.kind == 'recorrente' %}
               <div class="text-faint text-small">
                 {% if e.recurrence_months %}{{ e.recurrence_months }}× mensais{% else %}fixo mensal{% endif %}

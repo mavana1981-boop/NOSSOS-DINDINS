@@ -171,9 +171,25 @@ def list_expenses():
                 })
                 break
 
-    # Totais do mês selecionado
+    # Totais do mês selecionado (antes de acrescentar os eventuais futuros)
     total_paid = sum(float(e.amount) for e in expenses
                      if e.payer_id == current_user.id)
+
+    # Consolidado: fixos do mês × eventuais do mês × eventuais futuros
+    fixos_mes = [e for e in expenses if e.kind == "recorrente"]
+    eventuais_mes = [e for e in expenses if e.kind != "recorrente"]
+    _ids_mes = {e.id for e in expenses}
+    eventuais_futuros = sorted(
+        [e for e in all_expenses
+         if e.kind != "recorrente" and e.id not in _ids_mes
+         and (e.spent_at.year, e.spent_at.month) > (filter_year, filter_month)],
+        key=lambda e: e.spent_at)
+    total_fixos = round(sum(float(e.amount) for e in fixos_mes), 2)
+    total_eventuais = round(sum(float(e.amount) for e in eventuais_mes), 2)
+    total_futuros = round(sum(float(e.amount) for e in eventuais_futuros), 2)
+    # Lista: mês selecionado + eventuais futuros (eventuais passados não aparecem)
+    expenses = expenses + eventuais_futuros
+    futuros_ids = {e.id for e in eventuais_futuros}
 
     # O que outros devem a você = shares de outros usuários em gastos que você pagou
     total_repassado = 0.0
@@ -200,6 +216,10 @@ def list_expenses():
 
     return render_template("expenses/list.html",
                            expenses=expenses,
+                           total_fixos=total_fixos, total_eventuais=total_eventuais,
+                           total_futuros=total_futuros, futuros_ids=futuros_ids,
+                           n_fixos=len(fixos_mes), n_eventuais=len(eventuais_mes),
+                           n_futuros=len(eventuais_futuros),
                            total_paid=total_paid,
                            total_my_share=total_my_share,
                            categories=CATEGORIES,

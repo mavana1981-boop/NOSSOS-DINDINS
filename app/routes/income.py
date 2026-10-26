@@ -20,10 +20,40 @@ def _parse_decimal(s):
 @income_bp.route("/")
 @login_required
 def list_incomes():
-    incomes = Income.query.filter_by(user_id=current_user.id)\
+    """
+    Rendas do mês escolhido (mesma regra do Fluxo de Caixa):
+      - fixas (recorrentes) que começaram até o mês;
+      - eventuais só do próprio mês.
+    """
+    from app.utils import get_open_billing_month
+    mes = request.args.get("mes") or get_open_billing_month(
+        current_user.id, date.today().strftime("%Y-%m"))
+    try:
+        ano, mm = int(mes[:4]), int(mes[5:7])
+    except (ValueError, IndexError):
+        ano, mm = date.today().year, date.today().month
+    mes = f"{ano}-{mm:02d}"
+
+    todas = Income.query.filter_by(user_id=current_user.id)\
         .order_by(Income.received_at.desc()).all()
-    total = sum(float(i.amount) for i in incomes)
-    return render_template("income/list.html", incomes=incomes, total=total)
+    fixas = [i for i in todas if i.is_recurring
+             and (i.received_at.year, i.received_at.month) <= (ano, mm)]
+    eventuais = [i for i in todas if not i.is_recurring
+                 and i.received_at.year == ano and i.received_at.month == mm]
+    total_fixa = sum(float(i.amount) for i in fixas)
+    total_eventual = sum(float(i.amount) for i in eventuais)
+
+    MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
+             "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    prev_mes = f"{ano-1}-12" if mm == 1 else f"{ano}-{mm-1:02d}"
+    next_mes = f"{ano+1}-01" if mm == 12 else f"{ano}-{mm+1:02d}"
+    return render_template("income/list.html",
+                           incomes=fixas + eventuais,
+                           fixas=fixas, eventuais=eventuais,
+                           total_fixa=total_fixa, total_eventual=total_eventual,
+                           total=total_fixa + total_eventual,
+                           mes=mes, mes_label=f"{MESES[mm-1]}/{ano}",
+                           prev_mes=prev_mes, next_mes=next_mes)
 
 
 @income_bp.route("/<int:income_id>/toggle-recorrente", methods=["POST"])
