@@ -84,130 +84,7 @@
   {% endif %}
 </div>
 
-<!-- ── Evolução diária ── -->
-<div class="card" id="evolucao" style="margin-bottom:16px;">
-  <strong>📊 Evolução diária do Andamento</strong>
-  <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
-    % do planejado já gasto em cada gasto, foto tirada pelo agente toda noite. 🟢 dentro da faixa · 🔴 fora.
-    <strong>Projetado</strong> = quanto seria esperado gastar até agora (planejado × % ideal do ciclo).
-    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos. Valores de gasto e saldo são atuais; os % diários são as fotos de cada noite.
-  </div>
-  {% if evolucao %}
-  {% set b = balanco %}
-  <!-- Balanço do mês (atual) -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;">
-      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);">Planejado no mês</div>
-      <div style="font-size:1.25rem;font-weight:700;margin-top:4px;">{{ b.planejado|brl }}</div>
-    </div>
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;">
-      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);">Gasto até agora</div>
-      <div style="font-size:1.25rem;font-weight:700;margin-top:4px;color:#c4654a;">{{ b.gasto|brl }}</div>
-      <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">{{ b.pct|round|int }}% do planejado · ideal {{ b.pct_ideal|round|int }}%</div>
-    </div>
-    <div style="background:var(--bg);border:1px solid {{ '#7ea66b' if b.saldo >= 0 else '#c4654a' }};border-radius:10px;padding:12px;">
-      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);">Saldo atual</div>
-      <div style="font-size:1.25rem;font-weight:700;margin-top:4px;color:{{ '#7ea66b' if b.saldo >= 0 else '#c4654a' }};">{{ b.saldo|brl }}</div>
-      <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">{{ 'ainda disponível' if b.saldo >= 0 else 'acima do planejado' }}</div>
-    </div>
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;">
-      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);">vs. projetado hoje</div>
-      <div style="font-size:1.25rem;font-weight:700;margin-top:4px;color:{{ '#7ea66b' if b.vs_projetado >= 0 else '#c4654a' }};">{{ b.vs_projetado|abs|brl }}</div>
-      <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">{{ 'abaixo' if b.vs_projetado >= 0 else 'acima' }} dos {{ b.projetado|brl }} esperados até hoje</div>
-    </div>
-  </div>
-
-  <div style="overflow-x:auto;">
-  <table style="width:100%;border-collapse:collapse;font-size:13px;">
-    <thead>
-      <tr style="color:var(--text-faint);">
-        <th style="text-align:left;padding:6px 8px;position:sticky;left:0;background:var(--bg-card);">Gasto</th>
-        {% for d in dias_evo %}
-        <th style="text-align:right;padding:6px 6px;white-space:nowrap;font-weight:500;">
-          {{ d.strftime('%d/%m') }}<br><span style="font-size:11px;">ideal {{ ideal_dia[d]|round|int }}%</span>
-        </th>
-        {% endfor %}
-        <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Gasto / Projetado</th>
-        <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Planejado do mês</th>
-        <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Saldo</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% set _ncols = 4 + dias_evo|length %}
-      {% for g in evolucao %}
-      <tr class="evo-row" data-alvo="lanc-{{ g.expense_id }}" style="border-top:1px solid var(--border);cursor:pointer;"
-          title="Ver lançamentos">
-        <td style="padding:8px;white-space:nowrap;position:sticky;left:0;background:var(--bg-card);">
-          <span class="evo-seta" style="display:inline-block;width:14px;color:var(--text-faint);font-size:11px;">▶</span>{{ g.desc }}
-          <span style="font-size:11px;color:var(--text-faint);margin-left:4px;">({{ g.lancamentos|length }})</span>
-        </td>
-        {% for f in g.dias %}
-          {% if f %}
-            {% set fora = f.pct > (f.pct_ideal or 0) + tolerancia %}
-            <td style="text-align:right;padding:8px 6px;font-weight:600;color:{{ '#c4654a' if fora else '#7ea66b' }};">{{ f.pct|round|int }}%</td>
-          {% else %}
-            <td style="text-align:right;padding:8px 6px;color:var(--text-faint);">—</td>
-          {% endif %}
-        {% endfor %}
-        {% set _acima = g.spent > g.projetado + (g.planned * tolerancia / 100) %}
-        <td style="text-align:right;padding:8px;white-space:nowrap;">
-          <span style="font-weight:600;color:{{ '#c4654a' if _acima else 'var(--text)' }};">{{ g.spent|brl }}</span>
-          <span style="color:var(--text-dim);"> / {{ g.projetado|brl }}</span>
-        </td>
-        <td style="text-align:right;padding:8px;white-space:nowrap;color:var(--text-dim);">{{ g.planned|brl }}</td>
-        <td style="text-align:right;padding:8px;white-space:nowrap;font-weight:600;color:{{ '#7ea66b' if g.saldo >= 0 else '#c4654a' }};">{{ g.saldo|brl }}</td>
-      </tr>
-      <tr id="lanc-{{ g.expense_id }}" class="evo-lanc" style="display:none;">
-        <td colspan="{{ _ncols }}" style="padding:0 0 12px;background:var(--bg);">
-          <div style="position:sticky;left:0;max-width:calc(100vw - 72px);padding:0 8px 0 22px;box-sizing:border-box;">
-          {% if g.lancamentos %}
-          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-            <thead>
-              <tr style="color:var(--text-faint);">
-                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Data</th>
-                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Descrição</th>
-                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Cartão</th>
-                <th style="text-align:right;padding:8px 6px 4px;font-weight:500;">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for l in g.lancamentos %}
-              <tr style="border-top:1px solid var(--border);">
-                <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.data.strftime('%d/%m') if l.data else '—' }}</td>
-                <td style="padding:6px;">{{ l.desc }}{% if l.parcela %} <span style="color:var(--text-faint);">{{ l.parcela }}</span>{% endif %}</td>
-                <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.cartao }}</td>
-                <td style="padding:6px;text-align:right;white-space:nowrap;font-weight:600;">{{ l.valor|brl }}</td>
-              </tr>
-              {% endfor %}
-              <tr style="border-top:1px solid var(--border-strong);">
-                <td colspan="3" style="padding:6px;color:var(--text-dim);">{{ g.lancamentos|length }} lançamento(s)</td>
-                <td style="padding:6px;text-align:right;font-weight:700;">{{ g.spent|brl }}</td>
-              </tr>
-            </tbody>
-          </table>
-          {% else %}
-          <div style="padding:10px 6px;color:var(--text-dim);">Nenhum lançamento de cartão vinculado a este gasto na fatura atual.</div>
-          {% endif %}
-          </div>
-        </td>
-      </tr>
-      {% endfor %}
-      <tr style="border-top:2px solid var(--border-strong);font-weight:700;">
-        <td style="padding:8px;position:sticky;left:0;background:var(--bg-card);">TOTAL</td>
-        {% for d in dias_evo %}<td></td>{% endfor %}
-        <td style="text-align:right;padding:8px;white-space:nowrap;">
-          {{ b.gasto|brl }}<span style="color:var(--text-dim);font-weight:400;"> / {{ b.projetado|brl }}</span>
-        </td>
-        <td style="text-align:right;padding:8px;white-space:nowrap;">{{ b.planejado|brl }}</td>
-        <td style="text-align:right;padding:8px;white-space:nowrap;color:{{ '#7ea66b' if b.saldo >= 0 else '#c4654a' }};">{{ b.saldo|brl }}</td>
-      </tr>
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <div style="padding:12px 0;color:var(--text-dim);">Nenhum gasto no Andamento do Mês. Inclua gastos na aba Andamento do Relatório.</div>
-  {% endif %}
-</div>
+{% include "_evolucao_andamento.html" %}
 
 <div class="alert {{ 'alert-success' if email_ok else 'alert-info' }}">
   {% if email_ok %}
@@ -237,16 +114,6 @@
   {% endif %}
 </div>
 
-<script>
-document.querySelectorAll(".evo-row").forEach(function (tr) {
-  tr.addEventListener("click", function () {
-    var alvo = document.getElementById(tr.dataset.alvo);
-    var abrir = alvo.style.display === "none";
-    alvo.style.display = abrir ? "" : "none";
-    tr.querySelector(".evo-seta").textContent = abrir ? "▼" : "▶";
-  });
-});
-</script>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);

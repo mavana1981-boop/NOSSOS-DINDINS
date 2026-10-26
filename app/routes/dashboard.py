@@ -210,8 +210,19 @@ def index():
         if household_total_planned > 0 else 0, 100
     )
 
+    try:
+        _evo_dash = _dados_evolucao(current_user.id)
+        _evo_dash.pop("_hoje_evo", None)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Falha ao montar evolução diária no painel")
+        db.session.rollback()
+        _evo_dash = dict(dias_evo=[], evolucao=[], ideal_dia={}, balanco=None,
+                         tolerancia=5, evo_erro=True)
+
     return render_template(
         "dashboard.html",
+        **_evo_dash,
         summary=summary,
         cf_current=cf_current,
         cf_months=cf_months,
@@ -235,6 +246,83 @@ def index():
         next_mes=next_mes,
         mes_atual=today.strftime("%B/%Y").capitalize(),
     )
+
+
+def _dados_evolucao(user_id):
+    """Evolução diária do Andamento (últimas 10 fotos do agente) + balanço
+    atual. Usado no Painel inicial e na página de Avisos."""
+    from app.agente_andamento import TOLERANCIA_PP
+    # Evolução diária de cada gasto do Andamento (últimas 10 fotos)
+    # + balanço ATUAL (calculado agora, com os lançamentos de hoje)
+    from app.models import AndamentoDiario, PushInscricao
+    from app.agente_andamento import (calcular_andamento, hoje_brasilia,
+                                      mes_fatura_do_ciclo)
+    from app.utils import get_open_billing_month as _gobm_evo
+    _hoje_evo = hoje_brasilia()
+    mes_evo = _gobm_evo(user_id, mes_fatura_do_ciclo(_hoje_evo))
+    agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
+                                                somente_dono=True)
+
+    _ult = (db.session.query(AndamentoDiario.dia)
+            .filter(AndamentoDiario.user_id == user_id,
+                    AndamentoDiario.billing_month == mes_evo)
+            .distinct().order_by(AndamentoDiario.dia.desc()).limit(10).all())
+    dias_evo = sorted(d for (d,) in _ult)
+    por_gasto, ideal_dia = {}, {}
+    if dias_evo:
+        for f in AndamentoDiario.query.filter(
+                AndamentoDiario.user_id == user_id,
+                AndamentoDiario.billing_month == mes_evo,
+                AndamentoDiario.dia.in_(dias_evo)).all():
+            por_gasto.setdefault(f.expense_id, {})[f.dia] = f
+            ideal_dia[f.dia] = f.pct_ideal
+
+    evolucao = []
+    for it in agora:
+        porDia = por_gasto.get(it["expense_id"], {})
+        projetado = round(it["planned"] * pct_ideal_agora / 100, 2)
+        # Lançamentos de cartão vinculados a este gasto na fatura atual
+        # (mesmo filtro usado no cálculo do Andamento)
+        _lancs = (CardEntry.query
+                  .filter(CardEntry.expense_id == it["expense_id"],
+                          CardEntry.billing_month == mes_evo,
+                          CardEntry.status == "ativo")
+                  .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).all())
+        evolucao.append({
+            "expense_id": it["expense_id"],
+            "lancamentos": [{
+                "data": e.entry_date,
+                "desc": e.description,
+                "cartao": e.card.name if getattr(e, "card", None) else "—",
+                "parcela": (f"{e.installment_no}/{e.installments}"
+                            if (e.installments or 1) > 1 else ""),
+                "valor": float(e.amount),
+            } for e in _lancs],
+            "desc": it["desc"],
+            "planned": it["planned"], "spent": it["spent"], "pct": it["pct"],
+            "ok": it["ok"],
+            "projetado": projetado,
+            "saldo": round(it["planned"] - it["spent"], 2),
+            "dias": [porDia.get(d) for d in dias_evo],
+        })
+    evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
+
+    _tp = sum(g["planned"] for g in evolucao)
+    _tg = sum(g["spent"] for g in evolucao)
+    _tj = sum(g["projetado"] for g in evolucao)
+    balanco = {
+        "planejado": round(_tp, 2),
+        "gasto": round(_tg, 2),
+        "saldo": round(_tp - _tg, 2),
+        "projetado": round(_tj, 2),
+        "vs_projetado": round(_tj - _tg, 2),   # >0 = abaixo do esperado (folga)
+        "pct": round(_tg / _tp * 100, 1) if _tp > 0 else 0,
+        "pct_ideal": pct_ideal_agora,
+        "mes": mes_evo,
+    }
+    return dict(dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
+                balanco=balanco, tolerancia=TOLERANCIA_PP,
+                _hoje_evo=_hoje_evo)
 
 
 @dashboard_bp.route("/relatorio")
@@ -859,88 +947,21 @@ def notificacoes():
     itens = (Notificacao.query.filter_by(user_id=current_user.id)
              .order_by(Notificacao.created_at.desc()).limit(100).all())
 
-    # Evolução diária de cada gasto do Andamento (últimas 10 fotos)
-    # + balanço ATUAL (calculado agora, com os lançamentos de hoje)
-    from app.models import AndamentoDiario, PushInscricao
-    from app.agente_andamento import (calcular_andamento, hoje_brasilia,
-                                      mes_fatura_do_ciclo)
-    from app.utils import get_open_billing_month as _gobm_evo
-    _hoje_evo = hoje_brasilia()
-    mes_evo = _gobm_evo(current_user.id, mes_fatura_do_ciclo(_hoje_evo))
-    agora, pct_ideal_agora = calcular_andamento(current_user.id, mes_evo, _hoje_evo,
-                                                somente_dono=True)
-
-    _ult = (db.session.query(AndamentoDiario.dia)
-            .filter(AndamentoDiario.user_id == current_user.id,
-                    AndamentoDiario.billing_month == mes_evo)
-            .distinct().order_by(AndamentoDiario.dia.desc()).limit(10).all())
-    dias_evo = sorted(d for (d,) in _ult)
-    por_gasto, ideal_dia = {}, {}
-    if dias_evo:
-        for f in AndamentoDiario.query.filter(
-                AndamentoDiario.user_id == current_user.id,
-                AndamentoDiario.billing_month == mes_evo,
-                AndamentoDiario.dia.in_(dias_evo)).all():
-            por_gasto.setdefault(f.expense_id, {})[f.dia] = f
-            ideal_dia[f.dia] = f.pct_ideal
-
-    evolucao = []
-    for it in agora:
-        porDia = por_gasto.get(it["expense_id"], {})
-        projetado = round(it["planned"] * pct_ideal_agora / 100, 2)
-        # Lançamentos de cartão vinculados a este gasto na fatura atual
-        # (mesmo filtro usado no cálculo do Andamento)
-        _lancs = (CardEntry.query
-                  .filter(CardEntry.expense_id == it["expense_id"],
-                          CardEntry.billing_month == mes_evo,
-                          CardEntry.status == "ativo")
-                  .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).all())
-        evolucao.append({
-            "expense_id": it["expense_id"],
-            "lancamentos": [{
-                "data": e.entry_date,
-                "desc": e.description,
-                "cartao": e.card.name if getattr(e, "card", None) else "—",
-                "parcela": (f"{e.installment_no}/{e.installments}"
-                            if (e.installments or 1) > 1 else ""),
-                "valor": float(e.amount),
-            } for e in _lancs],
-            "desc": it["desc"],
-            "planned": it["planned"], "spent": it["spent"], "pct": it["pct"],
-            "ok": it["ok"],
-            "projetado": projetado,
-            "saldo": round(it["planned"] - it["spent"], 2),
-            "dias": [porDia.get(d) for d in dias_evo],
-        })
-    evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
-
-    _tp = sum(g["planned"] for g in evolucao)
-    _tg = sum(g["spent"] for g in evolucao)
-    _tj = sum(g["projetado"] for g in evolucao)
-    balanco = {
-        "planejado": round(_tp, 2),
-        "gasto": round(_tg, 2),
-        "saldo": round(_tp - _tg, 2),
-        "projetado": round(_tj, 2),
-        "vs_projetado": round(_tj - _tg, 2),   # >0 = abaixo do esperado (folga)
-        "pct": round(_tg / _tp * 100, 1) if _tp > 0 else 0,
-        "pct_ideal": pct_ideal_agora,
-        "mes": mes_evo,
-    }
+    _evo = _dados_evolucao(current_user.id)
+    _hoje_evo = _evo.pop("_hoje_evo")
+    from app.models import PushInscricao
     from app.agente_andamento import cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS
     cartoes = cartoes_ultimo_lancamento(current_user.id, _hoje_evo)
     aparelhos = PushInscricao.query.filter_by(user_id=current_user.id).count()
 
     return render_template("notificacoes.html", itens=itens,
-                           dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
-                           balanco=balanco,
+                           **_evo,
                            cartoes=cartoes, cartao_alerta_dias=CARTAO_ALERTA_DIAS,
                            aparelhos=aparelhos,
                            email_ok=email_configurado(),
                            email_destino=_os.environ.get("ALERTA_EMAIL_TO") or current_user.email,
                            hora=_os.environ.get("AGENTE_ANDAMENTO_HORA", "21"),
-                           minuto=int(_os.environ.get("AGENTE_ANDAMENTO_MINUTO", "0")),
-                           tolerancia=TOLERANCIA_PP)
+                           minuto=int(_os.environ.get("AGENTE_ANDAMENTO_MINUTO", "0")))
 
 
 @dashboard_bp.route("/notificacoes/lidas", methods=["POST"])
