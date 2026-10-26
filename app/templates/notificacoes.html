@@ -7,7 +7,7 @@
     <h1>Avisos</h1>
     <p>
       O agente confere o <strong>Andamento do Mês</strong> todo dia às
-      <strong>{{ hora }}:{{ '%02d'|format(minuto) }}</strong>, manda o resumo diário de cada gasto e avisa quando algum
+      <strong>{{ hora }}:{{ '%02d'|format(minuto) }}</strong>, manda o resumo diário de cada gasto e do último lançamento de cada cartão, e avisa quando algum
       entra ou sai da faixa desejável (até {{ tolerancia }} p.p. acima do % ideal do ciclo).
     </p>
   </div>
@@ -43,6 +43,45 @@
     <em>Adicionar à Tela de Início</em>. Depois abra o <strong>Dindin</strong> pelo ícone novo,
     entre nesta página e toque em <em>Ativar neste aparelho</em>. (Requer iOS 16.4 ou mais recente.)
   </div>
+</div>
+
+<!-- ── Último lançamento por cartão ── -->
+<div class="card" id="cartoes" style="margin-bottom:16px;">
+  <strong>💳 Último lançamento de cada cartão</strong>
+  <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
+    Dias desde a compra mais recente registrada, contando até hoje. ⚠️ = mais de {{ cartao_alerta_dias }} dias sem lançamento.
+  </div>
+  {% if cartoes %}
+  <div style="overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead>
+      <tr style="color:var(--text-faint);">
+        <th style="text-align:left;padding:6px 8px;">Cartão</th>
+        <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Último lançamento</th>
+        <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Sem atualização</th>
+        <th style="text-align:left;padding:6px 8px;">Descrição</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cartoes %}
+      {% set _cor = '#c4654a' if c.atrasado else '#7ea66b' %}
+      <tr style="border-top:1px solid var(--border);">
+        <td style="padding:8px;white-space:nowrap;">{{ '⚠️' if c.atrasado else '✅' }} {{ c.card }}</td>
+        <td style="text-align:right;padding:8px;white-space:nowrap;">{{ c.data.strftime('%d/%m/%Y') if c.data else '—' }}</td>
+        <td style="text-align:right;padding:8px;white-space:nowrap;font-weight:700;color:{{ _cor }};">
+          {% if c.dias is none %}sem lançamentos{% elif c.dias == 0 %}hoje{% elif c.dias == 1 %}1 dia{% else %}{{ c.dias }} dias{% endif %}
+        </td>
+        <td style="padding:8px;color:var(--text-dim);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          {% if c.desc %}{{ c.desc }} · {{ c.valor|brl }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div style="padding:12px 0;color:var(--text-dim);">Nenhum cartão ativo cadastrado.</div>
+  {% endif %}
 </div>
 
 <!-- ── Evolução diária ── -->

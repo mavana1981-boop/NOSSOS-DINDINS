@@ -189,6 +189,61 @@ def registrar_dia_e_resumir(user_id: int, mes: str, hoje: date, itens: list, pct
     return {"titulo": titulo, "texto": texto}
 
 
+CARTAO_ALERTA_DIAS = int(os.environ.get("CARTAO_ALERTA_DIAS", "3"))
+
+
+def cartoes_ultimo_lancamento(user_id: int, hoje: date) -> list:
+    """
+    Para cada cartão ativo do usuário: último lançamento (pela data da compra),
+    quando foi importado/cadastrado e quantos dias se passaram até hoje.
+    """
+    from app.models import Card, CardEntry
+    out = []
+    for c in Card.query.filter_by(user_id=user_id, is_active=True).order_by(Card.name).all():
+        ult = (CardEntry.query
+               .filter(CardEntry.card_id == c.id,
+                       or_(CardEntry.status == "ativo", CardEntry.status.is_(None)))
+               .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).first())
+        if ult is None:
+            out.append({"card": c.name, "data": None, "dias": None, "desc": None,
+                        "valor": None, "atrasado": True})
+            continue
+        dias = (hoje - ult.entry_date).days
+        out.append({
+            "card": c.name,
+            "data": ult.entry_date,
+            "dias": max(dias, 0),
+            "desc": ult.description,
+            "valor": float(ult.amount),
+            "atrasado": dias > CARTAO_ALERTA_DIAS,
+        })
+    # mais desatualizados primeiro
+    out.sort(key=lambda x: -(x["dias"] if x["dias"] is not None else 10**6))
+    return out
+
+
+def resumo_cartoes(user_id: int, hoje: date):
+    """Monta o aviso dos cartões. Retorna {"titulo", "texto"} ou None se não houver cartões."""
+    cards = cartoes_ultimo_lancamento(user_id, hoje)
+    if not cards:
+        return None
+
+    def _dias(n):
+        return "hoje" if n == 0 else ("há 1 dia" if n == 1 else f"há {n} dias")
+
+    linhas = []
+    for c in cards:
+        if c["data"] is None:
+            linhas.append(f"⚠️ {c['card']}: nenhum lançamento")
+        else:
+            icone = "⚠️" if c["atrasado"] else "✅"
+            linhas.append(f"{icone} {c['card']}: último em {c['data'].strftime('%d/%m')} ({_dias(c['dias'])})")
+    atrasados = sum(1 for c in cards if c["atrasado"])
+    titulo = (f"💳 Cartões · {atrasados} sem atualização há mais de {CARTAO_ALERTA_DIAS} dias"
+              if atrasados else "💳 Cartões · lançamentos em dia")
+    return {"titulo": titulo, "texto": "\n".join(linhas), "atrasados": atrasados}
+
+
 def _trava_do_dia(hoje: date) -> bool:
     """Garante uma execução por dia mesmo com vários workers do gunicorn."""
     from app import db
@@ -247,6 +302,13 @@ def rodar_para_usuario(user, hoje: date) -> list:
     resumo = registrar_dia_e_resumir(user.id, mes, hoje, itens, pct_ideal)
     db.session.commit()
 
+    # ── Último lançamento de cada cartão ──
+    try:
+        cartoes = resumo_cartoes(user.id, hoje)
+    except Exception as e:
+        cartoes = None
+        print(f"[agente-andamento] cartões falhou para usuário {user.id}: {e}")
+
     # ── Notificações no celular (push) ──
     try:
         from app.webpush import enviar_para_usuario
@@ -257,6 +319,9 @@ def rodar_para_usuario(user, hoje: date) -> list:
         if resumo:
             enviar_para_usuario(user.id, {"title": resumo["titulo"], "body": resumo["texto"],
                                           "url": "/notificacoes#evolucao", "tag": "andamento-resumo"})
+        if cartoes:
+            enviar_para_usuario(user.id, {"title": cartoes["titulo"], "body": cartoes["texto"],
+                                          "url": "/notificacoes#cartoes", "tag": "cartoes-resumo"})
     except Exception as e:
         print(f"[agente-andamento] push falhou para usuário {user.id}: {e}")
 
@@ -265,6 +330,8 @@ def rodar_para_usuario(user, hoje: date) -> list:
         corpo = "\n\n".join(f"{a['titulo']}\n{a['texto']}" for a in avisos)
         if resumo:
             corpo += f"\n\n{resumo['titulo']}\n{resumo['texto']}"
+        if cartoes:
+            corpo += f"\n\n{cartoes['titulo']}\n{cartoes['texto']}"
         corpo += f"\n\n— Nosso Dindin · Andamento de {mes} ({hoje.strftime('%d/%m/%Y')})"
         assunto = (avisos[0]["titulo"] if len(avisos) == 1
                    else f"Nosso Dindin: {len(avisos)} mudanças no Andamento do Mês")
