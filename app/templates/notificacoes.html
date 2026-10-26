@@ -7,20 +7,85 @@
     <h1>Avisos</h1>
     <p>
       O agente confere o <strong>Andamento do Mês</strong> todo dia às
-      <strong>{{ hora }}:{{ '%02d'|format(minuto) }}</strong> e avisa quando um gasto
+      <strong>{{ hora }}:{{ '%02d'|format(minuto) }}</strong>, manda o resumo diário de cada gasto e avisa quando algum
       entra ou sai da faixa desejável (até {{ tolerancia }} p.p. acima do % ideal do ciclo).
     </p>
   </div>
   <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
     <form method="POST" action="{{ url_for('dashboard.notificacoes_rodar_agora') }}" style="margin:0;">
-      <button class="btn btn-ghost btn-sm" type="submit">▶ Rodar agora</button>
+      <button class="btn btn-ghost btn-sm" type="submit" style="white-space:nowrap;">▶ Rodar agora</button>
     </form>
     {% if itens|selectattr('lida', 'equalto', false)|list %}
     <form method="POST" action="{{ url_for('dashboard.notificacoes_lidas') }}" style="margin:0;">
-      <button class="btn btn-primary btn-sm" type="submit">Marcar todas como lidas</button>
+      <button class="btn btn-primary btn-sm" type="submit" style="white-space:nowrap;">Marcar como lidas</button>
     </form>
     {% endif %}
   </div>
+</div>
+
+<!-- ── Notificações no celular ── -->
+<div class="card" id="push-card" style="margin-bottom:16px;">
+  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div>
+      <strong>📱 Notificações no celular</strong>
+      <div id="push-status" style="font-size:13px;color:var(--text-dim);margin-top:4px;">
+        {% if aparelhos %}{{ aparelhos }} aparelho(s) recebendo avisos.{% else %}Nenhum aparelho ativado ainda.{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="push-ativar" class="btn btn-primary btn-sm" type="button">Ativar neste aparelho</button>
+      <button id="push-testar" class="btn btn-ghost btn-sm" type="button" {% if not aparelhos %}style="display:none;"{% endif %}>Enviar teste</button>
+      <button id="push-desativar" class="btn btn-ghost btn-sm" type="button" style="display:none;">Desativar aqui</button>
+    </div>
+  </div>
+  <div id="push-ios" style="display:none;font-size:13px;margin-top:10px;color:var(--text-dim);line-height:1.5;">
+    <strong>No iPhone:</strong> abra este site no Safari → toque em <em>Compartilhar</em> →
+    <em>Adicionar à Tela de Início</em>. Depois abra o <strong>Dindin</strong> pelo ícone novo,
+    entre nesta página e toque em <em>Ativar neste aparelho</em>. (Requer iOS 16.4 ou mais recente.)
+  </div>
+</div>
+
+<!-- ── Evolução diária ── -->
+<div class="card" id="evolucao" style="margin-bottom:16px;">
+  <strong>📊 Evolução diária do Andamento</strong>
+  <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
+    % do planejado já gasto em cada gasto, foto tirada pelo agente toda noite. 🟢 dentro da faixa · 🔴 fora.
+  </div>
+  {% if evolucao %}
+  <div style="overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead>
+      <tr style="color:var(--text-faint);">
+        <th style="text-align:left;padding:6px 8px;position:sticky;left:0;background:var(--bg-card);">Gasto</th>
+        {% for d in dias_evo %}
+        <th style="text-align:right;padding:6px 6px;white-space:nowrap;font-weight:500;">
+          {{ d.strftime('%d/%m') }}<br><span style="font-size:11px;">ideal {{ ideal_dia[d]|round|int }}%</span>
+        </th>
+        {% endfor %}
+        <th style="text-align:right;padding:6px 8px;">Gasto / Plan.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in evolucao %}
+      <tr style="border-top:1px solid var(--border);">
+        <td style="padding:8px;white-space:nowrap;position:sticky;left:0;background:var(--bg-card);">{{ g.desc }}</td>
+        {% for f in g.dias %}
+          {% if f %}
+            {% set fora = f.pct > (f.pct_ideal or 0) + tolerancia %}
+            <td style="text-align:right;padding:8px 6px;font-weight:600;color:{{ '#c4654a' if fora else '#7ea66b' }};">{{ f.pct|round|int }}%</td>
+          {% else %}
+            <td style="text-align:right;padding:8px 6px;color:var(--text-faint);">—</td>
+          {% endif %}
+        {% endfor %}
+        <td style="text-align:right;padding:8px;white-space:nowrap;color:var(--text-dim);">{{ g.spent|brl }} / {{ g.planned|brl }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div style="padding:12px 0;color:var(--text-dim);">A primeira foto sai hoje à noite (ou toque em “Rodar agora”).</div>
+  {% endif %}
 </div>
 
 <div class="alert {{ 'alert-success' if email_ok else 'alert-info' }}">
@@ -50,5 +115,78 @@
     </div>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const status = (t) => { $("push-status").textContent = t; };
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const suportado = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  function b64ToBytes(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/"); s += "=".repeat((4 - s.length % 4) % 4);
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  }
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify(body || {}), credentials: "same-origin" });
+    return r.json();
+  }
+
+  if (!suportado) {
+    $("push-ativar").style.display = "none";
+    if (isIOS && !standalone) { $("push-ios").style.display = "block"; status("Para receber no iPhone, instale o app na Tela de Início."); }
+    else status("Este navegador não suporta notificações push.");
+    return;
+  }
+
+  async function atualizar() {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === "granted") {
+      $("push-ativar").style.display = "none";
+      $("push-desativar").style.display = "";
+      $("push-testar").style.display = "";
+      status("✅ Este aparelho recebe os avisos e o resumo diário.");
+    } else if (Notification.permission === "denied") {
+      $("push-ativar").style.display = "none";
+      status("As notificações foram bloqueadas neste aparelho. Libere nas configurações do navegador/app.");
+    }
+  }
+
+  $("push-ativar").addEventListener("click", async () => {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { status("Permissão não concedida."); return; }
+      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      await navigator.serviceWorker.ready;
+      const { publicKey } = await (await fetch("/push/chave", { credentials: "same-origin" })).json();
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+      const r = await post("/push/inscrever", sub.toJSON());
+      if (!r.ok) throw new Error(r.erro || "falha ao registrar");
+      await atualizar();
+      await post("/push/testar");
+    } catch (e) { status("Não deu para ativar: " + e.message); }
+  });
+
+  $("push-testar").addEventListener("click", async () => {
+    const r = await post("/push/testar");
+    status(r.ok ? "Teste enviado — deve chegar em alguns segundos." : "Nenhum aparelho recebeu o teste. Tente ativar de novo.");
+  });
+
+  $("push-desativar").addEventListener("click", async () => {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await post("/push/cancelar", { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+    $("push-desativar").style.display = "none"; $("push-ativar").style.display = "";
+    status("Desativado neste aparelho.");
+  });
+
+  if (isIOS && !standalone) $("push-ios").style.display = "block";
+  atualizar();
+})();
+</script>
 
 {% endblock %}

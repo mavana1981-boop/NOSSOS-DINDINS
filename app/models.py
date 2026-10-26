@@ -486,3 +486,37 @@ class AgenteExecucao(db.Model):
     run_date   = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     __table_args__ = (db.UniqueConstraint("job", "run_date"),)
+
+
+class AppConfig(db.Model):
+    """Configurações internas do app (ex.: chave VAPID das notificações push)."""
+    __tablename__ = "app_config"
+    key   = db.Column(db.String(64), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+
+
+class PushInscricao(db.Model):
+    """Aparelho (celular/navegador) inscrito para receber notificações push."""
+    __tablename__ = "push_inscricoes"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint   = db.Column(db.Text, nullable=False, unique=True)
+    p256dh     = db.Column(db.String(200), nullable=False)
+    auth       = db.Column(db.String(100), nullable=False)
+    aparelho   = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class AndamentoDiario(db.Model):
+    """Foto diária de cada gasto do Andamento (para o resumo e a evolução)."""
+    __tablename__ = "andamento_diario"
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    expense_id    = db.Column(db.Integer, db.ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False)
+    billing_month = db.Column(db.String(7), nullable=False)
+    dia           = db.Column(db.Date, nullable=False)
+    planned       = db.Column(db.Float)
+    spent         = db.Column(db.Float)
+    pct           = db.Column(db.Float)
+    pct_ideal     = db.Column(db.Float)
+    __table_args__ = (db.UniqueConstraint("user_id", "expense_id", "dia"),)
