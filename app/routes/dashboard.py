@@ -911,11 +911,14 @@ def notificacoes():
         "pct_ideal": pct_ideal_agora,
         "mes": mes_evo,
     }
+    from app.agente_andamento import cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS
+    cartoes = cartoes_ultimo_lancamento(current_user.id, _hoje_evo)
     aparelhos = PushInscricao.query.filter_by(user_id=current_user.id).count()
 
     return render_template("notificacoes.html", itens=itens,
                            dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
                            balanco=balanco,
+                           cartoes=cartoes, cartao_alerta_dias=CARTAO_ALERTA_DIAS,
                            aparelhos=aparelhos,
                            email_ok=email_configurado(),
                            email_destino=_os.environ.get("ALERTA_EMAIL_TO") or current_user.email,
