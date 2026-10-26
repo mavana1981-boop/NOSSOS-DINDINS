@@ -114,7 +114,7 @@
           <th class="text-right">Eventuais</th>
           <th class="text-right" style="background:rgba(200,100,100,0.12);font-weight:800;border-bottom:2px solid var(--red);">Total gasto</th>
           <th class="text-right">Saldo</th>
-          <th class="text-right">Acumulado</th>
+          <th class="text-right" style="background:rgba(107,141,181,0.16);font-weight:800;font-size:1.05em;border-bottom:2px solid var(--accent);">Acumulado</th>
         </tr>
       </thead>
       <tbody>
@@ -163,8 +163,8 @@
                data-p-calc="{{ m.saldo_proj.saldo }}"{% endif %}>
             {{ m.net|brl }}
           </td>
-          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;"
-              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;font-weight:800;font-size:1.15em;background:rgba(107,141,181,0.10);white-space:nowrap;"
+              data-year="{{ year }}" data-month="{{ m.month }}" data-field="cumulative" data-ev="{{ m.income_eventual }}" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
                data-cum-month="{{ m.month_name }}"
                data-mem="cum">
             {{ m.cumulative|brl }}
@@ -186,7 +186,7 @@
           {% else %}
           <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.net|brl }}</strong></td>
           {% endif %}
-          <td></td>
+          <td style="background:rgba(107,141,181,0.10);"></td>
         </tr>
       </tfoot>
     </table>
@@ -283,7 +283,8 @@ function mostrarMemoriaCum(td) {
   var mes = td.getAttribute('data-cum-month') || '';
   var html =
     '<div style="font-size:0.9rem;line-height:2;">' +
-    '<div>Soma dos saldos de janeiro até <strong>' + mes + '</strong>.</div>' +
+    '<div>Soma de janeiro até <strong>' + mes + '</strong> de cada mês: saldo projetado + renda eventual.</div>' +
+    (parseFloat(td.getAttribute('data-ev') || '0') > 0 ? '<div style="display:flex;justify-content:space-between;"><span>Renda eventual deste mês</span><span class="mono" style="color:var(--blue);">' + fmtBRL(td.getAttribute('data-ev')) + '</span></div>' : '') +
     '<div style="border-top:2px solid var(--border);margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
     '<span>= Acumulado</span><span class="mono" style="color:' + (cum >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(cum) + '</span></div>' +
     '</div>';
