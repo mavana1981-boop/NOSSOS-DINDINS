@@ -570,3 +570,13 @@ table.tbl .amount { font-family: 'JetBrains Mono', monospace; font-weight: 500; 
   background: #f7d96f;
   color: #1a1612;
 }
+
+/* Celular: a área principal não pode crescer além da tela —
+   tabelas largas rolam dentro do próprio quadro */
+.layout { grid-template-columns: 240px minmax(0, 1fr); }
+.main { min-width: 0; }
+@media (max-width: 700px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .page-header { flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+  .card { overflow-x: auto; }
+}

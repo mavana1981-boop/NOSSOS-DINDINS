@@ -90,7 +90,7 @@
   <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
     % do planejado já gasto em cada gasto, foto tirada pelo agente toda noite. 🟢 dentro da faixa · 🔴 fora.
     <strong>Projetado</strong> = quanto seria esperado gastar até agora (planejado × % ideal do ciclo).
-    <strong>Saldo</strong> = planejado − gasto. Valores de gasto e saldo são atuais; os % diários são as fotos de cada noite.
+    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos. Valores de gasto e saldo são atuais; os % diários são as fotos de cada noite.
   </div>
   {% if evolucao %}
   {% set b = balanco %}
@@ -133,9 +133,14 @@
       </tr>
     </thead>
     <tbody>
+      {% set _ncols = 4 + dias_evo|length %}
       {% for g in evolucao %}
-      <tr style="border-top:1px solid var(--border);">
-        <td style="padding:8px;white-space:nowrap;position:sticky;left:0;background:var(--bg-card);">{{ g.desc }}</td>
+      <tr class="evo-row" data-alvo="lanc-{{ g.expense_id }}" style="border-top:1px solid var(--border);cursor:pointer;"
+          title="Ver lançamentos">
+        <td style="padding:8px;white-space:nowrap;position:sticky;left:0;background:var(--bg-card);">
+          <span class="evo-seta" style="display:inline-block;width:14px;color:var(--text-faint);font-size:11px;">▶</span>{{ g.desc }}
+          <span style="font-size:11px;color:var(--text-faint);margin-left:4px;">({{ g.lancamentos|length }})</span>
+        </td>
         {% for f in g.dias %}
           {% if f %}
             {% set fora = f.pct > (f.pct_ideal or 0) + tolerancia %}
@@ -151,6 +156,40 @@
         </td>
         <td style="text-align:right;padding:8px;white-space:nowrap;color:var(--text-dim);">{{ g.planned|brl }}</td>
         <td style="text-align:right;padding:8px;white-space:nowrap;font-weight:600;color:{{ '#7ea66b' if g.saldo >= 0 else '#c4654a' }};">{{ g.saldo|brl }}</td>
+      </tr>
+      <tr id="lanc-{{ g.expense_id }}" class="evo-lanc" style="display:none;">
+        <td colspan="{{ _ncols }}" style="padding:0 0 12px;background:var(--bg);">
+          <div style="position:sticky;left:0;max-width:calc(100vw - 72px);padding:0 8px 0 22px;box-sizing:border-box;">
+          {% if g.lancamentos %}
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <thead>
+              <tr style="color:var(--text-faint);">
+                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Data</th>
+                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Descrição</th>
+                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Cartão</th>
+                <th style="text-align:right;padding:8px 6px 4px;font-weight:500;">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for l in g.lancamentos %}
+              <tr style="border-top:1px solid var(--border);">
+                <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.data.strftime('%d/%m') if l.data else '—' }}</td>
+                <td style="padding:6px;">{{ l.desc }}{% if l.parcela %} <span style="color:var(--text-faint);">{{ l.parcela }}</span>{% endif %}</td>
+                <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.cartao }}</td>
+                <td style="padding:6px;text-align:right;white-space:nowrap;font-weight:600;">{{ l.valor|brl }}</td>
+              </tr>
+              {% endfor %}
+              <tr style="border-top:1px solid var(--border-strong);">
+                <td colspan="3" style="padding:6px;color:var(--text-dim);">{{ g.lancamentos|length }} lançamento(s)</td>
+                <td style="padding:6px;text-align:right;font-weight:700;">{{ g.spent|brl }}</td>
+              </tr>
+            </tbody>
+          </table>
+          {% else %}
+          <div style="padding:10px 6px;color:var(--text-dim);">Nenhum lançamento de cartão vinculado a este gasto na fatura atual.</div>
+          {% endif %}
+          </div>
+        </td>
       </tr>
       {% endfor %}
       <tr style="border-top:2px solid var(--border-strong);font-weight:700;">
@@ -198,6 +237,16 @@
   {% endif %}
 </div>
 
+<script>
+document.querySelectorAll(".evo-row").forEach(function (tr) {
+  tr.addEventListener("click", function () {
+    var alvo = document.getElementById(tr.dataset.alvo);
+    var abrir = alvo.style.display === "none";
+    alvo.style.display = abrir ? "" : "none";
+    tr.querySelector(".evo-seta").textContent = abrir ? "▼" : "▶";
+  });
+});
+</script>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
