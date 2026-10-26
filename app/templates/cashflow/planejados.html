@@ -5,7 +5,9 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>📋 Parcelados Projetados</h1>
-    <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.</p>
+    <p>Parcelas futuras geradas automaticamente pelo import. Exclua as incorretas.
+      {% if planejado_parc is not none %}<br>Planejado mensal para parcelados: <strong>{{ planejado_parc|brl }}</strong> (gasto fixo “Cartão Parcelado”).
+      {% else %}<br><span style="color:var(--gold);">Cadastre um gasto fixo “Cartão Parcelado” com o valor planejado para ver o excedente de cada mês.</span>{% endif %}</p>
   </div>
   <a href="{{ url_for('cashflow.comparativo_parcelados') }}" class="btn btn-ghost btn-sm">🔍 Diagnóstico</a>
 </div>
@@ -71,7 +73,16 @@
       {% elif total_mes > 2000 %}{% set cor_total = "#c9a800" %}
       {% else %}{% set cor_total = "#5a9e6f" %}{% endif %}
       <div style="display:flex;align-items:center;gap:8px;">
-        <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
+        <div style="text-align:right;line-height:1.25;">
+          <span class="mono" style="color:{{ cor_total }};font-weight:700;" data-total-mes>{{ total_mes|brl }}</span>
+          {% if planejado_parc is not none %}
+          {% set _exc = total_mes - planejado_parc %}
+          <div class="mono" data-excedente-mes data-planejado="{{ planejado_parc }}"
+               style="font-size:0.75rem;font-weight:600;color:{{ 'var(--red)' if _exc > 0 else 'var(--green)' }};">
+            {% if _exc > 0 %}+{{ _exc|brl }} acima dos {{ planejado_parc|brl }}{% else %}{{ (-_exc)|brl }} abaixo dos {{ planejado_parc|brl }}{% endif %}
+          </div>
+          {% endif %}
+        </div>
         <a href="/fluxo/planejados/adicionar?mes={{ bm }}" onclick="event.stopPropagation();"
            class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:2px 8px;"
            title="Adicionar parcela em {{ bm }}">➕</a>
@@ -231,6 +242,14 @@ function atualizarTotalMes(el) {
   var totalEl = card.querySelector('[data-total-mes]');
   if (totalEl) {
     totalEl.textContent = 'R$ ' + total.toLocaleString('pt-BR',{minimumFractionDigits:2});
+  }
+  var excEl = card.querySelector('[data-excedente-mes]');
+  if (excEl) {
+    var plan = parseFloat(excEl.dataset.planejado) || 0;
+    var exc = total - plan;
+    var fmt = function (v) { return 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); };
+    excEl.textContent = exc > 0 ? ('+' + fmt(exc) + ' acima dos ' + fmt(plan)) : (fmt(exc) + ' abaixo dos ' + fmt(plan));
+    excEl.style.color = exc > 0 ? 'var(--red)' : 'var(--green)';
   }
 }
 function filtrarCartao(tblId, cardName, btn) {

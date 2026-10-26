@@ -481,8 +481,20 @@ def planejados():
     por_mes = defaultdict(list)
     for p in items:
         por_mes[p.billing_month].append(p)
+    # Planejado mensal para parcelados = gasto fixo "Cartão Parcelado"
+    # (mesma referência usada no Fluxo de Caixa para calcular o excedente)
+    from app.models import Expense as _Exp
+    from sqlalchemy import or_ as _or
+    _exp_parc = _Exp.query.filter(
+        _Exp.payer_id == current_user.id,
+        _Exp.kind == "recorrente",
+        _or(_Exp.description.ilike("%cartao parcelado%"),
+            _Exp.description.ilike("%cartão parcelado%")),
+    ).first()
+    planejado_parc = float(_exp_parc.amount) if _exp_parc else None
     return render_template("cashflow/planejados.html",
-                           por_mes=dict(sorted(por_mes.items())))
+                           por_mes=dict(sorted(por_mes.items())),
+                           planejado_parc=planejado_parc)
 
 
 @cashflow_bp.route("/planejados/<int:planned_id>/delete", methods=["POST"])
