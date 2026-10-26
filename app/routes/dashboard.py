@@ -888,7 +888,23 @@ def notificacoes():
     for it in agora:
         porDia = por_gasto.get(it["expense_id"], {})
         projetado = round(it["planned"] * pct_ideal_agora / 100, 2)
+        # Lançamentos de cartão vinculados a este gasto na fatura atual
+        # (mesmo filtro usado no cálculo do Andamento)
+        _lancs = (CardEntry.query
+                  .filter(CardEntry.expense_id == it["expense_id"],
+                          CardEntry.billing_month == mes_evo,
+                          CardEntry.status == "ativo")
+                  .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).all())
         evolucao.append({
+            "expense_id": it["expense_id"],
+            "lancamentos": [{
+                "data": e.entry_date,
+                "desc": e.description,
+                "cartao": e.card.name if getattr(e, "card", None) else "—",
+                "parcela": (f"{e.installment_no}/{e.installments}"
+                            if (e.installments or 1) > 1 else ""),
+                "valor": float(e.amount),
+            } for e in _lancs],
             "desc": it["desc"],
             "planned": it["planned"], "spent": it["spent"], "pct": it["pct"],
             "ok": it["ok"],
