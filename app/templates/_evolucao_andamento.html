@@ -74,6 +74,37 @@
       <tr id="lanc-{{ g.expense_id }}" class="evo-lanc" style="display:none;">
         <td colspan="{{ _ncols }}" style="padding:0 0 12px;background:var(--bg);">
           <div style="position:sticky;left:0;max-width:calc(100vw - 72px);padding:0 8px 0 22px;box-sizing:border-box;">
+          <!-- Metas por parte do mês -->
+          {% set _n_atual = g.partes|length %}
+          <form method="POST" action="{{ url_for('dashboard.salvar_metas_partes', expense_id=g.expense_id) }}"
+                class="metas-form" data-planned="{{ g.planned }}"
+                data-atuais="{{ g.partes|map(attribute='meta')|list|tojson|forceescape }}" data-n-atual="{{ _n_atual }}"
+                style="margin:10px 0 6px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-card);">
+            <input type="hidden" name="voltar" value="{{ request.path }}">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <strong style="font-size:13px;">🎯 Metas por parte do mês</strong>
+              <select name="n_partes" class="form-control metas-n" style="width:auto;padding:4px 8px;font-size:13px;">
+                <option value="0" {% if not _n_atual %}selected{% endif %}>Sem divisão</option>
+                {% for k in range(1, 6) %}
+                <option value="{{ k }}" {% if _n_atual == k %}selected{% endif %}>{{ k }} parte{{ 's' if k > 1 }}</option>
+                {% endfor %}
+              </select>
+              <span style="font-size:12px;color:var(--text-faint);">partes iguais do ciclo 16→16 · planejado {{ g.planned|brl }}</span>
+            </div>
+            <div class="metas-inputs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:8px;">
+              {% for p in g.partes %}
+              <label style="font-size:11.5px;color:var(--text-dim);display:flex;flex-direction:column;gap:3px;">
+                Parte {{ p.n }} · {{ p.label }}
+                <input class="form-control mono" name="meta_{{ p.n }}" inputmode="decimal"
+                       value="{{ (p.meta|brl)|replace('R$', '')|trim }}" style="padding:4px 8px;font-size:13px;">
+              </label>
+              {% endfor %}
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" type="submit">Salvar metas</button>
+              <span class="metas-soma" style="font-size:12px;color:var(--text-dim);"></span>
+            </div>
+          </form>
           {% if g.lancamentos %}
           <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
             <thead>
@@ -132,6 +163,51 @@
 </div>
 
 <script>
+(function () {
+  var OPCOES = {{ (opcoes_partes or {})|tojson }};
+  function brl(v) { return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function num(t) {
+    t = (t || "").replace(/R\$|\s/g, "");
+    if (t.indexOf(",") >= 0) t = t.replace(/\./g, "").replace(",", ".");
+    var v = parseFloat(t); return isNaN(v) ? 0 : v;
+  }
+  document.querySelectorAll(".metas-form").forEach(function (f) {
+    var sel = f.querySelector(".metas-n"), box = f.querySelector(".metas-inputs"), soma = f.querySelector(".metas-soma");
+    var planned = parseFloat(f.dataset.planned) || 0;
+    var atuais = []; try { atuais = JSON.parse(f.dataset.atuais || "[]"); } catch (e) {}
+    var nAtual = parseInt(f.dataset.nAtual || "0", 10);
+    function atualizarSoma() {
+      var t = 0; box.querySelectorAll("input").forEach(function (i) { t += num(i.value); });
+      var n = parseInt(sel.value, 10);
+      if (!n) { soma.textContent = "Salvar sem divisão remove as metas deste gasto."; soma.style.color = ""; return; }
+      var dif = t - planned;
+      soma.textContent = "Soma das metas: R$ " + brl(t) + (Math.abs(dif) < 0.01 ? " = planejado"
+        : (dif > 0 ? " · R$ " + brl(dif) + " acima do planejado" : " · R$ " + brl(-dif) + " abaixo do planejado"));
+      soma.style.color = dif > 0.01 ? "#c4654a" : "";
+    }
+    function montar() {
+      var n = parseInt(sel.value, 10); box.innerHTML = "";
+      var labels = OPCOES[n] || [];
+      for (var i = 0; i < n; i++) {
+        var v = (n === nAtual && atuais[i] != null) ? atuais[i] : planned / n;
+        var lb = document.createElement("label");
+        lb.style.cssText = "font-size:11.5px;color:var(--text-dim);display:flex;flex-direction:column;gap:3px;";
+        lb.textContent = "Parte " + (i + 1) + " · " + (labels[i] || "");
+        var inp = document.createElement("input");
+        inp.className = "form-control mono"; inp.name = "meta_" + (i + 1); inp.inputMode = "decimal";
+        inp.style.cssText = "padding:4px 8px;font-size:13px;";
+        inp.value = brl(Math.round(v * 100) / 100);
+        inp.addEventListener("input", atualizarSoma);
+        lb.appendChild(inp); box.appendChild(lb);
+      }
+      atualizarSoma();
+    }
+    sel.addEventListener("change", montar);
+    box.querySelectorAll("input").forEach(function (i) { i.addEventListener("input", atualizarSoma); });
+    f.addEventListener("click", function (e) { e.stopPropagation(); });
+    atualizarSoma();
+  });
+})();
 document.querySelectorAll(".evo-row").forEach(function (tr) {
   tr.addEventListener("click", function () {
     var alvo = document.getElementById(tr.dataset.alvo);
@@ -140,4 +216,11 @@ document.querySelectorAll(".evo-row").forEach(function (tr) {
     tr.querySelector(".evo-seta").textContent = abrir ? "▼" : "▶";
   });
 });
+// Depois de salvar metas, reabre o gasto editado
+(function () {
+  var m = (location.hash || "").match(/^#metas-(\d+)$/);
+  if (!m) return;
+  var tr = document.querySelector('.evo-row[data-alvo="lanc-' + m[1] + '"]');
+  if (tr) { tr.click(); setTimeout(function () { tr.scrollIntoView({ block: "start" }); }, 50); }
+})();
 </script>

@@ -1,5 +1,5 @@
-from datetime import date
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from datetime import date, datetime
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from app import db
@@ -221,7 +221,7 @@ def index():
         logging.getLogger(__name__).exception("Falha ao montar evolução diária no painel")
         db.session.rollback()
         _evo_dash = dict(dias_evo=[], evolucao=[], ideal_dia={}, balanco=None,
-                         tolerancia=5, evo_erro=True)
+                         tolerancia=5, evo_erro=True, opcoes_partes={})
 
     return render_template(
         "dashboard.html",
@@ -280,6 +280,14 @@ def _dados_evolucao(user_id):
             por_gasto.setdefault(f.expense_id, {})[f.dia] = f
             ideal_dia[f.dia] = f.pct_ideal
 
+    # Metas por parte do ciclo (configuradas por gasto)
+    from app.models import MetaParte
+    from app.agente_andamento import partes_do_ciclo, gasto_por_parte
+    _metas_cfg = {m.expense_id: m for m in MetaParte.query.filter_by(user_id=user_id).all()}
+    # Datas de cada divisão possível (1 a 5), para o editor
+    opcoes_partes = {n: [f"{a.strftime('%d/%m')}–{b.strftime('%d/%m')}"
+                         for a, b in partes_do_ciclo(_hoje_evo, n)] for n in range(1, 6)}
+
     evolucao = []
     for it in agora:
         porDia = por_gasto.get(it["expense_id"], {})
@@ -295,8 +303,25 @@ def _dados_evolucao(user_id):
         for _e in _lancs:
             _n = _e.subcategoria.nome if _e.subcategoria_id and _e.subcategoria else None
             _subs[_n] = _subs.get(_n, 0.0) + float(_e.amount)
+        _partes = []
+        _cfg = _metas_cfg.get(it["expense_id"])
+        if _cfg:
+            _intervalos = partes_do_ciclo(_hoje_evo, _cfg.n_partes)
+            _gastos_p = gasto_por_parte([(e.entry_date, e.amount) for e in _lancs], _intervalos)
+            for _i, ((_a, _b), _meta, _g) in enumerate(zip(_intervalos, _cfg.lista_metas(), _gastos_p)):
+                _partes.append({
+                    "n": _i + 1, "inicio": _a, "fim": _b,
+                    "label": f"{_a.strftime('%d/%m')}–{_b.strftime('%d/%m')}",
+                    "meta": round(_meta, 2), "gasto": _g,
+                    "pct": round(_g / _meta * 100, 1) if _meta > 0 else (100.0 if _g > 0 else 0.0),
+                    "estourou": _g > _meta + 0.004,
+                    "atual": _a <= _hoje_evo <= _b,
+                    "futura": _hoje_evo < _a,
+                })
         evolucao.append({
             "expense_id": it["expense_id"],
+            "partes": _partes,
+            "meta_total": round(sum(p["meta"] for p in _partes), 2),
             # Subtotais por subcategoria (só quando alguma foi usada)
             "subs": (sorted(_subs.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
                      if any(k is not None for k in _subs) else []),
@@ -334,6 +359,7 @@ def _dados_evolucao(user_id):
     }
     return dict(dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
                 balanco=balanco, tolerancia=TOLERANCIA_PP,
+                opcoes_partes=opcoes_partes,
                 _hoje_evo=_hoje_evo)
 
 
@@ -1063,3 +1089,64 @@ def push_testar():
         "body": "Notificações ativadas! Você vai receber o resumo do Andamento todo dia à noite.",
         "url": "/notificacoes", "tag": "teste"})
     return jsonify({"ok": n > 0, "enviados": n})
+
+
+# ─────────────────────────────────────────────────────────────
+#  Metas por parte do ciclo (Evolução diária do Andamento)
+# ─────────────────────────────────────────────────────────────
+def _valor_br(txt):
+    """'1.234,56' / '1234.56' / '300' → float (ou None)."""
+    t = (txt or "").strip().replace("R$", "").replace(" ", "")
+    if not t:
+        return None
+    import re as _re
+    if "," in t:
+        t = t.replace(".", "").replace(",", ".")
+    elif _re.fullmatch(r"\d{1,3}(\.\d{3})+", t):
+        t = t.replace(".", "")          # "1.000" / "12.500" = milhar
+    try:
+        v = float(t)
+    except ValueError:
+        return None
+    return v if v >= 0 else None
+
+
+@dashboard_bp.route("/andamento/metas/<int:expense_id>", methods=["POST"])
+@login_required
+def salvar_metas_partes(expense_id):
+    import json
+    from app.models import MetaParte
+    exp = Expense.query.get_or_404(expense_id)
+    hh = HouseholdExpense.query.filter_by(expense_id=expense_id).first()
+    if exp.payer_id != current_user.id and not (hh and hh.owner_id == current_user.id):
+        abort(403)
+    try:
+        n = int(request.form.get("n_partes", "0"))
+    except ValueError:
+        n = 0
+    cfg = MetaParte.query.filter_by(user_id=current_user.id, expense_id=expense_id).first()
+    if n <= 0:
+        if cfg:
+            db.session.delete(cfg)
+            db.session.commit()
+        flash(f"Divisão do mês removida de “{exp.description}”.", "info")
+    else:
+        n = min(n, 5)
+        metas = []
+        for i in range(1, n + 1):
+            v = _valor_br(request.form.get(f"meta_{i}"))
+            metas.append(round(v, 2) if v is not None else round(float(exp.amount) / n, 2))
+        if cfg is None:
+            cfg = MetaParte(user_id=current_user.id, expense_id=expense_id, n_partes=n, metas="[]")
+            db.session.add(cfg)
+        cfg.n_partes = n
+        cfg.metas = json.dumps(metas)
+        cfg.updated_at = datetime.utcnow()
+        db.session.commit()
+        total = sum(metas)
+        flash(f"“{exp.description}”: mês dividido em {n} parte(s), metas somando "
+              f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + ".", "success")
+    destino = request.form.get("voltar") or url_for("dashboard.index")
+    if not destino.startswith("/"):
+        destino = url_for("dashboard.index")
+    return redirect(destino + f"#metas-{expense_id}")
