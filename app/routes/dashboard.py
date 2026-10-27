@@ -282,7 +282,7 @@ def _dados_evolucao(user_id):
 
     # Metas por parte do ciclo (configuradas por gasto)
     from app.models import MetaParte
-    from app.agente_andamento import partes_do_ciclo, gasto_por_parte
+    from app.agente_andamento import partes_do_ciclo, gasto_por_parte, redistribuir_metas
     _metas_cfg = {m.expense_id: m for m in MetaParte.query.filter_by(user_id=user_id).all()}
     # Datas de cada divisão possível (1 a 5), para o editor
     opcoes_partes = {n: [f"{a.strftime('%d/%m')}–{b.strftime('%d/%m')}"
@@ -308,13 +308,22 @@ def _dados_evolucao(user_id):
         if _cfg:
             _intervalos = partes_do_ciclo(_hoje_evo, _cfg.n_partes)
             _gastos_p = gasto_por_parte([(e.entry_date, e.amount) for e in _lancs], _intervalos)
-            for _i, ((_a, _b), _meta, _g) in enumerate(zip(_intervalos, _cfg.lista_metas(), _gastos_p)):
+            _metas_orig = _cfg.lista_metas()
+            # Disponível rolante: sobras/estouros redistribuídos mantendo a meta total
+            _disp = redistribuir_metas(_metas_orig, _gastos_p, _intervalos, _hoje_evo)
+            for _i, ((_a, _b), _meta, _g, _d) in enumerate(zip(_intervalos, _metas_orig, _gastos_p, _disp)):
+                _dv = max(_d, 0.0)
                 _partes.append({
                     "n": _i + 1, "inicio": _a, "fim": _b,
                     "label": f"{_a.strftime('%d/%m')}–{_b.strftime('%d/%m')}",
-                    "meta": round(_meta, 2), "gasto": _g,
-                    "pct": round(_g / _meta * 100, 1) if _meta > 0 else (100.0 if _g > 0 else 0.0),
-                    "estourou": _g > _meta + 0.004,
+                    "meta": round(_meta, 2),            # meta original (configurada)
+                    "disponivel": round(_dv, 2),        # meta ajustada pelo andamento
+                    "ajuste": round(_d - _meta, 2),     # + sobra herdada / − estouro herdado
+                    "negativo": _d < -0.004,            # meta total já estourada
+                    "gasto": _g,
+                    "pct": round(_g / _dv * 100, 1) if _dv > 0 else (100.0 if _g > 0 else 0.0),
+                    "estourou": _g > _dv + 0.004,
+                    "encerrada": _b < _hoje_evo,
                     "atual": _a <= _hoje_evo <= _b,
                     "futura": _hoje_evo < _a,
                 })
@@ -322,6 +331,7 @@ def _dados_evolucao(user_id):
             "expense_id": it["expense_id"],
             "partes": _partes,
             "meta_total": round(sum(p["meta"] for p in _partes), 2),
+            "restante_metas": round(sum(p["meta"] for p in _partes) - sum(p["gasto"] for p in _partes), 2),
             # Subtotais por subcategoria (só quando alguma foi usada)
             "subs": (sorted(_subs.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
                      if any(k is not None for k in _subs) else []),

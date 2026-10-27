@@ -55,13 +55,15 @@
         <strong>{{ g.desc }}</strong>
         <span class="text-small text-dim">
           <span class="mono" style="color:{{ 'var(--red)' if _gasto_total > g.meta_total + 0.004 else 'var(--text)' }};font-weight:700;">{{ _gasto_total|brl }}</span>
-          de <span class="mono">{{ g.meta_total|brl }}</span> em metas
+          de <span class="mono">{{ g.meta_total|brl }}</span> ·
+          {% if g.restante_metas >= 0 %}resta <span class="mono" style="color:#7ea66b;font-weight:700;">{{ g.restante_metas|brl }}</span>
+          {% else %}<span class="mono" style="color:#c4654a;font-weight:700;">{{ (-g.restante_metas)|brl }}</span> acima da meta total{% endif %}
         </span>
       </div>
       <div style="display:grid;grid-template-columns:repeat({{ g.partes|length }}, minmax(0, 1fr));gap:4px;">
         {% for p in g.partes %}
         {% set _cor = '#c4654a' if p.estourou else ('#7ea66b' if not p.futura else 'var(--text-faint)') %}
-        <div title="Parte {{ p.n }} · {{ p.label }} · gasto {{ p.gasto|brl }} de {{ p.meta|brl }}">
+        <div title="Parte {{ p.n }} · {{ p.label }} · gasto {{ p.gasto|brl }} de {{ p.disponivel|brl }} disponível (meta original {{ p.meta|brl }})">
           <div style="position:relative;height:16px;border-radius:5px;background:var(--bg);overflow:hidden;
                       border:{{ '2px solid var(--accent)' if p.atual else '1px solid var(--border)' }};">
             <div style="position:absolute;left:0;top:0;bottom:0;width:{{ [p.pct, 100]|min }}%;background:{{ _cor }};opacity:{{ '0.45' if p.futura else '0.9' }};"></div>
@@ -74,8 +76,15 @@
               <span class="mp-full">{{ p.gasto|brl }}</span><span class="mp-curto">{{ "{:,.0f}".format(p.gasto)|replace(',', '.') }}</span>
             </div>
             <div class="mono" style="font-size:11px;color:var(--text-dim);">
-              de <span class="mp-full">{{ p.meta|brl }}</span><span class="mp-curto">{{ "{:,.0f}".format(p.meta)|replace(',', '.') }}</span>
+              de <span class="mp-full">{{ p.disponivel|brl }}</span><span class="mp-curto">{{ "{:,.0f}".format(p.disponivel)|replace(',', '.') }}</span>
             </div>
+            {% if p.ajuste|abs >= 0.01 %}
+            <div class="mono" style="font-size:10.5px;color:{{ '#7ea66b' if p.ajuste > 0 else '#c4654a' }};">
+              {{ '+' if p.ajuste > 0 else '−' }}<span class="mp-full">{{ (p.ajuste|abs)|brl }}</span><span class="mp-curto">{{ "{:,.0f}".format(p.ajuste|abs)|replace(',', '.') }}</span>
+            </div>
+            <div class="mono mp-full" style="font-size:10px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">meta {{ p.meta|brl }}</div>
+            {% endif %}
+            {% if p.negativo %}<div style="font-size:10.5px;color:#c4654a;">meta total esgotada</div>{% endif %}
           </div>
         </div>
         {% endfor %}
@@ -95,8 +104,9 @@
     }
   </style>
   <div class="text-faint text-small" style="margin-top:12px;">
-    <span class="mp-aviso-curto">Valores em R$ (sem centavos) · </span>Ciclo 16→16 dividido em partes iguais · <span style="color:var(--accent);">●</span> parte atual ·
-    <span style="color:#7ea66b;">verde</span> dentro da meta · <span style="color:#c4654a;">vermelho</span> acima.
+    <span class="mp-aviso-curto">Valores em R$ (sem centavos) · </span>Ciclo 16→16 dividido em partes iguais. Sobra ou estouro de parte encerrada passa para as seguintes
+    (meta total fixa); se a parte atual estoura, as futuras já diminuem · <span style="color:var(--accent);">●</span> parte atual ·
+    <span style="color:#7ea66b;">verde</span> dentro do disponível · <span style="color:#c4654a;">vermelho</span> acima.
     Gastos pela data da compra.
   </div>
   {% else %}
