@@ -87,6 +87,40 @@ def gasto_por_parte(lancamentos, partes):
     return [round(x, 2) for x in somas]
 
 
+def redistribuir_metas(metas, gastos, partes, hoje):
+    """
+    Orçamento rolante com meta total fixa.
+      - Parte encerrada: sobra/estouro passa para as partes seguintes,
+        na proporção das metas originais delas.
+      - Parte atual: gasto conta contra ela; se já estourou o disponível,
+        o excesso reduz as futuras na hora; se está abaixo, a sobra só
+        passa adiante quando a parte terminar.
+    Retorna lista de disponíveis ajustados (pode ser negativo = total estourado).
+    """
+    n = len(metas)
+    total = sum(metas)
+    disp = list(metas)
+    consumido = 0.0          # gasto efetivo das partes já encerradas
+    for i in range(n):
+        ini, fim = partes[i]
+        restante_meta = sum(metas[i:])
+        if i > 0:
+            base = total - consumido
+            disp[i] = base * (metas[i] / restante_meta) if restante_meta > 0 else base / (n - i)
+        if fim < hoje:                       # encerrada
+            consumido += gastos[i]
+        elif ini <= hoje <= fim:             # atual: reserva o maior entre disponível e gasto
+            reservado = max(disp[i], gastos[i])
+            base_fut = total - consumido - reservado
+            meta_fut = sum(metas[i + 1:])
+            for j in range(i + 1, n):
+                disp[j] = (base_fut * (metas[j] / meta_fut) if meta_fut > 0
+                           else base_fut / (n - i - 1))
+            break
+        # futura antes de achar a atual (hoje antes do ciclo): mantém proporção
+    return [round(x, 2) for x in disp]
+
+
 def pct_ideal_ciclo(hoje: date) -> float:
     """% do ciclo de fechamento (dia 16 ao próximo dia 16) já decorrido."""
     if hoje.day >= 16:
