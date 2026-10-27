@@ -2,6 +2,44 @@
 {% block title %}Fluxo de Caixa {{ year }}
 {% endblock %}
 {% block content %}
+{% macro cf_grupo(titulo, cor, itens, total_exibido, chave) %}
+  {% set soma = itens|sum(attribute='amount') %}
+  <div class="cf-grp" data-grp="{{ chave }}">
+    <div class="cf-grp-h" style="color:{{ cor }};">{{ titulo }} <span class="text-faint">({{ itens|length }})</span></div>
+    {% if itens %}
+    <ul class="cf-grp-l">
+      {% for it in itens %}
+      <li><span class="cf-it-d">{{ it.desc }}</span><span class="mono" style="color:{{ cor }};">{{ it.amount|brl }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-faint text-small" style="padding:4px 0;">Nenhum item.</div>
+    {% endif %}
+    {% if (total_exibido - soma)|abs > 0.05 %}
+    <div class="cf-grp-adj"><span>± Ajuste manual</span><span class="mono">{{ (total_exibido - soma)|brl }}</span></div>
+    {% endif %}
+    <div class="cf-grp-t"><span>Total</span><span class="mono" style="color:{{ cor }};">{{ total_exibido|brl }}</span></div>
+  </div>
+{% endmacro %}
+
+<style>
+  .cf-toggle{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;line-height:1;width:16px;padding:0;margin-right:4px;display:inline-block;}
+  tr.cf-open .cf-toggle{color:var(--accent);}
+  tr.cf-detail > td{background:var(--bg);padding:12px 14px !important;border-bottom:2px solid var(--border-strong);}
+  .cf-det-grid{position:sticky;left:14px;box-sizing:border-box;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+  @media (max-width:900px){.cf-det-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  @media (max-width:560px){.cf-det-grid{grid-template-columns:1fr;}}
+  .cf-grp{font-size:0.82rem;border-radius:8px;padding:8px 10px;border:1px solid var(--border);background:var(--surface);transition:box-shadow .2s;}
+  .cf-grp.cf-hl{box-shadow:0 0 0 2px var(--accent);}
+  .cf-grp-h{font-weight:700;margin-bottom:6px;}
+  .cf-grp-l{list-style:none;margin:0;padding:0;max-height:260px;overflow-y:auto;}
+  .cf-grp-l li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-top:1px solid var(--border);}
+  .cf-grp-l li:first-child{border-top:none;}
+  .cf-it-d{min-width:0;overflow-wrap:anywhere;}
+  .cf-grp-l .mono{white-space:nowrap;}
+  .cf-grp-adj{display:flex;justify-content:space-between;color:var(--gold);font-size:0.78rem;padding-top:4px;}
+  .cf-grp-t{display:flex;justify-content:space-between;font-weight:700;border-top:2px solid var(--border);margin-top:6px;padding-top:4px;}
+</style>
 
 <div class="page-header">
   <div class="page-title-wrap">
@@ -100,7 +138,10 @@
 <div class="card mt-3">
   <div class="card-title">
     <h3>Detalhamento mês a mês</h3>
-    <span class="text-faint text-small">clique = detalhar · duplo clique = editar · Saldo = Saldo Proj. do Relatório</span>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span class="text-faint text-small">▸ ou clique no valor = abrir itens · duplo clique = editar · Saldo = Saldo Proj. do Relatório</span>
+      <button type="button" id="cf-toggle-all" class="btn btn-ghost btn-sm" style="font-size:0.75rem;">Expandir todos</button>
+    </div>
   </div>
   <div class="table-wrap">
     <table class="tbl">
@@ -121,16 +162,16 @@
         {% for m in months %}
         {% set is_current_mo = (m.month == current_month_num and year == current_month_year and not m.get('is_next_year')) %}
         {% if m.is_next_year is defined and m.is_next_year %}
-        <tr style="border-top:2px dashed var(--border-strong);opacity:0.8;">
-          <td><strong>{{ m.month_name }}/{{ year + 1 }}</strong> <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
+        <tr class="cf-row" data-idx="{{ loop.index0 }}" style="border-top:2px dashed var(--border-strong);opacity:0.8;">
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong>{{ m.month_name }}/{{ year + 1 }}</strong> <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
         {% elif is_current_mo %}
-        <tr style="background:rgba(107,141,181,0.12);border-left:3px solid var(--accent);position:relative;">
-          <td><strong style="color:var(--accent);">{{ m.month_name }}/{{ year }}</strong>
+        <tr class="cf-row" data-idx="{{ loop.index0 }}" style="background:rgba(107,141,181,0.12);border-left:3px solid var(--accent);position:relative;">
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong style="color:var(--accent);">{{ m.month_name }}/{{ year }}</strong>
             <span style="font-size:0.6rem;background:var(--accent);color:white;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;">ATUAL</span>
           </td>
         {% else %}
-        <tr>
-          <td><strong>{{ m.month_name }}/{{ year }}</strong></td>
+        <tr class="cf-row" data-idx="{{ loop.index0 }}">
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong>{{ m.month_name }}/{{ year }}</strong></td>
         {% endif %}
           <td class="text-right amount cf-cell editable-cell" data-col="income_recurring" data-idx="{{ loop.index0 }}"
               data-year="{{ year }}" data-month="{{ m.month }}" data-field="income_recurring" data-value="{{ m.income_recurring }}"
@@ -170,6 +211,16 @@
             {{ m.cumulative|brl }}
           </td>
         </tr>
+        <tr class="cf-detail" id="cf-det-{{ loop.index0 }}" hidden>
+          <td colspan="9">
+            <div class="cf-det-grid">
+              {{ cf_grupo('Renda fixa', 'var(--green)', m.income_recurring_items or [], m.income_recurring, 'income_recurring') }}
+              {{ cf_grupo('Renda eventual', 'var(--blue)', m.income_eventual_items or [], m.income_eventual, 'income_eventual') }}
+              {{ cf_grupo('Fixos', 'var(--gold)', m.fixed_items or [], m.fixed_expense, 'fixed') }}
+              {{ cf_grupo('Eventuais', 'var(--red)', m.eventual_items or [], m.eventual_expense, 'eventual') }}
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
       <tfoot>
@@ -187,25 +238,6 @@
           <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.net|brl }}</strong></td>
           {% endif %}
           <td style="background:rgba(107,141,181,0.10);"></td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-</div>
-
-<!-- Modal de eventuais -->
-<div id="ev-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
-  <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h3 style="margin:0;">Gastos eventuais</h3>
-      <button id="ev-close" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-faint);">x</button>
-    </div>
-    <table style="width:100%;">
-      <tbody id="ev-list"></tbody>
-      <tfoot>
-        <tr style="border-top:2px solid var(--border-strong);">
-          <td><strong>Total</strong></td>
-          <td class="text-right mono" id="ev-total" style="color:var(--red);font-weight:700;"></td>
         </tr>
       </tfoot>
     </table>
@@ -465,72 +497,67 @@ if (_mm) _mm.addEventListener('click', function(e) {
   if (e.target === this) this.style.display = 'none';
 });
 
-document.getElementById('ev-close').addEventListener('click', function() {
-  document.getElementById('ev-modal').style.display = 'none';
+// Painel ocupa só a largura visível da tabela (que rola na horizontal)
+function cfAjustarLargura() {
+  var wrap = document.querySelector('.table-wrap');
+  if (!wrap) return;
+  var w = wrap.clientWidth - 28;
+  document.querySelectorAll('.cf-det-grid').forEach(function(g) { g.style.width = w + 'px'; });
+}
+window.addEventListener('resize', cfAjustarLargura);
+
+function cfToggle(idx, abrir, grp) {
+  var row = document.querySelector('tr.cf-row[data-idx="' + idx + '"]');
+  var det = document.getElementById('cf-det-' + idx);
+  if (!row || !det) return;
+  if (abrir === undefined) abrir = det.hidden;
+  det.hidden = !abrir;
+  if (abrir) cfAjustarLargura();
+  row.classList.toggle('cf-open', abrir);
+  var btn = row.querySelector('.cf-toggle');
+  if (btn) { btn.setAttribute('aria-expanded', abrir ? 'true' : 'false'); btn.textContent = abrir ? '\u25BE\uFE0E' : '\u25B8\uFE0E'; }
+  det.querySelectorAll('.cf-grp').forEach(function(g) { g.classList.remove('cf-hl'); });
+  if (abrir && grp) {
+    var g = det.querySelector('.cf-grp[data-grp="' + grp + '"]');
+    if (g) { g.classList.add('cf-hl'); setTimeout(function(){ g.classList.remove('cf-hl'); }, 1600); }
+  }
+}
+
+document.querySelectorAll('.cf-toggle').forEach(function(btn) {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    cfToggle(btn.getAttribute('data-idx'));
+  });
 });
 
-document.getElementById('ev-modal').addEventListener('click', function(e) {
-  if (e.target === this) this.style.display = 'none';
-});
-
-var COL_LABELS = {
-  "income_recurring": {title: "Renda fixa", color: "var(--green)"},
-  "income_eventual":  {title: "Renda eventual", color: "var(--blue)"},
-  "fixed":            {title: "Gastos fixos", color: "var(--gold)"},
-  "eventual":         {title: "Gastos eventuais", color: "var(--red)"},
-};
-
+// Clique simples numa célula de renda/gasto abre a linha destacando o grupo;
+// espera 220 ms para não disparar junto com o duplo clique (edição)
 document.querySelectorAll('.cf-cell').forEach(function(td) {
+  var t = null;
   td.addEventListener('click', function() {
     if (td.querySelector('input')) return;
-    // cf-cell single click: só abre modal se NÃO for duplo clique (timer)
-    // O timer de 220ms no editable-cell acima já garante isso // em edição, ignora
-    var col = td.getAttribute('data-col');
-    var idx = parseInt(td.getAttribute('data-idx') || '0');
-    var meta = COL_LABELS[col] || {title: col, color: 'inherit'};
-    fetch('/fluxo/items-json?year=' + CASHFLOW_YEAR + '&col=' + col)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var items = data[idx] || [];
-        var list = document.getElementById('ev-list');
-        var total = document.getElementById('ev-total');
-        document.getElementById('ev-modal').querySelector('h3').textContent = meta.title;
-        list.innerHTML = '';
-        var sum = 0;
-        items.forEach(function(item) {
-          sum += item.amount;
-          var tr = document.createElement('tr');
-          tr.style.borderTop = '1px solid var(--border)';
-          var td1 = document.createElement('td'); td1.style.padding = '6px 4px'; td1.textContent = item.desc;
-          var td2 = document.createElement('td'); td2.className = 'text-right mono';
-          td2.style.padding = '6px 4px'; td2.style.color = meta.color;
-          td2.textContent = item.amount.toLocaleString('pt-BR', {minimumFractionDigits:2});
-          var td3 = document.createElement('td'); td3.style.padding = '2px';
-          if (item._block_key) {
-            var btn = document.createElement('button');
-            btn.textContent = '×';
-            btn.title = 'Excluir da projeção';
-            btn.style.cssText = 'background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 4px;';
-            btn.onclick = function() {
-              fetch('/fluxo/bloquear-projecao', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify(item._block_key),
-                credentials: 'same-origin'
-              }).then(function(r) { return r.json(); }).then(function(d) {
-                if (d.ok) { tr.style.opacity='0.3'; btn.textContent='✓'; btn.disabled=true; }
-              });
-            };
-            td3.appendChild(btn);
-          }
-          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); list.appendChild(tr);
-        });
-        total.textContent = sum.toLocaleString('pt-BR', {minimumFractionDigits:2});
-        var modal = document.getElementById('ev-modal');
-        modal.style.display = 'flex';
-        modal.onclick = function(e) { if(e.target===modal) modal.style.display='none'; };
-      });
+    clearTimeout(t);
+    t = setTimeout(function() {
+      if (td.querySelector('input')) return;
+      var idx = td.getAttribute('data-idx');
+      var det = document.getElementById('cf-det-' + idx);
+      var grp = td.getAttribute('data-col');
+      // já aberta: clique no mesmo valor fecha; em outro, só destaca
+      if (det && !det.hidden && td.classList.contains('cf-last')) { cfToggle(idx, false); td.classList.remove('cf-last'); return; }
+      document.querySelectorAll('.cf-cell.cf-last').forEach(function(c){ c.classList.remove('cf-last'); });
+      td.classList.add('cf-last');
+      cfToggle(idx, true, grp);
+    }, 220);
   });
+  td.addEventListener('dblclick', function() { clearTimeout(t); });
+});
+
+var _cfAll = document.getElementById('cf-toggle-all');
+if (_cfAll) _cfAll.addEventListener('click', function() {
+  var abrir = _cfAll.getAttribute('data-open') !== '1';
+  document.querySelectorAll('tr.cf-row').forEach(function(r) { cfToggle(r.getAttribute('data-idx'), abrir); });
+  _cfAll.setAttribute('data-open', abrir ? '1' : '0');
+  _cfAll.textContent = abrir ? 'Recolher todos' : 'Expandir todos';
 });
 </script>
 
