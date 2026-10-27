@@ -203,6 +203,13 @@ function excluirSelecionados() {
           <td data-val="{{ exp.description }}">
             <strong>{{ exp.description }}</strong>
             <div class="text-faint text-small">{{ exp.amount|brl }}/mês planejado</div>
+            {% if data.subs %}
+            <div style="margin-top:4px;display:flex;flex-direction:column;gap:1px;">
+              {% for nome, val in data.subs %}
+              <span class="text-small" style="color:var(--text-dim);">↳ {{ nome or 'sem subcategoria' }}: <span class="mono">{{ val|brl }}</span></span>
+              {% endfor %}
+            </div>
+            {% endif %}
           </td>
           <td data-val="{{ exp.category }}"><span class="badge badge-solo">{{ exp.category }}</span></td>
           <td data-val="{{ data.entries|length }}">
@@ -236,6 +243,9 @@ function excluirSelecionados() {
                     onchange="atualizarBarraExp({{ expense_id }})">
                   <div>
                     <span class="text-small">{{ entry.description }}</span>
+                    {% if entry.subcategoria_id and entry.subcategoria %}
+                      <span class="badge badge-solo" style="font-size:0.62rem;">↳ {{ entry.subcategoria.nome }}</span>
+                    {% endif %}
                     {% if entry.kind == 'parcelado' %}
                       <span class="badge badge-shared" style="font-size:0.62rem;">{{ entry.installment_no }}/{{ entry.installments }}</span>
                     {% elif entry.kind == 'recorrente' %}

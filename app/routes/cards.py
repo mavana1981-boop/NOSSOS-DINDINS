@@ -751,6 +751,15 @@ def detail_card(card_id):
         else:
             unlinked.append(e)
 
+    # Quebra por subcategoria dentro de cada gasto (só se houver alguma)
+    for _g in by_expense.values():
+        _subs = {}
+        for _e in _g["entries"]:
+            _nome = _e.subcategoria.nome if _e.subcategoria_id and _e.subcategoria else None
+            _subs[_nome] = _subs.get(_nome, 0.0) + float(_e.amount)
+        _g["subs"] = (sorted(_subs.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
+                      if any(k is not None for k in _subs) else [])
+
     MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
     _fy, _fm = int(mes_filter_d[:4]), int(mes_filter_d[5:7])
@@ -820,8 +829,8 @@ def _save_entry(entry, card):
     fixed_expenses = _get_user_fixed_expenses()
     desc = request.form.get("description", "").strip()
     amount = _parse(request.form.get("amount"))
-    expense_id_raw = request.form.get("expense_id", "").strip()
-    expense_id = expense_id_raw if expense_id_raw and expense_id_raw.isdigit() else None
+    from app.utils import parse_vinculo as _pv
+    expense_id, subcategoria_id = _pv(request.form.get("expense_id", ""), current_user.id)
     category = request.form.get("category", "Outros")
     kind = request.form.get("kind", "pontual")
     installments = request.form.get("installments", "1")
@@ -847,6 +856,7 @@ def _save_entry(entry, card):
     entry.description = desc
     entry.amount = amount
     entry.expense_id = int(expense_id) if expense_id else None
+    entry.subcategoria_id = subcategoria_id if entry.expense_id else None
     if entry.expense_id:
         linked_exp = Expense.query.get(entry.expense_id)
         if linked_exp:
@@ -1689,6 +1699,7 @@ def _process_batch(card):
                     e.category  = rule.category
                     if rule.expense_id:
                         e.expense_id = rule.expense_id
+                        e.subcategoria_id = getattr(rule, "subcategoria_id", None)
                     break
     db.session.commit()
     flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
@@ -1742,9 +1753,10 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     entry = CardEntry.query.get_or_404(entry_id)
     if card.user_id != current_user.id:
         abort(403)
-    expense_id_raw = request.form.get("expense_id", "").strip()
-    expense_id = int(expense_id_raw) if expense_id_raw.isdigit() else None
+    from app.utils import parse_vinculo as _pv
+    expense_id, subcategoria_id = _pv(request.form.get("expense_id", ""), current_user.id)
     entry.expense_id = expense_id
+    entry.subcategoria_id = subcategoria_id if expense_id else None
     if expense_id:
         linked = Expense.query.get(expense_id)
         if linked:
@@ -1766,12 +1778,14 @@ def batch_approve_entry(card_id, batch_id, entry_id):
             if existing:
                 existing.category   = entry.category
                 existing.expense_id = entry.expense_id
+                existing.subcategoria_id = entry.subcategoria_id
             else:
                 rule = MerchantRule(
                     user_id=current_user.id,
                     keyword=keyword,
                     category=entry.category,
                     expense_id=entry.expense_id,
+                    subcategoria_id=entry.subcategoria_id,
                 )
                 db.session.add(rule)
             db.session.commit()

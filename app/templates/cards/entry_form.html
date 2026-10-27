@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_vinculo.html" import opcoes_vinculo %}
 {% block title %}{{ 'Editar' if entry else 'Novo' }} lançamento — {{ card.name }}{% endblock %}
 {% block content %}
 
@@ -89,15 +90,11 @@
       <label class="form-label">Gasto fixo vinculado</label>
       <select class="form-control" name="expense_id" id="sel-expense">
         <option value="">— Lançamento avulso (sem vínculo) —</option>
-        {% for exp in fixed_expenses %}
-        <option value="{{ exp.id }}"
-                {% if entry and entry.expense_id == exp.id %}selected{% endif %}>
-          {{ exp.description }} — {{ exp.amount|brl }}/mês
-        </option>
-        {% endfor %}
+        {{ opcoes_vinculo(fixed_expenses, entry.expense_id if entry else None, entry.subcategoria_id if entry else None) }}
       </select>
       <div class="form-help">
         Ao vincular, o valor é somado na barra de controle desse gasto no cartão e no quadro da casa.
+        Opções com “↳” são subcategorias: somam no gasto principal. Crie subcategorias editando o gasto fixo em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a>.
       </div>
     </div>
 
@@ -137,7 +134,7 @@ function updateKind() {
 document.getElementById('sel-expense').addEventListener('change', function() {
   const hidden = document.getElementById('hidden-category');
   if (this.value) {
-    hidden.value = this.options[this.selectedIndex].text.split(' — ')[0].trim();
+    hidden.value = this.options[this.selectedIndex].text.split(' — ')[0].split(' › ')[0].replace('↳','').trim();
   } else {
     hidden.value = 'Outros';
   }
