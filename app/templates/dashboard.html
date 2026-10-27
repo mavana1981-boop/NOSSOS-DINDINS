@@ -39,6 +39,73 @@
   </div>
 </div>
 
+{% set _com_metas = (evolucao or [])|selectattr('partes')|list %}
+<!-- Metas por parte do mês -->
+<div class="card mb-3" id="metas-partes">
+  <div class="card-title">
+    <h3>🎯 Metas por parte do mês</h3>
+    <a href="#evolucao" class="small-link">configurar ↓</a>
+  </div>
+  {% if _com_metas %}
+  <div style="display:flex;flex-direction:column;gap:18px;">
+    {% for g in _com_metas %}
+    {% set _gasto_total = g.partes|sum(attribute='gasto') %}
+    <div>
+      <div class="flex-between" style="margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+        <strong>{{ g.desc }}</strong>
+        <span class="text-small text-dim">
+          <span class="mono" style="color:{{ 'var(--red)' if _gasto_total > g.meta_total + 0.004 else 'var(--text)' }};font-weight:700;">{{ _gasto_total|brl }}</span>
+          de <span class="mono">{{ g.meta_total|brl }}</span> em metas
+        </span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat({{ g.partes|length }}, minmax(0, 1fr));gap:4px;">
+        {% for p in g.partes %}
+        {% set _cor = '#c4654a' if p.estourou else ('#7ea66b' if not p.futura else 'var(--text-faint)') %}
+        <div title="Parte {{ p.n }} · {{ p.label }} · gasto {{ p.gasto|brl }} de {{ p.meta|brl }}">
+          <div style="position:relative;height:16px;border-radius:5px;background:var(--bg);overflow:hidden;
+                      border:{{ '2px solid var(--accent)' if p.atual else '1px solid var(--border)' }};">
+            <div style="position:absolute;left:0;top:0;bottom:0;width:{{ [p.pct, 100]|min }}%;background:{{ _cor }};opacity:{{ '0.45' if p.futura else '0.9' }};"></div>
+          </div>
+          <div class="mp-txt" style="margin-top:4px;line-height:1.3;">
+            <div class="mp-data" style="font-size:11px;color:{{ 'var(--accent)' if p.atual else 'var(--text-faint)' }};">
+              {% if p.atual %}● {% endif %}{{ p.inicio.strftime('%d/%m') }}–{{ p.fim.strftime('%d/%m') }}
+            </div>
+            <div class="mono" style="font-size:12px;font-weight:700;color:{{ '#c4654a' if p.estourou else 'var(--text)' }};">
+              <span class="mp-full">{{ p.gasto|brl }}</span><span class="mp-curto">{{ "{:,.0f}".format(p.gasto)|replace(',', '.') }}</span>
+            </div>
+            <div class="mono" style="font-size:11px;color:var(--text-dim);">
+              de <span class="mp-full">{{ p.meta|brl }}</span><span class="mp-curto">{{ "{:,.0f}".format(p.meta)|replace(',', '.') }}</span>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <style>
+    #metas-partes .mp-curto { display: none; }
+    #metas-partes .mp-aviso-curto { display: none; }
+    #metas-partes .mp-data { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 700px) {
+      #metas-partes .mp-full { display: none; }
+      #metas-partes .mp-curto { display: inline; }
+      #metas-partes .mp-data { white-space: normal; word-break: break-word; }
+      #metas-partes .mp-aviso-curto { display: inline; }
+    }
+  </style>
+  <div class="text-faint text-small" style="margin-top:12px;">
+    <span class="mp-aviso-curto">Valores em R$ (sem centavos) · </span>Ciclo 16→16 dividido em partes iguais · <span style="color:var(--accent);">●</span> parte atual ·
+    <span style="color:#7ea66b;">verde</span> dentro da meta · <span style="color:#c4654a;">vermelho</span> acima.
+    Gastos pela data da compra.
+  </div>
+  {% else %}
+  <div class="text-dim text-small" style="padding:6px 0;">
+    Nenhum gasto com metas por parte ainda. Na <a href="#evolucao">Evolução diária</a>, abra um gasto e escolha em quantas partes dividir o mês.
+  </div>
+  {% endif %}
+</div>
+
 {% include "_evolucao_andamento.html" %}
 
 <!-- Créditos/Débitos -->

@@ -40,6 +40,53 @@ def hoje_brasilia() -> date:
 # ─────────────────────────────────────────────────────────────
 #  Cálculo (compartilhado com a tela do relatório)
 # ─────────────────────────────────────────────────────────────
+def ciclo(hoje: date):
+    """(início, fim_exclusivo) do ciclo de fechamento que contém `hoje` (16 → 16)."""
+    if hoje.day >= 16:
+        cs = hoje.replace(day=16)
+        ce = (hoje.replace(month=hoje.month + 1, day=16) if hoje.month < 12
+              else hoje.replace(year=hoje.year + 1, month=1, day=16))
+    else:
+        cs = (hoje.replace(month=hoje.month - 1, day=16) if hoje.month > 1
+              else hoje.replace(year=hoje.year - 1, month=12, day=16))
+        ce = hoje.replace(day=16)
+    return cs, ce
+
+
+def partes_do_ciclo(hoje: date, n: int):
+    """
+    Divide o ciclo atual em `n` partes iguais (1 a 5).
+    Retorna [(inicio, fim_inclusivo), ...]. Os dias que sobram na divisão
+    ficam nas primeiras partes (ex.: 31 dias em 5 → 7, 6, 6, 6, 6).
+    """
+    from datetime import timedelta
+    n = max(1, min(5, int(n)))
+    cs, ce = ciclo(hoje)
+    total = (ce - cs).days
+    base, resto = divmod(total, n)
+    out, ini = [], cs
+    for i in range(n):
+        tam = base + (1 if i < resto else 0)
+        fim = ini + timedelta(days=tam - 1)
+        out.append((ini, fim))
+        ini = fim + timedelta(days=1)
+    return out
+
+
+def gasto_por_parte(lancamentos, partes):
+    """Soma os lançamentos (entry_date, valor) em cada parte. Datas fora do
+    ciclo vão para a primeira (antes) ou última parte (depois)."""
+    somas = [0.0] * len(partes)
+    for d, v in lancamentos:
+        idx = 0 if d < partes[0][0] else len(partes) - 1
+        for i, (ini, fim) in enumerate(partes):
+            if ini <= d <= fim:
+                idx = i
+                break
+        somas[idx] += float(v)
+    return [round(x, 2) for x in somas]
+
+
 def pct_ideal_ciclo(hoje: date) -> float:
     """% do ciclo de fechamento (dia 16 ao próximo dia 16) já decorrido."""
     if hoje.day >= 16:

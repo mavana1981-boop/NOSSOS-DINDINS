@@ -544,3 +544,26 @@ class Subcategoria(db.Model):
         "Expense",
         backref=db.backref("subcategorias", order_by="Subcategoria.nome",
                            cascade="all, delete-orphan"))
+
+
+class MetaParte(db.Model):
+    """
+    Divisão do ciclo (dia 16 → dia 16) em 1 a 5 partes iguais, com meta de
+    gasto em R$ para cada parte, por gasto do Andamento. Vale para todo ciclo.
+    """
+    __tablename__ = "metas_partes"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False)
+    n_partes   = db.Column(db.Integer, nullable=False)
+    metas      = db.Column(db.Text, nullable=False)      # JSON: [300.0, 300.0, ...]
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("user_id", "expense_id"),)
+
+    def lista_metas(self):
+        import json
+        try:
+            v = [float(x) for x in json.loads(self.metas or "[]")]
+        except Exception:
+            v = []
+        return (v + [0.0] * self.n_partes)[: self.n_partes]
