@@ -670,3 +670,25 @@ def aplicar_saldo_projetado(user_id, meses_cf):
             m["cumulative"] = round(m["cumulative"] + ajuste, 2)
         m["net"] = round(novo, 2)
     return meses_cf
+
+
+def parse_vinculo(raw, user_id):
+    """
+    Lê o valor do select de vínculo: "" (avulso), "12" (gasto 12) ou
+    "12:5" (gasto 12, subcategoria 5). Valida que a subcategoria pertence
+    ao gasto e ao usuário. Retorna (expense_id, subcategoria_id).
+    """
+    from app.models import Subcategoria
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    exp_part, _, sub_part = raw.partition(":")
+    if not exp_part.isdigit():
+        return None, None
+    exp_id = int(exp_part)
+    sub_id = None
+    if sub_part.isdigit():
+        sub = Subcategoria.query.get(int(sub_part))
+        if sub and sub.expense_id == exp_id and sub.user_id == user_id:
+            sub_id = sub.id
+    return exp_id, sub_id

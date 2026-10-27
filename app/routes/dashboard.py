@@ -291,8 +291,15 @@ def _dados_evolucao(user_id):
                           CardEntry.billing_month == mes_evo,
                           CardEntry.status == "ativo")
                   .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).all())
+        _subs = {}
+        for _e in _lancs:
+            _n = _e.subcategoria.nome if _e.subcategoria_id and _e.subcategoria else None
+            _subs[_n] = _subs.get(_n, 0.0) + float(_e.amount)
         evolucao.append({
             "expense_id": it["expense_id"],
+            # Subtotais por subcategoria (só quando alguma foi usada)
+            "subs": (sorted(_subs.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
+                     if any(k is not None for k in _subs) else []),
             "lancamentos": [{
                 "data": e.entry_date,
                 "desc": e.description,
@@ -300,6 +307,8 @@ def _dados_evolucao(user_id):
                 "parcela": (f"{e.installment_no}/{e.installments}"
                             if (e.installments or 1) > 1 else ""),
                 "valor": float(e.amount),
+                "sub": (e.subcategoria.nome
+                        if e.subcategoria_id and e.subcategoria else None),
             } for e in _lancs],
             "desc": it["desc"],
             "planned": it["planned"], "spent": it["spent"], "pct": it["pct"],

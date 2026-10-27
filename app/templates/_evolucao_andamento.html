@@ -88,13 +88,19 @@
               {% for l in g.lancamentos %}
               <tr style="border-top:1px solid var(--border);">
                 <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.data.strftime('%d/%m') if l.data else '—' }}</td>
-                <td style="padding:6px;">{{ l.desc }}{% if l.parcela %} <span style="color:var(--text-faint);">{{ l.parcela }}</span>{% endif %}</td>
+                <td style="padding:6px;">{{ l.desc }}{% if l.parcela %} <span style="color:var(--text-faint);">{{ l.parcela }}</span>{% endif %}{% if l.sub %} <span style="font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-dim);white-space:nowrap;">↳ {{ l.sub }}</span>{% endif %}</td>
                 <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.cartao }}</td>
                 <td style="padding:6px;text-align:right;white-space:nowrap;font-weight:600;">{{ l.valor|brl }}</td>
               </tr>
               {% endfor %}
+              {% for nome, val in g.subs %}
+              <tr {% if loop.first %}style="border-top:1px solid var(--border-strong);"{% endif %}>
+                <td colspan="3" style="padding:4px 6px;color:var(--text-dim);">↳ {{ nome or 'sem subcategoria' }}</td>
+                <td style="padding:4px 6px;text-align:right;color:var(--text-dim);" class="mono">{{ val|brl }}</td>
+              </tr>
+              {% endfor %}
               <tr style="border-top:1px solid var(--border-strong);">
-                <td colspan="3" style="padding:6px;color:var(--text-dim);">{{ g.lancamentos|length }} lançamento(s)</td>
+                <td colspan="3" style="padding:6px;color:var(--text-dim);">{{ g.lancamentos|length }} lançamento(s){% if g.subs %} · total com subcategorias{% endif %}</td>
                 <td style="padding:6px;text-align:right;font-weight:700;">{{ g.spent|brl }}</td>
               </tr>
             </tbody>

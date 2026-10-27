@@ -73,6 +73,9 @@
           <td>
             <strong>{{ e.description }}</strong>
             {% if e.notes %}<div class="text-faint text-small">{{ e.notes }}</div>{% endif %}
+            {% if e.kind == 'recorrente' and e.subcategorias %}
+              <div class="text-small text-dim mt-1">↳ {% for sub in e.subcategorias %}{{ sub.nome }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+            {% endif %}
             {% if e.shares|length > 1 or (e.shares|length == 1 and e.shares[0].user_id != e.payer_id) %}
               <div class="text-small text-dim mt-1">
                 {% for s in e.shares %}

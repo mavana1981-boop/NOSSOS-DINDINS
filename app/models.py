@@ -294,6 +294,9 @@ class CardEntry(db.Model):
     billing_month = db.Column(db.String(7), nullable=True)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Subcategoria opcional do gasto vinculado (ex.: Cartão Avulso › Presentes)
+    subcategoria_id = db.Column(db.Integer, db.ForeignKey("subcategorias.id", ondelete="SET NULL"), nullable=True)
+    subcategoria = db.relationship("Subcategoria", foreign_keys=[subcategoria_id])
 
     user = db.relationship("User", backref="user_card_entries")
     expense = db.relationship("Expense", backref="expense_card_entries")
@@ -354,6 +357,7 @@ class MerchantRule(db.Model):
     keyword    = db.Column(db.String(120), nullable=False)
     category   = db.Column(db.String(80),  nullable=False)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    subcategoria_id = db.Column(db.Integer, db.ForeignKey("subcategorias.id", ondelete="SET NULL"), nullable=True)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
     user    = db.relationship("User",    backref="user_merchant_rules")
@@ -520,3 +524,23 @@ class AndamentoDiario(db.Model):
     pct           = db.Column(db.Float)
     pct_ideal     = db.Column(db.Float)
     __table_args__ = (db.UniqueConstraint("user_id", "expense_id", "dia"),)
+
+
+class Subcategoria(db.Model):
+    """
+    Subcategoria de um gasto fixo (ex.: "Cartão Avulso › Presentes em geral").
+    O lançamento continua vinculado ao gasto-pai (expense_id), então todas as
+    somas do gasto incluem automaticamente as subcategorias.
+    """
+    __tablename__ = "subcategorias"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False, index=True)
+    nome       = db.Column(db.String(80), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("expense_id", "nome"),)
+
+    expense = db.relationship(
+        "Expense",
+        backref=db.backref("subcategorias", order_by="Subcategoria.nome",
+                           cascade="all, delete-orphan"))

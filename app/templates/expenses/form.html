@@ -201,6 +201,37 @@
   </form>
 </div>
 
+{% if expense and expense.kind == 'recorrente' and expense.payer_id == current_user.id %}
+<!-- Subcategorias -->
+<div class="card" id="subcategorias" style="max-width:780px;margin-top:16px;">
+  <div class="card-title"><h3>Subcategorias de “{{ expense.description }}”</h3></div>
+  <p class="text-dim text-small" style="margin-top:-4px;">
+    Ao lançar no cartão, você pode escolher <strong>{{ expense.description }} › subcategoria</strong>.
+    Esses lançamentos continuam somando no total de {{ expense.description }}; a subcategoria só detalha onde foi o dinheiro.
+  </p>
+  {% if expense.subcategorias %}
+  <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0 14px;">
+    {% for sub in expense.subcategorias %}
+    <div class="flex-between" style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+      <span>↳ {{ sub.nome }}</span>
+      <form method="POST" action="{{ url_for('expenses.delete_subcategoria', sub_id=sub.id) }}" style="margin:0;"
+            onsubmit="return confirm('Excluir a subcategoria “{{ sub.nome|e }}”? Os lançamentos continuam em {{ expense.description|e }}.');">
+        <button class="btn btn-danger btn-sm" style="padding:2px 8px;">×</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-faint text-small" style="margin:10px 0 14px;">Nenhuma subcategoria ainda.</div>
+  {% endif %}
+  <form method="POST" action="{{ url_for('expenses.add_subcategoria', expense_id=expense.id) }}"
+        class="flex flex-gap" style="gap:8px;flex-wrap:wrap;">
+    <input class="form-control" name="nome" maxlength="80" required placeholder="ex.: Presentes em geral" style="flex:1;min-width:200px;">
+    <button class="btn btn-primary btn-sm">+ Adicionar</button>
+  </form>
+</div>
+{% endif %}
+
 <script>
 (function() {
   // Modo de compartilhamento

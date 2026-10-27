@@ -416,3 +416,44 @@ def delete_expense(expense_id):
     db.session.commit()
     flash("Gasto removido.", "info")
     return redirect(url_for("expenses.list_expenses"))
+
+
+# ─────────────────────────────────────────────────────────────
+#  Subcategorias de um gasto fixo (ex.: Cartão Avulso › Presentes)
+# ─────────────────────────────────────────────────────────────
+@expenses_bp.route("/<int:expense_id>/subcategorias", methods=["POST"])
+@login_required
+def add_subcategoria(expense_id):
+    from app.models import Subcategoria
+    e = Expense.query.get_or_404(expense_id)
+    if e.payer_id != current_user.id:
+        abort(403)
+    nome = (request.form.get("nome") or "").strip()[:80]
+    if not nome:
+        flash("Informe o nome da subcategoria.", "danger")
+    elif Subcategoria.query.filter(Subcategoria.expense_id == e.id,
+                                   db.func.lower(Subcategoria.nome) == nome.lower()).first():
+        flash(f"“{nome}” já existe em {e.description}.", "warning")
+    else:
+        db.session.add(Subcategoria(user_id=current_user.id, expense_id=e.id, nome=nome))
+        db.session.commit()
+        flash(f"Subcategoria “{e.description} › {nome}” criada.", "success")
+    return redirect(url_for("expenses.edit_expense", expense_id=e.id) + "#subcategorias")
+
+
+@expenses_bp.route("/subcategorias/<int:sub_id>/excluir", methods=["POST"])
+@login_required
+def delete_subcategoria(sub_id):
+    from app.models import Subcategoria, CardEntry, MerchantRule
+    sub = Subcategoria.query.get_or_404(sub_id)
+    if sub.user_id != current_user.id:
+        abort(403)
+    exp_id, nome = sub.expense_id, sub.nome
+    # Os lançamentos continuam no gasto-pai; só perdem a subcategoria
+    n = CardEntry.query.filter_by(subcategoria_id=sub.id).update({"subcategoria_id": None})
+    MerchantRule.query.filter_by(subcategoria_id=sub.id).update({"subcategoria_id": None})
+    db.session.delete(sub)
+    db.session.commit()
+    flash(f"Subcategoria “{nome}” excluída"
+          + (f" — {n} lançamento(s) voltaram para o gasto principal." if n else "."), "info")
+    return redirect(url_for("expenses.edit_expense", expense_id=exp_id) + "#subcategorias")

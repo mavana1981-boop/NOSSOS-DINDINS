@@ -1,0 +1,14 @@
+{# Opções do seletor de vínculo: gasto fixo e, abaixo, suas subcategorias.
+   Valor: "" (avulso) · "<gasto>" · "<gasto>:<subcategoria>" #}
+{% macro opcoes_vinculo(fixed_expenses, sel_exp=None, sel_sub=None, mostrar_valor=True) %}
+  {% for exp in fixed_expenses %}
+  <option value="{{ exp.id }}" {% if sel_exp == exp.id and not sel_sub %}selected{% endif %}>
+    {{ exp.description }}{% if mostrar_valor %} — {{ exp.amount|brl }}/mês{% endif %}
+  </option>
+  {% for sub in exp.subcategorias %}
+  <option value="{{ exp.id }}:{{ sub.id }}" {% if sel_exp == exp.id and sel_sub == sub.id %}selected{% endif %}>
+    &nbsp;&nbsp;&nbsp;↳ {{ exp.description }} › {{ sub.nome }}
+  </option>
+  {% endfor %}
+  {% endfor %}
+{% endmacro %}
