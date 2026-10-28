@@ -2,9 +2,9 @@
 <div class="card" id="evolucao" style="margin-bottom:16px;">
   <strong>📊 Evolução diária do Andamento</strong>
   <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
-    % do planejado já gasto em cada gasto, foto tirada pelo agente toda noite. 🟢 dentro da faixa · 🔴 fora.
+    % do planejado já gasto em cada gasto, foto tirada pelo agente toda noite; a coluna de hoje é calculada na hora. 🟢 dentro da faixa · 🔴 fora.
     <strong>Projetado</strong> = quanto seria esperado gastar até agora (planejado × % ideal do ciclo).
-    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos. Valores de gasto e saldo são atuais; os % diários são as fotos de cada noite.
+    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos. Valores de gasto e saldo são atuais; os % diários são as fotos de cada noite, e o de hoje é atualizado a cada lançamento.
   </div>
   {% if evolucao %}
   {% set b = balanco %}
@@ -37,8 +37,9 @@
       <tr style="color:var(--text-faint);">
         <th style="text-align:left;padding:6px 8px;position:sticky;left:0;background:var(--bg-card);">Gasto</th>
         {% for d in dias_evo %}
-        <th style="text-align:right;padding:6px 6px;white-space:nowrap;font-weight:500;">
-          {{ d.strftime('%d/%m') }}<br><span style="font-size:11px;">ideal {{ ideal_dia[d]|round|int }}%</span>
+        {% set _eh_hoje = loop.last %}
+        <th style="text-align:right;padding:6px 6px;white-space:nowrap;font-weight:{{ 700 if _eh_hoje else 500 }};{% if _eh_hoje %}color:var(--text);{% endif %}">
+          {{ d.strftime('%d/%m') }}{% if _eh_hoje %} <span style="font-size:10px;letter-spacing:.04em;text-transform:uppercase;">hoje</span>{% endif %}<br><span style="font-size:11px;">ideal {{ ideal_dia[d]|round|int }}%</span>
         </th>
         {% endfor %}
         <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Gasto / Projetado</th>
