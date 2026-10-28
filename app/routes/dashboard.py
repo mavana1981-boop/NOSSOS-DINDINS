@@ -422,31 +422,8 @@ def relatorio_membros():
     # Reaproveita exatamente a query + sincronização do menu Parcelados,
     # pra garantir que o relatório NUNCA divirja do que aparece lá.
     from collections import defaultdict
-    from app.models import PlannedInstallment as _PI_all, CardEntry as _CE_sync
-    _synced = 0
-    _pis_all = _PI_all.query.filter_by(user_id=current_user.id).all()
-    for _p in _pis_all:
-        if _p.origin_entry_id:
-            _ce = _CE_sync.query.get(_p.origin_entry_id)
-            if _ce and _ce.status == "ativo":
-                _changed = False
-                if float(_p.amount) != float(_ce.amount):
-                    _p.amount = _ce.amount
-                    _changed = True
-                if _p.installments != _ce.installments:
-                    _p.installments = _ce.installments
-                    _changed = True
-                if _p.description != _ce.description:
-                    _p.description = _ce.description
-                    _changed = True
-                if _changed:
-                    _synced += 1
-    if _synced:
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-        _pis_all = _PI_all.query.filter_by(user_id=current_user.id).all()
+    from app.utils import parcelados_projetados, planejado_cartao_parcelado
+    _pis_all = parcelados_projetados(current_user.id)
 
     por_mes_pi = defaultdict(list)
     for _p in _pis_all:
@@ -554,19 +531,8 @@ def relatorio_membros():
     pis_mes = por_mes_pi.get(_mes, [])
     total_parcelados = sum(float(p.amount) for p in pis_mes)
 
-    # Planejado de cartão: buscar diretamente no DB por nome normalizado
-    import unicodedata as _ud
-    def _norm_acc(s):
-        return _ud.normalize("NFKD", (s or "")).encode("ascii","ignore").decode().upper()
-
-    _planned_cards = 0.0
-    _all_rec_exps = Expense.query.filter(
-        Expense.payer_id == current_user.id,
-    ).all()
-    for _ec in _all_rec_exps:
-        if "CARTAO PARCELADO" in _norm_acc(_ec.description):
-            _planned_cards = float(_ec.amount)
-            break
+    # Planejado de cartão: gasto "Cartão Parcelado" (mesma regra do menu)
+    _planned_cards = planejado_cartao_parcelado(current_user.id) or 0.0
 
     excedente_parcelados = max(0.0, round(total_parcelados - _planned_cards, 2))
     if excedente_parcelados > 0:

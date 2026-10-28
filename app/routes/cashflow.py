@@ -454,49 +454,18 @@ def planejados():
     from app.models import PlannedInstallment, CardEntry as _CE
     from app import db
 
-    # Sincronizar valores: atualizar PIs com base no CardEntry vinculado
-    # Só atualiza — não cria novos, não toca em excluídos
-    synced = 0
-    pis = PlannedInstallment.query.filter_by(user_id=current_user.id).all()
-    for p in pis:
-        if p.origin_entry_id:
-            ce = _CE.query.get(p.origin_entry_id)
-            if ce and ce.status == "ativo":
-                # Atualizar valor, installments e description se mudaram
-                changed = False
-                if float(p.amount) != float(ce.amount):
-                    p.amount = ce.amount
-                    changed = True
-                if p.installments != ce.installments:
-                    p.installments = ce.installments
-                    changed = True
-                if p.description != ce.description:
-                    p.description = ce.description
-                    changed = True
-                if changed:
-                    synced += 1
-    if synced:
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+    from app.utils import parcelados_projetados, planejado_cartao_parcelado
+    # Sincroniza com o cartão de origem (mesma fonte do Fluxo e do Relatório)
+    parcelados_projetados(current_user.id)
 
     items = PlannedInstallment.query.filter_by(user_id=current_user.id)        .order_by(PlannedInstallment.billing_month, PlannedInstallment.description)        .all()
     from collections import defaultdict
     por_mes = defaultdict(list)
     for p in items:
         por_mes[p.billing_month].append(p)
-    # Planejado mensal para parcelados = gasto fixo "Cartão Parcelado"
+    # Planejado mensal para parcelados = gasto "Cartão Parcelado"
     # (mesma referência usada no Fluxo de Caixa para calcular o excedente)
-    from app.models import Expense as _Exp
-    from sqlalchemy import or_ as _or
-    _exp_parc = _Exp.query.filter(
-        _Exp.payer_id == current_user.id,
-        _Exp.kind == "recorrente",
-        _or(_Exp.description.ilike("%cartao parcelado%"),
-            _Exp.description.ilike("%cartão parcelado%")),
-    ).first()
-    planejado_parc = float(_exp_parc.amount) if _exp_parc else None
+    planejado_parc = planejado_cartao_parcelado(current_user.id)
     return render_template("cashflow/planejados.html",
                            por_mes=dict(sorted(por_mes.items())),
                            planejado_parc=planejado_parc)
