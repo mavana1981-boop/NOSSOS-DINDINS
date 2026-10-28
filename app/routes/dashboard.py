@@ -215,13 +215,14 @@ def index():
 
     try:
         _evo_dash = _dados_evolucao(current_user.id)
-        _evo_dash.pop("_hoje_evo", None)
+        _evo_dash["hoje_evo"] = _evo_dash.pop("_hoje_evo", None)
     except Exception:
         import logging
         logging.getLogger(__name__).exception("Falha ao montar evolução diária no painel")
         db.session.rollback()
         _evo_dash = dict(dias_evo=[], evolucao=[], ideal_dia={}, balanco=None,
-                         tolerancia=5, evo_erro=True, opcoes_partes={})
+                         tolerancia=5, evo_erro=True, opcoes_partes={},
+                         hoje_evo=None)
 
     return render_template(
         "dashboard.html",
@@ -266,10 +267,14 @@ def _dados_evolucao(user_id):
     agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
                                                 somente_dono=True)
 
+    # Fotos das noites anteriores (até 9) + coluna de HOJE, sempre calculada
+    # agora com os lançamentos atuais (a foto da noite de hoje ainda não existe
+    # ou pode estar desatualizada).
     _ult = (db.session.query(AndamentoDiario.dia)
             .filter(AndamentoDiario.user_id == user_id,
-                    AndamentoDiario.billing_month == mes_evo)
-            .distinct().order_by(AndamentoDiario.dia.desc()).limit(10).all())
+                    AndamentoDiario.billing_month == mes_evo,
+                    AndamentoDiario.dia < _hoje_evo)
+            .distinct().order_by(AndamentoDiario.dia.desc()).limit(9).all())
     dias_evo = sorted(d for (d,) in _ult)
     por_gasto, ideal_dia = {}, {}
     if dias_evo:
@@ -279,6 +284,13 @@ def _dados_evolucao(user_id):
                 AndamentoDiario.dia.in_(dias_evo)).all():
             por_gasto.setdefault(f.expense_id, {})[f.dia] = f
             ideal_dia[f.dia] = f.pct_ideal
+    from types import SimpleNamespace as _NS
+    dias_evo.append(_hoje_evo)
+    ideal_dia[_hoje_evo] = pct_ideal_agora
+    for it in agora:
+        por_gasto.setdefault(it["expense_id"], {})[_hoje_evo] = _NS(
+            pct=it["pct"], pct_ideal=pct_ideal_agora, spent=it["spent"],
+            planned=it["planned"])
 
     # Metas por parte do ciclo (configuradas por gasto)
     from app.models import MetaParte

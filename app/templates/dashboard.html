@@ -44,6 +44,7 @@
 <div class="card mb-3" id="metas-partes">
   <div class="card-title">
     <h3>🎯 Metas por parte do mês</h3>
+    {% if hoje_evo %}<span class="text-small text-dim" style="margin-left:auto;margin-right:12px;">📅 Hoje: <strong style="color:var(--text);">{{ hoje_evo.strftime('%d/%m/%Y') }}</strong></span>{% endif %}
     <a href="#evolucao" class="small-link">configurar ↓</a>
   </div>
   {% if _com_metas %}
