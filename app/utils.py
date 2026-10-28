@@ -309,6 +309,57 @@ def get_consolidated_cards(user_id, year=None, month=None):
     return consolidated
 
 
+# ─────────────────────────────────────────────────────────────
+#  Parcelados projetados — fonte única (menu Parcelados, Fluxo de
+#  Caixa, Relatório e Saldo Proj. usam exatamente estes números)
+# ─────────────────────────────────────────────────────────────
+def parcelados_projetados(user_id):
+    """Todas as parcelas projetadas (planned_installments) do usuário, já
+    sincronizadas com o lançamento de cartão de origem (valor, nº de
+    parcelas e descrição). Mesma lista exibida no menu Parcelados."""
+    from app.models import PlannedInstallment, CardEntry
+    from app import db
+    pis = PlannedInstallment.query.filter_by(user_id=user_id).all()
+    mudou = False
+    for p in pis:
+        if not p.origin_entry_id:
+            continue
+        ce = CardEntry.query.get(p.origin_entry_id)
+        if not ce or ce.status != "ativo":
+            continue
+        if float(p.amount) != float(ce.amount):
+            p.amount = ce.amount
+            mudou = True
+        if p.installments != ce.installments:
+            p.installments = ce.installments
+            mudou = True
+        if p.description != ce.description:
+            p.description = ce.description
+            mudou = True
+    if mudou:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            pis = PlannedInstallment.query.filter_by(user_id=user_id).all()
+    return pis
+
+
+def planejado_cartao_parcelado(user_id):
+    """Valor planejado do gasto "Cartão Parcelado" (com ou sem acento).
+    Prefere o gasto fixo (recorrente); None se não houver."""
+    from app.models import Expense
+    import unicodedata as _ud
+    def _n(s):
+        return _ud.normalize("NFKD", (s or "")).encode("ascii", "ignore").decode().upper()
+    exps = [e for e in Expense.query.filter(Expense.payer_id == user_id)
+            .order_by(Expense.id).all() if "CARTAO PARCELADO" in _n(e.description)]
+    if not exps:
+        return None
+    rec = [e for e in exps if e.kind == "recorrente"]
+    return float((rec or exps)[0].amount)
+
+
 def get_yearly_cashflow(user_id, year):
     from app import db as _db
     from app.models import Income, Expense, ExpenseShare, CashflowOverride
@@ -356,32 +407,10 @@ def get_yearly_cashflow(user_id, year):
         day = min(dt.day, _cal.monthrange(year2, month)[1])
         return _date(year2, month, day)
 
-    # Busca o planejado do gasto "Cartão Parcelado" para calcular excedente
-    _exp_parc = Expense.query.filter(
-        Expense.payer_id == user_id,
-        Expense.kind == "recorrente",
-        Expense.description.ilike("%cartao parcelado%"),
-    ).first()
-    if not _exp_parc:
-        _exp_parc = Expense.query.filter(
-            Expense.payer_id == user_id,
-            Expense.kind == "recorrente",
-            Expense.description.ilike("%cartão parcelado%"),
-        ).first()
-    _planned_parc = float(_exp_parc.amount) if _exp_parc else 0.0
-
-    # Busca parcelados via card_ids — mesma lógica da projeção do menu cartões
-    from app.models import Card as _Card4
-    cards_user = _Card4.query.filter_by(user_id=user_id, is_active=True).all()
-    card_closing_map2 = {c.id: c.closing_day for c in cards_user}
-    _card_ids2 = [c.id for c in cards_user]
-
-    # Projeção de parcelados: lê da tabela planned_installments (persistente e editável)
-    from app.models import PlannedInstallment as _PI
-    _planned = _PI.query.filter(
-        _PI.user_id == user_id,
-        _PI.card_id.in_(_card_ids2),
-    ).all() if _card_ids2 else []
+    # Parcelados projetados e planejado "Cartão Parcelado": mesma fonte do
+    # menu Parcelados (todas as parcelas, sincronizadas com o cartão)
+    _planned_parc = planejado_cartao_parcelado(user_id) or 0.0
+    _planned = parcelados_projetados(user_id)
 
     parcelados_por_mes = {}
     for _p in _planned:
@@ -500,7 +529,7 @@ def get_yearly_cashflow(user_id, year):
         parc_mes = parcelados_por_mes.get((year, m), [])
         total_parc_mes = round(sum(p["amount"] for p in parc_mes), 2)
         if total_parc_mes > 0:
-            excedente_parc = round(total_parc_mes - _planned_parc, 2)
+            excedente_parc = round(total_parc_mes - _planned_parc, 2)  # igual ao menu
             if excedente_parc > 0:
                 eventual_total += excedente_parc
                 eventual_items.append({
@@ -595,17 +624,13 @@ def saldo_projetado_meses(user_id, meses, cf_cache=None):
             for _m in get_yearly_cashflow(user_id, _ano):
                 cf_cache[(_ano, _m["month"])] = _m
 
-    # Parcelados projetados (mesma tabela do menu Parcelados)
+    # Parcelados projetados (mesma fonte do menu Parcelados)
     por_mes_pi = {}
-    for _p in PlannedInstallment.query.filter_by(user_id=user_id).all():
+    for _p in parcelados_projetados(user_id):
         por_mes_pi.setdefault(_p.billing_month, []).append(float(_p.amount))
 
     # Planejado do gasto "Cartão Parcelado"
-    planned_cards = 0.0
-    for _ec in Expense.query.filter(Expense.payer_id == user_id).all():
-        if "CARTAO PARCELADO" in _norm_sem_acento(_ec.description):
-            planned_cards = float(_ec.amount)
-            break
+    planned_cards = planejado_cartao_parcelado(user_id) or 0.0
 
     out = {}
     for ano, mes in meses:
