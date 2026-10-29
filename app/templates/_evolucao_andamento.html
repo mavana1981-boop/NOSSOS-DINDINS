@@ -2,9 +2,9 @@
 <div class="card" id="evolucao" style="margin-bottom:16px;">
   <strong>📊 Evolução diária do Andamento</strong>
   <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
-    % do planejado já gasto em cada gasto, foto tirada pelo agente toda noite; a coluna de hoje é calculada na hora. 🟢 dentro da faixa · 🔴 fora.
+    % do planejado já gasto em cada gasto até hoje, calculado na hora. 🟢 dentro da faixa · 🔴 fora.
     <strong>Projetado</strong> = quanto seria esperado gastar até agora (planejado × % ideal do ciclo).
-    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos. Valores de gasto e saldo são atuais; os % diários são as fotos de cada noite, e o de hoje é atualizado a cada lançamento.
+    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos; toque no título de uma coluna (Data, Descrição, Cartão, Valor) para ordenar, e de novo para inverter. Tudo é atualizado a cada lançamento.
   </div>
   {% if evolucao %}
   {% set b = balanco %}
@@ -110,21 +110,28 @@
           <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
             <thead>
               <tr style="color:var(--text-faint);">
-                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Data</th>
-                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Descrição</th>
-                <th style="text-align:left;padding:8px 6px 4px;font-weight:500;">Cartão</th>
-                <th style="text-align:right;padding:8px 6px 4px;font-weight:500;">Valor</th>
+                <th class="lanc-ord" data-campo="data" data-tipo="num" data-dir="desc" style="text-align:left;padding:8px 6px 4px;font-weight:600;color:var(--text);cursor:pointer;user-select:none;white-space:nowrap;">Data <span class="ord-seta">▼</span></th>
+                <th class="lanc-ord" data-campo="desc" data-tipo="txt" style="text-align:left;padding:8px 6px 4px;font-weight:500;cursor:pointer;user-select:none;white-space:nowrap;">Descrição <span class="ord-seta">↕</span></th>
+                <th class="lanc-ord" data-campo="cartao" data-tipo="txt" style="text-align:left;padding:8px 6px 4px;font-weight:500;cursor:pointer;user-select:none;white-space:nowrap;">Cartão <span class="ord-seta">↕</span></th>
+                <th class="lanc-ord" data-campo="valor" data-tipo="num" style="text-align:right;padding:8px 6px 4px;font-weight:500;cursor:pointer;user-select:none;white-space:nowrap;">Valor <span class="ord-seta">↕</span></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody class="lanc-corpo">
               {% for l in g.lancamentos %}
-              <tr style="border-top:1px solid var(--border);">
+              <tr class="lanc-linha" style="border-top:1px solid var(--border);"
+                  data-ordem="{{ loop.index0 }}"
+                  data-data="{{ l.data.toordinal() if l.data else 0 }}"
+                  data-desc="{{ l.desc or '' }}"
+                  data-cartao="{{ l.cartao or '' }}"
+                  data-valor="{{ l.valor }}">
                 <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.data.strftime('%d/%m') if l.data else '—' }}</td>
                 <td style="padding:6px;">{{ l.desc }}{% if l.parcela %} <span style="color:var(--text-faint);">{{ l.parcela }}</span>{% endif %}{% if l.sub %} <span style="font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-dim);white-space:nowrap;">↳ {{ l.sub }}</span>{% endif %}</td>
                 <td style="padding:6px;white-space:nowrap;color:var(--text-dim);">{{ l.cartao }}</td>
                 <td style="padding:6px;text-align:right;white-space:nowrap;font-weight:600;">{{ l.valor|brl }}</td>
               </tr>
               {% endfor %}
+            </tbody>
+            <tbody>
               {% for nome, val in g.subs %}
               <tr {% if loop.first %}style="border-top:1px solid var(--border-strong);"{% endif %}>
                 <td colspan="3" style="padding:4px 6px;color:var(--text-dim);">↳ {{ nome or 'sem subcategoria' }}</td>
@@ -209,6 +216,34 @@
     atualizarSoma();
   });
 })();
+// Ordenação dos lançamentos de cada gasto (Data, Descrição, Cartão, Valor)
+document.querySelectorAll(".lanc-ord").forEach(function (th) {
+  th.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    var tabela = th.closest("table"), corpo = tabela.querySelector(".lanc-corpo");
+    if (!corpo) return;
+    var campo = th.dataset.campo, tipo = th.dataset.tipo;
+    // 1º toque: data/valor do maior p/ menor; textos de A a Z. Toques seguintes invertem.
+    var dir = th.dataset.dir ? (th.dataset.dir === "asc" ? "desc" : "asc")
+                             : (tipo === "num" ? "desc" : "asc");
+    tabela.querySelectorAll(".lanc-ord").forEach(function (o) {
+      delete o.dataset.dir; o.style.fontWeight = "500"; o.style.color = "";
+      o.querySelector(".ord-seta").textContent = "↕";
+    });
+    th.dataset.dir = dir; th.style.fontWeight = "600"; th.style.color = "var(--text)";
+    th.querySelector(".ord-seta").textContent = dir === "asc" ? "▲" : "▼";
+    var linhas = Array.prototype.slice.call(corpo.querySelectorAll(".lanc-linha"));
+    var sinal = dir === "asc" ? 1 : -1;
+    linhas.sort(function (a, b) {
+      var va = a.dataset[campo], vb = b.dataset[campo], r;
+      if (tipo === "num") r = (parseFloat(va) || 0) - (parseFloat(vb) || 0);
+      else r = va.localeCompare(vb, "pt-BR", { sensitivity: "base", numeric: true });
+      // desempate: ordem original (data mais recente primeiro)
+      return r !== 0 ? r * sinal : (parseInt(a.dataset.ordem, 10) - parseInt(b.dataset.ordem, 10));
+    });
+    linhas.forEach(function (l) { corpo.appendChild(l); });
+  });
+});
 document.querySelectorAll(".evo-row").forEach(function (tr) {
   tr.addEventListener("click", function () {
     var alvo = document.getElementById(tr.dataset.alvo);
