@@ -1609,6 +1609,15 @@ def _process_batch(card):
 
 
 
+    finalizar_lote(card.id, batch_id, current_user.id)
+
+    flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
+    return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
+
+
+def finalizar_lote(card_id, batch_id, user_id):
+    """Pós-importação de um lote (PDF ou Open Finance): projeta parcelas
+    planejadas e aplica as regras de categorização automática."""
     # PlannedInstallments:
     # - 1ª parcela (1/N): cria projeção completa
     # - 2ª+ parcela: remove o PI projetado (agora é real) e mantém as restantes
@@ -1624,7 +1633,7 @@ def _process_batch(card):
 
     def _foi_excluido_p2(desc, bm):
         dels = _PID2.query.filter_by(
-            user_id=current_user.id, card_id=card.id, billing_month=bm).all()
+            user_id=user_id, card_id=card_id, billing_month=bm).all()
         return any(_np2(d.description) == _np2(desc) for d in dels)
 
     _batch_entries = CardEntry.query.filter_by(batch_id=batch_id).all()
@@ -1644,11 +1653,11 @@ def _process_batch(card):
             # 1ª parcela: criar PI para 1/N + projetar 2..N
             if not _foi_excluido_p2(_e.description, _e.billing_month):
                 _ex1 = PlannedInstallment.query.filter_by(
-                    user_id=current_user.id, card_id=card.id,
+                    user_id=user_id, card_id=card_id,
                     description=_e.description, installment_no=1).first()
                 if not _ex1:
                     db.session.add(PlannedInstallment(
-                        user_id=current_user.id, card_id=card.id,
+                        user_id=user_id, card_id=card_id,
                         description=_e.description, amount=_e.amount,
                         installment_no=1, installments=_e.installments,
                         billing_month=_e.billing_month,
@@ -1663,11 +1672,11 @@ def _process_batch(card):
                 if _foi_excluido_p2(_e.description, _proj_bm):
                     continue
                 _ex_fut = PlannedInstallment.query.filter_by(
-                    user_id=current_user.id, card_id=card.id,
+                    user_id=user_id, card_id=card_id,
                     description=_e.description, installment_no=_i).first()
                 if not _ex_fut:
                     db.session.add(PlannedInstallment(
-                        user_id=current_user.id, card_id=card.id,
+                        user_id=user_id, card_id=card_id,
                         description=_e.description, amount=_e.amount,
                         installment_no=_i, installments=_e.installments,
                         billing_month=_proj_bm,
@@ -1678,7 +1687,7 @@ def _process_batch(card):
             # 2ª+ parcela: remover PI projetado EXATO (desc + installment_no + installments)
             # Filtrar por installments evita apagar PIs de série diferente com mesma descrição
             _pi_proj = PlannedInstallment.query.filter_by(
-                user_id=current_user.id, card_id=card.id,
+                user_id=user_id, card_id=card_id,
                 description=_e.description,
                 installment_no=_e.installment_no,
                 installments=_e.installments,  # ← chave: evita cruzamento entre séries
@@ -1689,7 +1698,7 @@ def _process_batch(card):
     db.session.commit()
 
     # Aplicar regras de categorização automática
-    rules = MerchantRule.query.filter_by(user_id=current_user.id).all()
+    rules = MerchantRule.query.filter_by(user_id=user_id).all()
     if rules:
         pending = CardEntry.query.filter_by(batch_id=batch_id, status="em_avaliacao").all()
         for e in pending:
@@ -1702,8 +1711,6 @@ def _process_batch(card):
                         e.subcategoria_id = getattr(rule, "subcategoria_id", None)
                     break
     db.session.commit()
-    flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
-    return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
 
 
 @cards_bp.route("/<int:card_id>/lote/<batch_id>/revisao")

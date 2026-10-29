@@ -70,6 +70,18 @@ def start_scheduler(app):
         misfire_grace_time=3600,
         coalesce=True,
     )
+    # Open Finance (Pluggy) — importa compras novas dos cartões uma vez por dia
+    from app.pluggy import rodar_sincronizacao_diaria
+    scheduler.add_job(
+        func=lambda: rodar_sincronizacao_diaria(app),
+        trigger="cron",
+        hour=int(_os.environ.get("PLUGGY_SYNC_HORA", "8")),
+        minute=int(_os.environ.get("PLUGGY_SYNC_MINUTO", "17")),
+        id="pluggy_sync",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
     try:
         scheduler.start()
         print("[scheduler] iniciado")
