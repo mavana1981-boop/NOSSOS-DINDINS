@@ -253,8 +253,8 @@ def index():
 
 
 def _dados_evolucao(user_id):
-    """Evolução diária do Andamento (últimas 10 fotos do agente) + balanço
-    atual. Usado no Painel inicial e na página de Avisos."""
+    """Evolução diária do Andamento (coluna de hoje, calculada na hora) +
+    balanço atual. Usado no Painel inicial e na página de Avisos."""
     from app.agente_andamento import TOLERANCIA_PP
     # Evolução diária de cada gasto do Andamento (últimas 10 fotos)
     # + balanço ATUAL (calculado agora, com os lançamentos de hoje)
@@ -267,23 +267,10 @@ def _dados_evolucao(user_id):
     agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
                                                 somente_dono=True)
 
-    # Fotos das noites anteriores (até 9) + coluna de HOJE, sempre calculada
-    # agora com os lançamentos atuais (a foto da noite de hoje ainda não existe
-    # ou pode estar desatualizada).
-    _ult = (db.session.query(AndamentoDiario.dia)
-            .filter(AndamentoDiario.user_id == user_id,
-                    AndamentoDiario.billing_month == mes_evo,
-                    AndamentoDiario.dia < _hoje_evo)
-            .distinct().order_by(AndamentoDiario.dia.desc()).limit(9).all())
-    dias_evo = sorted(d for (d,) in _ult)
+    # Só a coluna de HOJE, sempre calculada agora com os lançamentos atuais
+    # (as fotos das noites anteriores continuam gravadas, mas não são exibidas).
+    dias_evo = []
     por_gasto, ideal_dia = {}, {}
-    if dias_evo:
-        for f in AndamentoDiario.query.filter(
-                AndamentoDiario.user_id == user_id,
-                AndamentoDiario.billing_month == mes_evo,
-                AndamentoDiario.dia.in_(dias_evo)).all():
-            por_gasto.setdefault(f.expense_id, {})[f.dia] = f
-            ideal_dia[f.dia] = f.pct_ideal
     from types import SimpleNamespace as _NS
     dias_evo.append(_hoje_evo)
     ideal_dia[_hoje_evo] = pct_ideal_agora
