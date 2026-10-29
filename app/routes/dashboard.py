@@ -279,6 +279,20 @@ def _dados_evolucao(user_id):
             pct=it["pct"], pct_ideal=pct_ideal_agora, spent=it["spent"],
             planned=it["planned"])
 
+    # Gasto por dia: dias já corridos do ciclo (contando hoje) e dias que
+    # faltam até o fechamento (contando hoje) — ciclo 16 → 16.
+    from app.agente_andamento import ciclo as _ciclo
+    _cs, _ce = _ciclo(_hoje_evo)
+    dias_corridos = max((_hoje_evo - _cs).days + 1, 1)
+    dias_restantes = max((_ce - _hoje_evo).days, 1)
+
+    def _por_dia(planned, spent):
+        saldo = planned - spent
+        return dict(
+            media_dia=round(spent / dias_corridos, 2),
+            permitido_dia=round(max(saldo, 0) / dias_restantes, 2),
+        )
+
     # Metas por parte do ciclo (configuradas por gasto)
     from app.models import MetaParte
     from app.agente_andamento import partes_do_ciclo, gasto_por_parte, redistribuir_metas
@@ -350,6 +364,7 @@ def _dados_evolucao(user_id):
             "projetado": projetado,
             "saldo": round(it["planned"] - it["spent"], 2),
             "dias": [porDia.get(d) for d in dias_evo],
+            **_por_dia(it["planned"], it["spent"]),
         })
     evolucao.sort(key=lambda x: x["pct"] or 0, reverse=True)
 
@@ -365,6 +380,10 @@ def _dados_evolucao(user_id):
         "pct": round(_tg / _tp * 100, 1) if _tp > 0 else 0,
         "pct_ideal": pct_ideal_agora,
         "mes": mes_evo,
+        **_por_dia(_tp, _tg),
+        "dias_corridos": dias_corridos,
+        "dias_restantes": dias_restantes,
+        "fim_ciclo": _ce,
     }
     return dict(dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
                 balanco=balanco, tolerancia=TOLERANCIA_PP,
