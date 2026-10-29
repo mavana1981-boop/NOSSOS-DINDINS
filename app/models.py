@@ -297,6 +297,8 @@ class CardEntry(db.Model):
     # Subcategoria opcional do gasto vinculado (ex.: Cartão Avulso › Presentes)
     subcategoria_id = db.Column(db.Integer, db.ForeignKey("subcategorias.id", ondelete="SET NULL"), nullable=True)
     subcategoria = db.relationship("Subcategoria", foreign_keys=[subcategoria_id])
+    # ID da transação na Pluggy (Open Finance) — evita importar a mesma compra duas vezes
+    pluggy_tx_id = db.Column(db.String(64), nullable=True, index=True)
 
     user = db.relationship("User", backref="user_card_entries")
     expense = db.relationship("Expense", backref="expense_card_entries")
@@ -567,3 +569,38 @@ class MetaParte(db.Model):
         except Exception:
             v = []
         return (v + [0.0] * self.n_partes)[: self.n_partes]
+
+
+# ── Open Finance (Pluggy / Meu Pluggy) ──
+class PluggyItem(db.Model):
+    """Uma conexão de banco feita pelo widget Pluggy Connect (um item por banco)."""
+    __tablename__ = "pluggy_items"
+    id             = db.Column(db.Integer, primary_key=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id        = db.Column(db.String(64), unique=True, nullable=False)
+    connector_name = db.Column(db.String(120))
+    status         = db.Column(db.String(40))
+    last_sync_at   = db.Column(db.DateTime, nullable=True)
+    last_error     = db.Column(db.Text, nullable=True)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user     = db.relationship("User", backref="pluggy_items")
+    accounts = db.relationship("PluggyAccountLink", backref="item",
+                               cascade="all, delete-orphan", order_by="PluggyAccountLink.id")
+
+
+class PluggyAccountLink(db.Model):
+    """Liga um cartão de crédito da Pluggy a um Card do app."""
+    __tablename__ = "pluggy_account_links"
+    id             = db.Column(db.Integer, primary_key=True)
+    user_id        = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    pluggy_item_id = db.Column(db.Integer, db.ForeignKey("pluggy_items.id", ondelete="CASCADE"), nullable=False)
+    account_id     = db.Column(db.String(64), unique=True, nullable=False)
+    account_name   = db.Column(db.String(160))
+    number_last4   = db.Column(db.String(4))
+    card_id        = db.Column(db.Integer, db.ForeignKey("cards.id", ondelete="SET NULL"), nullable=True)
+    # Só importa compras a partir desta data (evita duplicar o que já veio por PDF)
+    sync_from      = db.Column(db.Date, nullable=True)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+
+    card = db.relationship("Card", backref="pluggy_links")

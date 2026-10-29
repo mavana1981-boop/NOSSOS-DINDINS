@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Open Finance{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Open Finance</h1>
+    <p>Compras dos cartões chegam sozinhas, uma vez por dia, para você revisar.</p>
+  </div>
+  {% if items %}
+  <form method="POST" action="{{ url_for('openfinance.sincronizar') }}">
+    <button class="btn btn-ghost" type="submit">⟳ Sincronizar agora</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if not configurado %}
+<div class="alert alert-danger">
+  Faltam as variáveis <code>PLUGGY_CLIENT_ID</code> e <code>PLUGGY_CLIENT_SECRET</code> no Railway
+  (Project → Variables). Depois de salvar, o app reinicia sozinho.
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0;">Conectar um banco</h3>
+  <p class="text-dim text-small">
+    Antes, conecte o banco em <a href="https://meu.pluggy.ai" target="_blank" rel="noopener">meu.pluggy.ai</a>.
+    Aqui, no widget, escolha o conector <strong>MeuPluggy</strong> — assim a conexão continua gratuita.
+    Repita uma vez por banco.
+  </p>
+  <button class="btn btn-primary" id="btn-conectar" {% if not configurado %}disabled{% endif %}>+ Conectar banco</button>
+  <span id="of-status" class="text-dim text-small" style="margin-left:10px;"></span>
+</div>
+
+{% for item in items %}
+<div class="card" style="margin-top:16px;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+    <div>
+      <h3 style="margin:0;">{{ item.connector_name or "Banco" }}</h3>
+      <div class="text-dim text-small">
+        Status: {{ item.status or "—" }}
+        · Última sincronização: {{ item.last_sync_at.strftime('%d/%m/%Y %H:%M') ~ ' UTC' if item.last_sync_at else 'nunca' }}
+      </div>
+      {% if item.last_error %}
+      <div class="alert alert-danger" style="margin-top:8px;">{{ item.last_error }}</div>
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm btn-renovar" data-item="{{ item.item_id }}">Renovar consentimento</button>
+      <form method="POST" action="{{ url_for('openfinance.remover_item', item_pk=item.id) }}"
+            onsubmit="return confirm('Remover esta conexão do app?');">
+        <button class="btn btn-ghost btn-sm" type="submit">Remover</button>
+      </form>
+    </div>
+  </div>
+
+  {% if item.accounts %}
+  <div class="table-wrap" style="margin-top:12px;">
+    <table class="tbl">
+      <thead>
+        <tr><th>Cartão no banco</th><th>Cartão no app</th><th>Importar a partir de</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for link in item.accounts %}
+        <tr>
+            <td><form id="vinc-{{ link.id }}" method="POST" action="{{ url_for('openfinance.vincular', link_id=link.id) }}"></form>{{ link.account_name }}{% if link.number_last4 %} <span class="text-dim">•••• {{ link.number_last4 }}</span>{% endif %}</td>
+            <td>
+              <select name="card_id" form="vinc-{{ link.id }}" class="form-control">
+                <option value="">— não importar —</option>
+                {% for c in cards %}
+                <option value="{{ c.id }}" {% if link.card_id == c.id %}selected{% endif %}>
+                  {{ c.name }}{% if c.last_digits %} (•••• {{ c.last_digits }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input type="date" name="sync_from" form="vinc-{{ link.id }}" class="form-control"
+                       value="{{ link.sync_from.isoformat() if link.sync_from else '' }}"></td>
+            <td><button class="btn btn-primary btn-sm" type="submit" form="vinc-{{ link.id }}">Salvar</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-faint text-small" style="margin-top:8px;">
+    "Importar a partir de" evita duplicar o que já veio por PDF: compras anteriores a essa data são ignoradas.
+  </p>
+  {% else %}
+  <p class="text-dim text-small">Nenhum cartão de crédito encontrado nesta conexão.</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<script src="https://cdn.pluggy.ai/pluggy-connect/v2.7.0/pluggy-connect.js"></script>
+<script>
+(function () {
+  const status = document.getElementById("of-status");
+
+  async function abrirWidget(itemId) {
+    status.textContent = "Abrindo…";
+    const res = await fetch("{{ url_for('openfinance.connect_token') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(itemId ? { itemId } : {}),
+    });
+    const data = await res.json();
+    if (data.error) { status.textContent = ""; alert(data.error); return; }
+
+    const opts = {
+      connectToken: data.accessToken,
+      onSuccess: async ({ item }) => {
+        status.textContent = "Salvando conexão…";
+        const r = await fetch("{{ url_for('openfinance.salvar_item') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId: item.id }),
+        });
+        const out = await r.json();
+        if (out.error) { alert(out.error); status.textContent = ""; return; }
+        location.reload();
+      },
+      onError: (err) => { console.error(err); status.textContent = "Não foi possível conectar."; },
+      onClose: () => { if (status.textContent === "Abrindo…") status.textContent = ""; },
+    };
+    if (itemId) opts.updateItem = itemId;
+    new PluggyConnect(opts).init();
+  }
+
+  const btn = document.getElementById("btn-conectar");
+  if (btn) btn.addEventListener("click", () => abrirWidget(null));
+  document.querySelectorAll(".btn-renovar").forEach((b) =>
+    b.addEventListener("click", () => abrirWidget(b.dataset.item)));
+})();
+</script>
+{% endblock %}

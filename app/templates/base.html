@@ -49,6 +49,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
       <span class="nav-label">Cartões</span>
     </a>
+    <a href="{{ url_for('openfinance.index') }}" class="nav-link {% if request.endpoint and 'openfinance' in request.endpoint %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0114-5.3M20 12a8 8 0 01-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>
+      <span class="nav-label">Open Finance</span>
+    </a>
     <a href="{{ url_for('cashflow.planejados') }}" class="nav-link {% if request.endpoint == 'cashflow.planejados' %}active{% endif %}">
       📋 Parcelados
     </a>

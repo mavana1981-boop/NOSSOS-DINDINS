@@ -52,6 +52,13 @@ def bootstrap():
         _ensure_column("card_entries", "status", "VARCHAR(20) DEFAULT 'ativo'")
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
+        _ensure_column("card_entries", "pluggy_tx_id", "VARCHAR(64)")
+        try:
+            with db.engine.connect() as _cc_px:
+                _cc_px.execute(text("CREATE INDEX IF NOT EXISTS ix_card_entries_pluggy_tx_id ON card_entries (pluggy_tx_id)"))
+                _cc_px.commit()
+        except Exception as _epx:
+            print(f"[migrate] indice pluggy_tx_id: {_epx}")
         _ensure_column("card_entries", "subcategoria_id", "INTEGER REFERENCES subcategorias(id) ON DELETE SET NULL")
         _ensure_column("merchant_rules", "subcategoria_id", "INTEGER REFERENCES subcategorias(id) ON DELETE SET NULL")
         _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
