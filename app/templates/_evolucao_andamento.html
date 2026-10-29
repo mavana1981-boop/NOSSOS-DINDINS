@@ -4,7 +4,8 @@
   <div style="font-size:13px;color:var(--text-dim);margin:4px 0 10px;">
     % do planejado já gasto em cada gasto até hoje, calculado na hora. 🟢 dentro da faixa · 🔴 fora.
     <strong>Projetado</strong> = quanto seria esperado gastar até agora (planejado × % ideal do ciclo).
-    <strong>Saldo</strong> = planejado − gasto. Toque num gasto para ver os lançamentos; toque no título de uma coluna (Data, Descrição, Cartão, Valor) para ordenar, e de novo para inverter. Tudo é atualizado a cada lançamento.
+    <strong>Saldo</strong> = planejado − gasto.
+    <strong>Gasto por dia</strong> = média gasta por dia no ciclo até hoje e, abaixo, quanto ainda dá pra gastar por dia até o fechamento sem passar do planejado (saldo ÷ dias que faltam, contando hoje). Toque num gasto para ver os lançamentos; toque no título de uma coluna (Data, Descrição, Cartão, Valor) para ordenar, e de novo para inverter. Tudo é atualizado a cada lançamento.
   </div>
   {% if evolucao %}
   {% set b = balanco %}
@@ -45,10 +46,11 @@
         <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Gasto / Projetado</th>
         <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Planejado do mês</th>
         <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Saldo</th>
+        <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Gasto por dia<br><span style="font-size:11px;font-weight:400;">{{ balanco.dias_corridos }} dias corridos · faltam {{ balanco.dias_restantes }}</span></th>
       </tr>
     </thead>
     <tbody>
-      {% set _ncols = 4 + dias_evo|length %}
+      {% set _ncols = 5 + dias_evo|length %}
       {% for g in evolucao %}
       <tr class="evo-row" data-alvo="lanc-{{ g.expense_id }}" style="border-top:1px solid var(--border);cursor:pointer;"
           title="Ver lançamentos">
@@ -71,6 +73,15 @@
         </td>
         <td style="text-align:right;padding:8px;white-space:nowrap;color:var(--text-dim);">{{ g.planned|brl }}</td>
         <td style="text-align:right;padding:8px;white-space:nowrap;font-weight:600;color:{{ '#7ea66b' if g.saldo >= 0 else '#c4654a' }};">{{ g.saldo|brl }}</td>
+        <td style="text-align:right;padding:8px;white-space:nowrap;">
+          {% set _x = g %}
+          <span style="font-weight:600;color:{{ '#c4654a' if _x.media_dia > _x.permitido_dia + 0.004 else 'var(--text)' }};">{{ _x.media_dia|brl }}<span style="font-weight:400;color:var(--text-dim);">/dia</span></span><br>
+          {% if _x.permitido_dia > 0 %}
+          <span style="font-size:11.5px;color:#7ea66b;">pode {{ _x.permitido_dia|brl }}/dia</span>
+          {% else %}
+          <span style="font-size:11.5px;color:#c4654a;">sem saldo p/ gastar</span>
+          {% endif %}
+        </td>
       </tr>
       <tr id="lanc-{{ g.expense_id }}" class="evo-lanc" style="display:none;">
         <td colspan="{{ _ncols }}" style="padding:0 0 12px;background:var(--bg);">
@@ -159,6 +170,15 @@
         </td>
         <td style="text-align:right;padding:8px;white-space:nowrap;">{{ b.planejado|brl }}</td>
         <td style="text-align:right;padding:8px;white-space:nowrap;color:{{ '#7ea66b' if b.saldo >= 0 else '#c4654a' }};">{{ b.saldo|brl }}</td>
+        <td style="text-align:right;padding:8px;white-space:nowrap;">
+          {% set _x = b %}
+          <span style="font-weight:600;color:{{ '#c4654a' if _x.media_dia > _x.permitido_dia + 0.004 else 'var(--text)' }};">{{ _x.media_dia|brl }}<span style="font-weight:400;color:var(--text-dim);">/dia</span></span><br>
+          {% if _x.permitido_dia > 0 %}
+          <span style="font-size:11.5px;color:#7ea66b;">pode {{ _x.permitido_dia|brl }}/dia</span>
+          {% else %}
+          <span style="font-size:11.5px;color:#c4654a;">sem saldo p/ gastar</span>
+          {% endif %}
+        </td>
       </tr>
     </tbody>
   </table>
