@@ -304,7 +304,8 @@ def sincronizar_usuario(user_id, relatorio=None):
     if relatorio is None:
         relatorio = []
     from app import db
-    from app.models import PluggyItem, Notificacao
+    from app.models import PluggyItem
+    from app.notificar import notificar
 
     api_key = get_api_key()
     resultados = []
@@ -331,13 +332,13 @@ def sincronizar_usuario(user_id, relatorio=None):
                         f"{diag['pagamentos']} pagamento(s)/estorno(s).")})
                 if qtde:
                     resultados.append({"card": link.card, "batch_id": batch_id, "qtde": qtde})
-                    db.session.add(Notificacao(
-                        user_id=user_id,
-                        titulo=f"💳 {qtde} compra(s) nova(s) em {link.card.name}",
-                        mensagem="Chegaram pelo Open Finance. Revise e aprove os lançamentos.",
+                    notificar(
+                        user_id,
+                        f"💳 {qtde} compra(s) nova(s) em {link.card.name}",
+                        "Chegaram pelo Open Finance. Revise e aprove os lançamentos.",
                         link=f"/cartoes/{link.card_id}/lote/{batch_id}/revisao",
-                    ))
-                    db.session.commit()
+                        tag=f"openfinance-{link.card_id}",
+                    )
             item.last_sync_at = datetime.utcnow()
             item.last_error = None
         except PluggyError as e:

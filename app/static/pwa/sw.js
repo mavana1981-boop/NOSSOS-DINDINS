@@ -6,14 +6,17 @@ self.addEventListener("push", (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch (_) { d = { body: event.data && event.data.text() }; }
   const title = d.title || "Nosso Dindin";
-  event.waitUntil(self.registration.showNotification(title, {
+  const badge = (typeof d.badge === "number" && self.navigator && "setAppBadge" in self.navigator)
+    ? (d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {})
+    : Promise.resolve();
+  event.waitUntil(Promise.all([badge, self.registration.showNotification(title, {
     body: d.body || "",
     icon: "/static/pwa/icon-192.png",
     badge: "/static/pwa/badge-96.png",
     tag: d.tag || undefined,
     renotify: !!d.tag,
     data: { url: d.url || "/notificacoes" },
-  }));
+  })]));
 });
 
 self.addEventListener("notificationclick", (event) => {

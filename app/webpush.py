@@ -149,6 +149,12 @@ def enviar_para_usuario(user_id: int, dados: dict) -> int:
     from app.models import PushInscricao, User
     u = User.query.get(user_id)
     sub = f"mailto:{os.environ.get('VAPID_EMAIL') or (u.email if u else 'avisos@nossodindin.app')}"
+    if "badge" not in dados:  # número no ícone do app = avisos não lidos
+        try:
+            from app.notificar import nao_lidas
+            dados = {**dados, "badge": nao_lidas(user_id)}
+        except Exception:
+            pass
     ok = 0
     for insc in PushInscricao.query.filter_by(user_id=user_id).all():
         try:
