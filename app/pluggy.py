@@ -98,20 +98,29 @@ def list_credit_accounts(api_key, item_id):
 
 
 def list_transactions(api_key, account_id, date_from, date_to):
-    """Todas as transações da conta no período (pagina automaticamente)."""
-    page, todas = 1, []
+    """Todas as transações da conta no período.
+
+    Usa GET /v2/transactions (paginação por cursor); o GET /transactions antigo
+    foi desativado pela Pluggy (HTTP 410).
+    """
+    params = {
+        "accountId": account_id,
+        "dateFrom": date_from.isoformat()[:10],
+        "dateTo": date_to.isoformat()[:10],
+    }
+    todas, vistos = [], set()
     while True:
-        resp = _request("GET", "/transactions", api_key=api_key, params={
-            "accountId": account_id,
-            "from": date_from.isoformat(),
-            "to": date_to.isoformat(),
-            "pageSize": 500,
-            "page": page,
-        })
-        todas.extend(resp.get("results", []))
-        if page >= int(resp.get("totalPages") or 1):
+        resp = _request("GET", "/v2/transactions", api_key=api_key, params=params)
+        todas.extend(resp.get("results") or [])
+        prox = resp.get("next")
+        if not prox:
             return todas
-        page += 1
+        # "next" é uma query string pronta; pegamos só o cursor "after"
+        after = urllib.parse.parse_qs(str(prox).lstrip("?")).get("after", [None])[0]
+        if not after or after in vistos:  # proteção contra laço infinito
+            return todas
+        vistos.add(after)
+        params = {**params, "after": after}
 
 
 # ── Cadastro de conexões ─────────────────────────────────────────────────────
