@@ -165,8 +165,8 @@ def registrar_item(user_id, item_id):
 
 def _motivo_ignorar(tx):
     """None se for compra a importar; senão, o motivo de ignorar."""
-    if (tx.get("status") or "POSTED").upper() != "POSTED":
-        return "pendente"  # pendentes podem mudar de ID — só importa lançadas
+    # Compras PENDING (fatura aberta no Open Finance) também são importadas;
+    # a duplicidade quando viram POSTED é barrada pelo dedup (descrição, valor, data).
     valor = float(tx.get("amount") or 0)
     tipo = (tx.get("type") or "").upper()
     # Em conta de cartão na Pluggy: valor positivo = compra; negativo = pagamento/estorno.
@@ -229,9 +229,6 @@ def sincronizar_link(api_key, link, diag=None):
             diag["ja_importadas"] += 1
             continue
         motivo = _motivo_ignorar(tx)
-        if motivo == "pendente":
-            diag["pendentes"] += 1
-            continue
         if motivo:
             diag["pagamentos"] += 1
             continue
@@ -264,9 +261,12 @@ def sincronizar_link(api_key, link, diag=None):
             batch_id=batch_id,
             billing_month=billing_month,
             pluggy_tx_id=tx["id"],
-            notes="Importado via Open Finance",
+            notes="Importado via Open Finance" + (
+                " (compra pendente na fatura)" if (tx.get("status") or "").upper() == "PENDING" else ""),
         ))
         ids_existentes.add(tx["id"])
+        if (tx.get("status") or "").upper() == "PENDING":
+            diag["pendentes"] += 1
         qtde += 1
 
     diag["importadas"] = qtde
@@ -327,7 +327,7 @@ def sincronizar_usuario(user_id, relatorio=None):
                         f"{nome} → {link.card.name}: desde {diag['desde']:%d/%m/%Y}, "
                         f"a Pluggy devolveu {diag['recebidas']} transação(ões); "
                         f"{diag['importadas']} importada(s), {diag['ja_importadas']} já importada(s), "
-                        f"{diag['ja_lancadas']} já lançada(s) à mão/PDF, {diag['pendentes']} pendente(s), "
+                        f"{diag['ja_lancadas']} já lançada(s) à mão/PDF, das importadas {diag['pendentes']} ainda pendente(s) no banco, "
                         f"{diag['pagamentos']} pagamento(s)/estorno(s).")})
                 if qtde:
                     resultados.append({"card": link.card, "batch_id": batch_id, "qtde": qtde})
