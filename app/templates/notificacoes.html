@@ -148,20 +148,39 @@
       $("push-testar").style.display = "";
       status("✅ Este aparelho recebe os avisos e o resumo diário.");
     } else if (Notification.permission === "denied") {
-      $("push-ativar").style.display = "none";
       status("As notificações foram bloqueadas neste aparelho. Libere nas configurações do navegador/app.");
     }
   }
 
   $("push-ativar").addEventListener("click", async () => {
     try {
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") { status("Permissão não concedida."); return; }
+      let perm = Notification.permission;
+      if (perm !== "granted") {
+        perm = await new Promise((ok) => {           // Safari antigo usa callback
+          const r = Notification.requestPermission(ok);
+          if (r && r.then) r.then(ok);
+        });
+      }
+      if (perm !== "granted") {
+        const onde = isIOS
+          ? "No iPhone: Ajustes → Notificações → Dindin → Permitir Notificações. Abra o app pelo ícone da Tela de Início (não pelo Safari)."
+          : "No Android: toque no cadeado ao lado do endereço (ou ⋮ → Informações do site / Configurações do site) → Notificações → Permitir. Se o app está instalado: Configurações do Android → Apps → Dindin (ou Chrome) → Notificações → ativar.";
+        status((perm === "denied" ? "O navegador bloqueou as notificações deste site. " : "A permissão não foi concedida (o pedido foi fechado ou silenciado). ") + onde);
+        return;
+      }
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       await navigator.serviceWorker.ready;
       const { publicKey } = await (await fetch("/push/chave", { credentials: "same-origin" })).json();
       let sub = await reg.pushManager.getSubscription();
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+      // Inscrição antiga feita com outra chave do servidor não recebe nada: refaz.
+      if (sub && sub.options && sub.options.applicationServerKey) {
+        const atual = new Uint8Array(sub.options.applicationServerKey).join(",");
+        if (atual !== b64ToBytes(publicKey).join(",")) {
+          await sub.unsubscribe();
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+        }
+      }
       const r = await post("/push/inscrever", sub.toJSON());
       if (!r.ok) throw new Error(r.erro || "falha ao registrar");
       await atualizar();
@@ -171,7 +190,8 @@
 
   $("push-testar").addEventListener("click", async () => {
     const r = await post("/push/testar");
-    status(r.ok ? "Teste enviado — deve chegar em alguns segundos." : "Nenhum aparelho recebeu o teste. Tente ativar de novo.");
+    status(r.ok ? "Teste enviado — deve chegar em alguns segundos."
+                : "Nenhum aparelho recebeu o teste" + (r.erro ? " (" + r.erro + ")" : "") + ". Toque em Ativar neste aparelho de novo.");
   });
 
   $("push-desativar").addEventListener("click", async () => {

@@ -1078,11 +1078,12 @@ def push_cancelar():
 def push_testar():
     from flask import jsonify
     from app.webpush import enviar_para_usuario
+    erros = []
     n = enviar_para_usuario(current_user.id, {
         "title": "🔔 Nosso Dindin",
         "body": "Notificações ativadas! Você vai receber o resumo do Andamento todo dia à noite.",
-        "url": "/notificacoes", "tag": "teste"})
-    return jsonify({"ok": n > 0, "enviados": n})
+        "url": "/notificacoes", "tag": "teste"}, erros)
+    return jsonify({"ok": n > 0, "enviados": n, "erro": "; ".join(erros) or None})
 
 
 # ─────────────────────────────────────────────────────────────

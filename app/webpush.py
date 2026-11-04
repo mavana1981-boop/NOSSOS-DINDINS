@@ -143,7 +143,7 @@ def enviar(inscricao: dict, dados: dict, sub: str = "mailto:avisos@nossodindin.a
         raise RuntimeError(f"push {e.code}: {e.read()[:200]!r}")
 
 
-def enviar_para_usuario(user_id: int, dados: dict) -> int:
+def enviar_para_usuario(user_id: int, dados: dict, erros: list = None) -> int:
     """Envia para todos os aparelhos do usuário. Retorna quantos receberam."""
     from app import db
     from app.models import PushInscricao, User
@@ -166,4 +166,6 @@ def enviar_para_usuario(user_id: int, dados: dict) -> int:
             db.session.commit()
         except Exception as e:
             print(f"[push] falha usuário {user_id}: {e}")
+            if erros is not None:
+                erros.append(str(e)[:200])
     return ok
