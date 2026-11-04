@@ -163,14 +163,21 @@ def registrar_item(user_id, item_id):
 
 # ── Sincronização ────────────────────────────────────────────────────────────
 
-def _eh_compra(tx):
-    """Compras no cartão vêm como DEBIT; pagamentos de fatura/estornos como CREDIT."""
+def _motivo_ignorar(tx):
+    """None se for compra a importar; senão, o motivo de ignorar."""
     if (tx.get("status") or "POSTED").upper() != "POSTED":
-        return False  # pendentes podem mudar de ID — só importa lançadas
+        return "pendente"  # pendentes podem mudar de ID — só importa lançadas
+    valor = float(tx.get("amount") or 0)
     tipo = (tx.get("type") or "").upper()
-    if tipo:
-        return tipo == "DEBIT"
-    return float(tx.get("amount") or 0) > 0
+    # Em conta de cartão na Pluggy: valor positivo = compra; negativo = pagamento/estorno.
+    if valor > 0 or (valor < 0 and tipo == "DEBIT" and "PAGAMENTO" not in
+                     (tx.get("description") or "").upper()):
+        return None
+    return "pagamento/estorno"
+
+
+def _eh_compra(tx):
+    return _motivo_ignorar(tx) is None
 
 
 def _data(s):
@@ -179,8 +186,13 @@ def _data(s):
     return datetime.fromisoformat(str(s).replace("Z", "+00:00")).date()
 
 
-def sincronizar_link(api_key, link):
-    """Importa compras novas de um cartão vinculado. Retorna (batch_id, qtde)."""
+def sincronizar_link(api_key, link, diag=None):
+    """Importa compras novas de um cartão vinculado. Retorna (batch_id, qtde).
+
+    Se `diag` (dict) for passado, é preenchido com as contagens do que veio da Pluggy.
+    """
+    if diag is None:
+        diag = {}
     from app import db
     from app.models import CardEntry
     from app.routes.cards import finalizar_lote
@@ -193,6 +205,8 @@ def sincronizar_link(api_key, link):
     ate = date.today()
     desde = link.sync_from or (ate - timedelta(days=30))
     txs = list_transactions(api_key, link.account_id, desde, ate)
+    diag.update(desde=desde, recebidas=len(txs), importadas=0, ja_importadas=0,
+                pendentes=0, pagamentos=0, ja_lancadas=0)
 
     ids_existentes = {
         r[0] for r in db.session.query(CardEntry.pluggy_tx_id)
@@ -211,7 +225,15 @@ def sincronizar_link(api_key, link):
     batch_id = "of" + uuid.uuid4().hex[:6]
     qtde = 0
     for tx in txs:
-        if tx["id"] in ids_existentes or not _eh_compra(tx):
+        if tx["id"] in ids_existentes:
+            diag["ja_importadas"] += 1
+            continue
+        motivo = _motivo_ignorar(tx)
+        if motivo == "pendente":
+            diag["pendentes"] += 1
+            continue
+        if motivo:
+            diag["pagamentos"] += 1
             continue
         meta = tx.get("creditCardMetadata") or {}
         entry_date = _data(tx.get("date")) or ate
@@ -220,6 +242,7 @@ def sincronizar_link(api_key, link):
             continue
         desc = (tx.get("description") or tx.get("descriptionRaw") or "Sem descrição").strip()[:160]
         if (desc[:40].upper(), str(round(float(valor), 2)), entry_date) in existentes_suaves:
+            diag["ja_lancadas"] += 1
             continue
 
         total_parc = int(meta.get("totalInstallments") or 1)
@@ -246,6 +269,7 @@ def sincronizar_link(api_key, link):
         ids_existentes.add(tx["id"])
         qtde += 1
 
+    diag["importadas"] = qtde
     if qtde:
         db.session.flush()
         finalizar_lote(card.id, batch_id, link.user_id)  # parcelas planejadas + regras
@@ -253,8 +277,32 @@ def sincronizar_link(api_key, link):
     return (batch_id if qtde else None), qtde
 
 
-def sincronizar_usuario(user_id):
-    """Sincroniza todos os cartões vinculados do usuário. Retorna lista de resultados."""
+def _atualizar_cartoes(api_key, item):
+    """Cria vínculos para cartões que apareceram no item depois do cadastro."""
+    from app import db
+    from app.models import PluggyAccountLink
+    for acc in list_credit_accounts(api_key, item.item_id):
+        if PluggyAccountLink.query.filter_by(account_id=acc["id"]).first():
+            continue
+        numero = str(acc.get("number") or "")
+        db.session.add(PluggyAccountLink(
+            user_id=item.user_id,
+            pluggy_item_id=item.id,
+            account_id=acc["id"],
+            account_name=(acc.get("marketingName") or acc.get("name") or "Cartão")[:160],
+            number_last4=numero[-4:] if numero else None,
+            sync_from=date.today() - timedelta(days=30),
+        ))
+    db.session.flush()
+
+
+def sincronizar_usuario(user_id, relatorio=None):
+    """Sincroniza todos os cartões vinculados do usuário. Retorna lista de resultados.
+
+    Se `relatorio` (lista) for passado, recebe uma linha por cartão/erro para mostrar na tela.
+    """
+    if relatorio is None:
+        relatorio = []
     from app import db
     from app.models import PluggyItem, Notificacao
 
@@ -264,10 +312,23 @@ def sincronizar_usuario(user_id):
         try:
             info = get_item(api_key, item.item_id)
             item.status = info.get("status")
+            _atualizar_cartoes(api_key, item)
+            db.session.refresh(item)
             for link in item.accounts:
+                nome = f"{link.account_name}" + (f" ••{link.number_last4}" if link.number_last4 else "")
                 if not link.card_id:
+                    relatorio.append({"tipo": "aviso", "texto":
+                        f"{nome}: não está vinculado a nenhum cartão do app — vincule na tela de Open Finance."})
                     continue
-                batch_id, qtde = sincronizar_link(api_key, link)
+                diag = {}
+                batch_id, qtde = sincronizar_link(api_key, link, diag)
+                if diag:
+                    relatorio.append({"tipo": "info", "texto": (
+                        f"{nome} → {link.card.name}: desde {diag['desde']:%d/%m/%Y}, "
+                        f"a Pluggy devolveu {diag['recebidas']} transação(ões); "
+                        f"{diag['importadas']} importada(s), {diag['ja_importadas']} já importada(s), "
+                        f"{diag['ja_lancadas']} já lançada(s) à mão/PDF, {diag['pendentes']} pendente(s), "
+                        f"{diag['pagamentos']} pagamento(s)/estorno(s).")})
                 if qtde:
                     resultados.append({"card": link.card, "batch_id": batch_id, "qtde": qtde})
                     db.session.add(Notificacao(
@@ -282,6 +343,7 @@ def sincronizar_usuario(user_id):
         except PluggyError as e:
             db.session.rollback()
             item.last_error = str(e)[:500]
+            relatorio.append({"tipo": "erro", "texto": f"{item.connector_name or 'Conexão'}: {e}"})
             print(f"[pluggy] item {item.item_id}: {e}")
         db.session.commit()
     return resultados

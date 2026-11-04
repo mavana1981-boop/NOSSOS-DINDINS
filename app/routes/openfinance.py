@@ -67,11 +67,15 @@ def vincular(link_id):
 @openfinance_bp.route("/sincronizar", methods=["POST"])
 @login_required
 def sincronizar():
+    relatorio = []
     try:
-        resultados = pluggy.sincronizar_usuario(current_user.id)
+        resultados = pluggy.sincronizar_usuario(current_user.id, relatorio)
     except pluggy.PluggyError as e:
         flash(f"Falha ao sincronizar: {e}", "danger")
         return redirect(url_for("openfinance.index"))
+    cores = {"erro": "danger", "aviso": "warning", "info": "info"}
+    for linha in relatorio:
+        flash(linha["texto"], cores.get(linha["tipo"], "info"))
     if not resultados:
         flash("Nenhuma compra nova desde a última sincronização.", "info")
         return redirect(url_for("openfinance.index"))
