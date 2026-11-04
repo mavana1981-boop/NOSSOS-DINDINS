@@ -29,7 +29,7 @@ def connect_token():
         )
     except pluggy.PluggyError as e:
         return jsonify({"error": str(e)}), 502
-    return jsonify({"accessToken": token})
+    return jsonify({"accessToken": token, "connectorIds": pluggy.connector_ids()})
 
 
 @openfinance_bp.route("/item", methods=["POST"])

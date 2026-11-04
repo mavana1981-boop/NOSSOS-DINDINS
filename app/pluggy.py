@@ -66,6 +66,16 @@ def get_api_key():
     return resp["apiKey"]
 
 
+# Conector MeuPluggy: o único que acessa bancos reais sem o plano comercial.
+# Pode ser trocado pela variável PLUGGY_CONNECTOR_IDS no Railway (ex.: "200").
+MEUPLUGGY_CONNECTOR_ID = 200
+
+
+def connector_ids():
+    bruto = os.environ.get("PLUGGY_CONNECTOR_IDS", str(MEUPLUGGY_CONNECTOR_ID))
+    return [int(x) for x in bruto.replace(" ", "").split(",") if x.isdigit()]
+
+
 def create_connect_token(client_user_id=None, item_id=None):
     api_key = get_api_key()
     options = {}

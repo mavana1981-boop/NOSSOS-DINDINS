@@ -108,6 +108,10 @@
 
     const opts = {
       connectToken: data.accessToken,
+      // Só o conector MeuPluggy: escolher o banco direto (ex.: Banco do Brasil)
+      // dá "Contas de teste só podem conectar conectores sandbox".
+      connectorIds: data.connectorIds && data.connectorIds.length ? data.connectorIds : [200],
+      includeSandbox: false,
       onSuccess: async ({ item }) => {
         status.textContent = "Salvando conexão…";
         const r = await fetch("{{ url_for('openfinance.salvar_item') }}", {
