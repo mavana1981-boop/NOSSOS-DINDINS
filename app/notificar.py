@@ -11,19 +11,32 @@ def nao_lidas(user_id: int) -> int:
 
 
 def notificar(user_id: int, titulo: str, mensagem: str = "", link: str = None,
-              tag: str = None, email: bool = True) -> None:
+              tag: str = None, email: bool = True, urgencia: str = "high") -> None:
     from app import db
     from app.models import Notificacao, User
 
-    db.session.add(Notificacao(user_id=user_id, titulo=titulo, mensagem=mensagem, link=link))
+    aviso = Notificacao(user_id=user_id, titulo=titulo, mensagem=mensagem, link=link)
+    db.session.add(aviso)
     db.session.commit()
 
+    erros = []
     try:
         from app.webpush import enviar_para_usuario
-        enviar_para_usuario(user_id, {"title": titulo, "body": mensagem or "",
-                                      "url": link or "/notificacoes", "tag": tag})
+        n = enviar_para_usuario(user_id, {"title": titulo, "body": mensagem or "",
+                                          "url": link or "/notificacoes", "tag": tag},
+                                erros, urgencia=urgencia)
+        status = f"📱 enviado a {n} aparelho(s)" if n else "📱 não chegou ao celular"
+        if erros:
+            status += " — " + "; ".join(dict.fromkeys(erros))
     except Exception as e:
+        db.session.rollback()
         print(f"[notificar] push falhou para usuário {user_id}: {e}")
+        status = f"📱 push falhou: {e}"
+    try:
+        aviso.push_status = status[:300]
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
     if email:
         try:

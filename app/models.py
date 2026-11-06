@@ -482,6 +482,7 @@ class Notificacao(db.Model):
     link       = db.Column(db.String(300))
     lida       = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    push_status = db.Column(db.String(300))   # resultado do envio ao celular
 
 
 class AgenteExecucao(db.Model):
@@ -511,6 +512,9 @@ class PushInscricao(db.Model):
     auth       = db.Column(db.String(100), nullable=False)
     aparelho   = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ultimo_ok_em = db.Column(db.DateTime)
+    ultimo_erro  = db.Column(db.String(300))
+    ultimo_erro_em = db.Column(db.DateTime)
 
 
 class AndamentoDiario(db.Model):

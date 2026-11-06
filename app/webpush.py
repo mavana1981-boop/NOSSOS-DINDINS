@@ -143,8 +143,14 @@ def enviar(inscricao: dict, dados: dict, sub: str = "mailto:avisos@nossodindin.a
         raise RuntimeError(f"push {e.code}: {e.read()[:200]!r}")
 
 
-def enviar_para_usuario(user_id: int, dados: dict, erros: list = None) -> int:
-    """Envia para todos os aparelhos do usuário. Retorna quantos receberam."""
+def enviar_para_usuario(user_id: int, dados: dict, erros: list = None,
+                        urgencia: str = "normal") -> int:
+    """Envia para todos os aparelhos do usuário. Retorna quantos receberam.
+
+    Se `erros` (lista) for passado, recebe uma linha por aparelho que falhou
+    ou foi removido — e "sem aparelhos" quando não há nenhum inscrito.
+    """
+    from datetime import datetime
     from app import db
     from app.models import PushInscricao, User
     u = User.query.get(user_id)
@@ -155,17 +161,34 @@ def enviar_para_usuario(user_id: int, dados: dict, erros: list = None) -> int:
             dados = {**dados, "badge": nao_lidas(user_id)}
         except Exception:
             pass
+    inscricoes = PushInscricao.query.filter_by(user_id=user_id).all()
+    if not inscricoes and erros is not None:
+        erros.append("nenhum aparelho inscrito")
     ok = 0
-    for insc in PushInscricao.query.filter_by(user_id=user_id).all():
+    for insc in inscricoes:
         try:
             enviar({"endpoint": insc.endpoint,
-                    "keys": {"p256dh": insc.p256dh, "auth": insc.auth}}, dados, sub=sub)
+                    "keys": {"p256dh": insc.p256dh, "auth": insc.auth}},
+                   dados, sub=sub, urgencia=urgencia)
+            insc.ultimo_ok_em = datetime.utcnow()
+            insc.ultimo_erro = None
+            db.session.commit()
             ok += 1
         except InscricaoExpirada:
+            print(f"[push] usuário {user_id}: inscrição expirada removida ({insc.aparelho})")
+            if erros is not None:
+                erros.append("inscrição de um aparelho expirou e foi removida — abra o app no celular para reativar")
             db.session.delete(insc)
             db.session.commit()
         except Exception as e:
             print(f"[push] falha usuário {user_id}: {e}")
+            msg = str(e)[:200]
+            try:
+                insc.ultimo_erro = msg
+                insc.ultimo_erro_em = datetime.utcnow()
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
             if erros is not None:
-                erros.append(str(e)[:200])
+                erros.append(msg)
     return ok

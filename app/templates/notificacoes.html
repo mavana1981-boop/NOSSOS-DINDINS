@@ -43,6 +43,19 @@
     <em>Adicionar à Tela de Início</em>. Depois abra o <strong>Dindin</strong> pelo ícone novo,
     entre nesta página e toque em <em>Ativar neste aparelho</em>. (Requer iOS 16.4 ou mais recente.)
   </div>
+  {% if lista_aparelhos %}
+  <div style="font-size:12px;margin-top:10px;color:var(--text-dim);line-height:1.6;">
+    {% for a in lista_aparelhos %}
+    {% set ua = a.aparelho or '' %}
+    <div>
+      {{ '📱 iPhone' if 'iPhone' in ua else ('📱 Android' if 'Android' in ua else '💻 Computador') }}
+      · ativado {{ a.created_at|hora_brt }}
+      {% if a.ultimo_ok_em %} · último envio OK {{ a.ultimo_ok_em|hora_brt }}{% endif %}
+      {% if a.ultimo_erro %} · <span style="color:#c4654a;">⚠️ {{ a.ultimo_erro }} ({{ a.ultimo_erro_em|hora_brt }})</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 <!-- ── Último lançamento por cartão ── -->
@@ -105,6 +118,7 @@
         <span style="font-size:12px;white-space:nowrap;opacity:.7;">{{ n.created_at|hora_brt }}</span>
       </div>
       {% if n.mensagem %}<div style="font-size:13px;margin-top:4px;opacity:.85;">{{ n.mensagem }}</div>{% endif %}
+      {% if n.push_status %}<div style="font-size:12px;margin-top:4px;{% if 'não chegou' in n.push_status or 'falhou' in n.push_status %}color:#c4654a;{% else %}opacity:.6;{% endif %}">{{ n.push_status }}</div>{% endif %}
     </a>
     {% endfor %}
   {% else %}

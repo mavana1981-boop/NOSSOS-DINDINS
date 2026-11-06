@@ -23,6 +23,28 @@
       var n = {{ notificacoes_nao_lidas|default(0)|int }};
       (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(function () {});
     }
+    // Mantém a inscrição push deste aparelho viva no servidor: se o servidor a
+    // perdeu (expirou, trocou de chave), refaz sozinho sempre que o app abre.
+    if ("serviceWorker" in navigator && "PushManager" in window && "Notification" in window
+        && Notification.permission === "granted") {
+      window.addEventListener("load", async function () {
+        try {
+          var reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+          await navigator.serviceWorker.ready;
+          var chave = (await (await fetch("/push/chave", { credentials: "same-origin" })).json()).publicKey;
+          var s = chave.replace(/-/g, "+").replace(/_/g, "/"); s += "=".repeat((4 - s.length % 4) % 4);
+          var bytes = Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); });
+          var sub = await reg.pushManager.getSubscription();
+          if (sub && sub.options && sub.options.applicationServerKey &&
+              new Uint8Array(sub.options.applicationServerKey).join(",") !== bytes.join(",")) {
+            await sub.unsubscribe(); sub = null;
+          }
+          if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+          await fetch("/push/inscrever", { method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub.toJSON()) });
+        } catch (e) { console.log("[push] reinscrição falhou", e); }
+      });
+    }
     {% endif %}
   </script>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23d97757'/%3E%3C/svg%3E">

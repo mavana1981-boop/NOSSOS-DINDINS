@@ -948,9 +948,12 @@ def notificacoes():
     from app.models import PushInscricao
     from app.agente_andamento import cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS
     cartoes = cartoes_ultimo_lancamento(current_user.id, _hoje_evo)
-    aparelhos = PushInscricao.query.filter_by(user_id=current_user.id).count()
+    lista_aparelhos = (PushInscricao.query.filter_by(user_id=current_user.id)
+                       .order_by(PushInscricao.created_at.desc()).all())
+    aparelhos = len(lista_aparelhos)
 
     return render_template("notificacoes.html", itens=itens,
+                           lista_aparelhos=lista_aparelhos,
                            **_evo,
                            cartoes=cartoes, cartao_alerta_dias=CARTAO_ALERTA_DIAS,
                            aparelhos=aparelhos,
