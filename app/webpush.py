@@ -143,8 +143,17 @@ def enviar(inscricao: dict, dados: dict, sub: str = "mailto:avisos@nossodindin.a
         raise RuntimeError(f"push {e.code}: {e.read()[:200]!r}")
 
 
+def rotulo_aparelho(ua: str) -> str:
+    ua = ua or ""
+    if "iPhone" in ua or "iPad" in ua:
+        return "iPhone"
+    if "Android" in ua:
+        return "Android"
+    return "Computador"
+
+
 def enviar_para_usuario(user_id: int, dados: dict, erros: list = None,
-                        urgencia: str = "normal") -> int:
+                        urgencia: str = "normal", entregues: list = None) -> int:
     """Envia para todos os aparelhos do usuário. Retorna quantos receberam.
 
     Se `erros` (lista) for passado, recebe uma linha por aparelho que falhou
@@ -161,7 +170,8 @@ def enviar_para_usuario(user_id: int, dados: dict, erros: list = None,
             dados = {**dados, "badge": nao_lidas(user_id)}
         except Exception:
             pass
-    inscricoes = PushInscricao.query.filter_by(user_id=user_id).all()
+    inscricoes = (PushInscricao.query.filter_by(user_id=user_id)
+                  .filter(PushInscricao.expirado_em.is_(None)).all())
     if not inscricoes and erros is not None:
         erros.append("nenhum aparelho inscrito")
     ok = 0
@@ -174,11 +184,17 @@ def enviar_para_usuario(user_id: int, dados: dict, erros: list = None,
             insc.ultimo_erro = None
             db.session.commit()
             ok += 1
+            if entregues is not None:
+                entregues.append(rotulo_aparelho(insc.aparelho))
         except InscricaoExpirada:
-            print(f"[push] usuário {user_id}: inscrição expirada removida ({insc.aparelho})")
+            # Não apaga: marca como expirada para aparecer no Avisos com a data.
+            nome = rotulo_aparelho(insc.aparelho)
+            print(f"[push] usuário {user_id}: inscrição expirada ({insc.aparelho})")
             if erros is not None:
-                erros.append("inscrição de um aparelho expirou e foi removida — abra o app no celular para reativar")
-            db.session.delete(insc)
+                erros.append(f"{nome} saiu da lista (o navegador cancelou a inscrição) — abra o app nele para reativar")
+            insc.expirado_em = datetime.utcnow()
+            insc.ultimo_erro = "o navegador cancelou a inscrição — abra o app neste aparelho para reativar"
+            insc.ultimo_erro_em = insc.expirado_em
             db.session.commit()
         except Exception as e:
             print(f"[push] falha usuário {user_id}: {e}")
@@ -190,5 +206,5 @@ def enviar_para_usuario(user_id: int, dados: dict, erros: list = None,
             except Exception:
                 db.session.rollback()
             if erros is not None:
-                erros.append(msg)
+                erros.append(f"{rotulo_aparelho(insc.aparelho)}: {msg}")
     return ok

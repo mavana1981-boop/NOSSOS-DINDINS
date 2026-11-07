@@ -1060,7 +1060,18 @@ def push_inscrever():
     insc.p256dh = keys["p256dh"]
     insc.auth = keys["auth"]
     insc.aparelho = (request.headers.get("User-Agent") or "")[:200]
+    insc.expirado_em = None
+    insc.ultimo_erro = None
     db.session.add(insc)
+    db.session.flush()
+    # Inscrições expiradas deste mesmo aparelho já foram substituídas por esta.
+    from app.webpush import rotulo_aparelho
+    tipo = rotulo_aparelho(insc.aparelho)
+    for velha in PushInscricao.query.filter(PushInscricao.user_id == uid,
+                                            PushInscricao.expirado_em.isnot(None),
+                                            PushInscricao.id != insc.id).all():
+        if rotulo_aparelho(velha.aparelho) == tipo:
+            db.session.delete(velha)
     db.session.commit()
     return jsonify({"ok": True})
 

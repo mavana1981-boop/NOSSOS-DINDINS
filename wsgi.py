@@ -57,6 +57,7 @@ def bootstrap():
         _ensure_column("push_inscricoes", "ultimo_ok_em", "TIMESTAMP")
         _ensure_column("push_inscricoes", "ultimo_erro", "VARCHAR(300)")
         _ensure_column("push_inscricoes", "ultimo_erro_em", "TIMESTAMP")
+        _ensure_column("push_inscricoes", "expirado_em", "TIMESTAMP")
         try:
             with db.engine.connect() as _cc_px:
                 _cc_px.execute(text("CREATE INDEX IF NOT EXISTS ix_card_entries_pluggy_tx_id ON card_entries (pluggy_tx_id)"))

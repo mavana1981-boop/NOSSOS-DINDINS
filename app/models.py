@@ -515,6 +515,7 @@ class PushInscricao(db.Model):
     ultimo_ok_em = db.Column(db.DateTime)
     ultimo_erro  = db.Column(db.String(300))
     ultimo_erro_em = db.Column(db.DateTime)
+    expirado_em  = db.Column(db.DateTime)   # navegador cancelou (404/410): não recebe mais
 
 
 class AndamentoDiario(db.Model):

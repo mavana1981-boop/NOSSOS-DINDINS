@@ -19,13 +19,18 @@ def notificar(user_id: int, titulo: str, mensagem: str = "", link: str = None,
     db.session.add(aviso)
     db.session.commit()
 
-    erros = []
+    erros, entregues = [], []
     try:
         from app.webpush import enviar_para_usuario
         n = enviar_para_usuario(user_id, {"title": titulo, "body": mensagem or "",
                                           "url": link or "/notificacoes", "tag": tag},
-                                erros, urgencia=urgencia)
-        status = f"📱 enviado a {n} aparelho(s)" if n else "📱 não chegou ao celular"
+                                erros, urgencia=urgencia, entregues=entregues)
+        if n:
+            status = "📱 enviado para: " + ", ".join(entregues)
+        else:
+            status = "📱 não chegou a nenhum aparelho"
+        if n and not any(a in ("Android", "iPhone") for a in entregues):
+            erros.insert(0, "não chegou ao celular: nenhum celular inscrito — abra o app no celular para reativar")
         if erros:
             status += " — " + "; ".join(dict.fromkeys(erros))
     except Exception as e:
@@ -45,6 +50,8 @@ def notificar(user_id: int, titulo: str, mensagem: str = "", link: str = None,
             destino = os.environ.get("ALERTA_EMAIL_TO") or (u.email if u else None)
             base = os.environ.get("APP_URL", "").rstrip("/")
             corpo = (mensagem or "") + (f"\n\nAbrir: {base}{link}" if base and link else "")
+            if "não chegou" in status or "saiu da lista" in status:
+                corpo += "\n\n" + status
             enviar_email(destino, titulo, corpo + "\n\n— Nosso Dindin")
         except Exception as e:
             print(f"[notificar] e-mail falhou para usuário {user_id}: {e}")
