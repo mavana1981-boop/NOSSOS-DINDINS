@@ -468,20 +468,28 @@ def rodar_para_usuario(user, hoje: date) -> list:
         from app.webpush import enviar_para_usuario
         # Um push só por noite: vários avisos ignorados levam o Chrome a
         # tirar a permissão de notificação do site.
-        blocos = [(a["titulo"], a["texto"], f"/relatorio?mes={mes}#andamento") for a in avisos]
+        # O corpo traz o andamento de TODOS os gastos (uma linha cada).
+        partes = []
         if resumo:
-            blocos.append((resumo["titulo"], resumo["texto"], "/notificacoes#evolucao"))
+            partes.append(resumo["texto"])               # 🟢/🔴 Gasto: % · R$ (variação)
+            if avisos:
+                partes.append("Mudou de faixa: " + ", ".join(
+                    a["titulo"].replace(" saiu da faixa", " ↑").replace(" voltou para a faixa", " ↓")
+                     .replace(" começou o mês fora da faixa", " ↑") for a in avisos))
+        else:
+            partes += [a["titulo"] for a in avisos]
         if cartoes:
-            blocos.append((cartoes["titulo"], cartoes["texto"], "/notificacoes#cartoes"))
-        if blocos:
-            if len(blocos) == 1:
-                titulo, corpo, url = blocos[0]
+            partes.append(cartoes["titulo"])
+        if partes:
+            if resumo:
+                titulo = resumo["titulo"]                # 📊 Andamento dd/mm · ideal X% · N fora
+                if avisos:
+                    titulo += f" · {len(avisos)} mudou de faixa" if len(avisos) == 1 else f" · {len(avisos)} mudaram de faixa"
+                url = "/notificacoes#evolucao"
             else:
-                titulo = (f"📊 {len(avisos)} gasto(s) mudaram de faixa" if avisos
-                          else "📊 Resumo do dia — Nosso Dindin")
-                corpo = "\n".join(t for t, _, _ in blocos)
-                url = blocos[0][2]
-            enviar_para_usuario(user.id, {"title": titulo, "body": corpo[:400],
+                titulo = avisos[0]["titulo"] if avisos else cartoes["titulo"]
+                url = f"/relatorio?mes={mes}#andamento" if avisos else "/notificacoes#cartoes"
+            enviar_para_usuario(user.id, {"title": titulo, "body": "\n".join(partes)[:1800],
                                           "url": url, "tag": "resumo-noite"})
     except Exception as e:
         print(f"[agente-andamento] push falhou para usuário {user.id}: {e}")
