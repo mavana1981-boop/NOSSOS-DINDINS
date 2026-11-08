@@ -192,13 +192,84 @@ def _brl(v: float) -> str:
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def email_configurado() -> bool:
+def _smtp_configurado() -> bool:
     return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER")
                 and os.environ.get("SMTP_PASSWORD"))
 
 
+def email_configurado() -> bool:
+    return bool(os.environ.get("RESEND_API_KEY") or os.environ.get("BREVO_API_KEY")
+                or _smtp_configurado())
+
+
+def _registrar_email(status: str) -> None:
+    """Guarda o resultado do último envio para mostrar na página de Avisos."""
+    try:
+        from datetime import datetime
+        from app import db
+        from app.models import AppConfig
+        row = AppConfig.query.get("email_ultimo_status") or AppConfig(key="email_ultimo_status", value="")
+        row.value = f"{datetime.utcnow().isoformat()}|{status[:280]}"
+        db.session.add(row)
+        db.session.commit()
+    except Exception:
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+def ultimo_status_email():
+    """(datetime_utc, texto) do último envio de e-mail, ou None."""
+    try:
+        from datetime import datetime
+        from app.models import AppConfig
+        row = AppConfig.query.get("email_ultimo_status")
+        if not row or "|" not in row.value:
+            return None
+        quando, texto = row.value.split("|", 1)
+        return datetime.fromisoformat(quando), texto
+    except Exception:
+        return None
+
+
+def _post_json(url: str, headers: dict, dados: dict) -> None:
+    import json
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, data=json.dumps(dados).encode("utf-8"), method="POST",
+                                 headers={"Content-Type": "application/json",
+                                          "Accept": "application/json", **headers})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:200].decode('utf-8', 'replace')}")
+
+
 def enviar_email(destino: str, assunto: str, corpo: str) -> bool:
     if not email_configurado() or not destino:
+        return False
+    try:
+        if os.environ.get("RESEND_API_KEY"):
+            remetente = os.environ.get("EMAIL_FROM") or "Nosso Dindin <onboarding@resend.dev>"
+            _post_json("https://api.resend.com/emails",
+                       {"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"},
+                       {"from": remetente, "to": [destino], "subject": assunto, "text": corpo})
+            _registrar_email(f"✅ enviado para {destino} (Resend)")
+            return True
+        if os.environ.get("BREVO_API_KEY"):
+            remetente = os.environ.get("EMAIL_FROM") or os.environ.get("SMTP_FROM") or destino
+            _post_json("https://api.brevo.com/v3/smtp/email",
+                       {"api-key": os.environ["BREVO_API_KEY"]},
+                       {"sender": {"name": "Nosso Dindin", "email": remetente},
+                        "to": [{"email": destino}], "subject": assunto, "textContent": corpo})
+            _registrar_email(f"✅ enviado para {destino} (Brevo)")
+            return True
+    except Exception as e:
+        print(f"[email] falha ao enviar para {destino}: {e}")
+        _registrar_email(f"❌ falhou: {e}")
         return False
     host = os.environ["SMTP_HOST"]
     port = int(os.environ.get("SMTP_PORT", "587"))
@@ -219,9 +290,11 @@ def enviar_email(destino: str, assunto: str, corpo: str) -> bool:
                 s.starttls()
                 s.login(user, pwd)
                 s.send_message(msg)
+        _registrar_email(f"✅ enviado para {destino} (SMTP)")
         return True
     except Exception as e:
         print(f"[agente-andamento] falha ao enviar e-mail para {destino}: {e}")
+        _registrar_email(f"❌ SMTP falhou: {e} — o Railway (plano Hobby) bloqueia SMTP; use RESEND_API_KEY")
         return False
 
 
@@ -393,16 +466,23 @@ def rodar_para_usuario(user, hoje: date) -> list:
     # ── Notificações no celular (push) ──
     try:
         from app.webpush import enviar_para_usuario
-        link = f"/relatorio?mes={mes}#andamento"
-        for a in avisos:
-            enviar_para_usuario(user.id, {"title": a["titulo"], "body": a["texto"],
-                                          "url": link, "tag": "andamento-" + a["titulo"]})
+        # Um push só por noite: vários avisos ignorados levam o Chrome a
+        # tirar a permissão de notificação do site.
+        blocos = [(a["titulo"], a["texto"], f"/relatorio?mes={mes}#andamento") for a in avisos]
         if resumo:
-            enviar_para_usuario(user.id, {"title": resumo["titulo"], "body": resumo["texto"],
-                                          "url": "/notificacoes#evolucao", "tag": "andamento-resumo"})
+            blocos.append((resumo["titulo"], resumo["texto"], "/notificacoes#evolucao"))
         if cartoes:
-            enviar_para_usuario(user.id, {"title": cartoes["titulo"], "body": cartoes["texto"],
-                                          "url": "/notificacoes#cartoes", "tag": "cartoes-resumo"})
+            blocos.append((cartoes["titulo"], cartoes["texto"], "/notificacoes#cartoes"))
+        if blocos:
+            if len(blocos) == 1:
+                titulo, corpo, url = blocos[0]
+            else:
+                titulo = (f"📊 {len(avisos)} gasto(s) mudaram de faixa" if avisos
+                          else "📊 Resumo do dia — Nosso Dindin")
+                corpo = "\n".join(t for t, _, _ in blocos)
+                url = blocos[0][2]
+            enviar_para_usuario(user.id, {"title": titulo, "body": corpo[:400],
+                                          "url": url, "tag": "resumo-noite"})
     except Exception as e:
         print(f"[agente-andamento] push falhou para usuário {user.id}: {e}")
 

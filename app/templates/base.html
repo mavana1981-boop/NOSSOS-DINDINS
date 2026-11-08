@@ -41,7 +41,7 @@
           }
           if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
           await fetch("/push/inscrever", { method: "POST", credentials: "same-origin",
-            headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub.toJSON()) });
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign(sub.toJSON(), { instalado: !!(window.matchMedia("(display-mode: standalone)").matches || navigator.standalone) })) });
         } catch (e) { console.log("[push] reinscrição falhou", e); }
       });
     }

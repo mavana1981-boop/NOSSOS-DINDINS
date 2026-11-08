@@ -50,6 +50,7 @@
     <div>
       {{ '📱 iPhone' if 'iPhone' in ua else ('📱 Android' if 'Android' in ua else '💻 Computador') }}
       · ativado {{ a.created_at|hora_brt }}
+      {% if a.instalado == false and ('Android' in ua or 'iPhone' in ua) %} · <span style="color:#c4654a;">aberto pelo navegador — o Chrome pode cortar as notificações; instale o app (⋮ → Instalar app) e abra pelo ícone</span>{% endif %}
       {% if a.expirado_em %} · <strong style="color:#c4654a;">❌ fora da lista desde {{ a.expirado_em|hora_brt }} — abra o app neste aparelho</strong>{% endif %}
       {% if a.ultimo_ok_em %} · último envio OK {{ a.ultimo_ok_em|hora_brt }}{% endif %}
       {% if a.ultimo_erro and not a.expirado_em %} · <span style="color:#c4654a;">⚠️ {{ a.ultimo_erro }} ({{ a.ultimo_erro_em|hora_brt }})</span>{% endif %}
@@ -105,7 +106,10 @@
     ✉️ Os avisos também são enviados por e-mail para <strong>{{ email_destino }}</strong>.
   {% else %}
     ✉️ E-mail ainda não configurado — os avisos aparecem só aqui no app.
-    Para receber por e-mail, defina SMTP_HOST, SMTP_USER e SMTP_PASSWORD no Railway.
+    Para receber por e-mail, crie uma chave em resend.com e defina RESEND_API_KEY no Railway.
+  {% endif %}
+  {% if email_status %}
+    <div style="font-size:12px;margin-top:6px;">Último e-mail ({{ email_status[0]|hora_brt }}): {{ email_status[1] }}</div>
   {% endif %}
 </div>
 
@@ -196,7 +200,7 @@
           sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
         }
       }
-      const r = await post("/push/inscrever", sub.toJSON());
+      const r = await post("/push/inscrever", Object.assign(sub.toJSON(), { instalado: !!standalone }));
       if (!r.ok) throw new Error(r.erro || "falha ao registrar");
       await atualizar();
       await post("/push/testar");
