@@ -122,7 +122,7 @@
         <strong>{% if not n.lida %}• {% endif %}{{ n.titulo }}</strong>
         <span style="font-size:12px;white-space:nowrap;opacity:.7;">{{ n.created_at|hora_brt }}</span>
       </div>
-      {% if n.mensagem %}<div style="font-size:13px;margin-top:4px;opacity:.85;">{{ n.mensagem }}</div>{% endif %}
+      {% if n.mensagem %}<div style="font-size:13px;margin-top:4px;opacity:.85;white-space:pre-line;">{{ n.mensagem }}</div>{% endif %}
       {% if n.push_status %}<div style="font-size:12px;margin-top:4px;{% if 'não chegou' in n.push_status or 'falhou' in n.push_status or 'saiu da lista' in n.push_status %}color:#c4654a;{% else %}opacity:.6;{% endif %}">{{ n.push_status }}</div>{% endif %}
     </a>
     {% endfor %}

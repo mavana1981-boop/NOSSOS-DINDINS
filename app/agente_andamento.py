@@ -301,6 +301,54 @@ def enviar_email(destino: str, assunto: str, corpo: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 #  Execução
 # ─────────────────────────────────────────────────────────────
+def andamento_com_lote(user_id: int, hoje: date, batch_ids=()) -> str:
+    """Uma linha por gasto do Andamento (sem gravar nada).
+
+    Compras ainda em avaliação dos lotes indicados entram como projeção:
+    "84% → 90% (+R$ 230,00 em avaliação)".
+    """
+    from sqlalchemy import func
+    from app import db
+    from app.models import CardEntry
+    from app.utils import get_open_billing_month
+
+    mes = get_open_billing_month(user_id, mes_fatura_do_ciclo(hoje))
+    itens, pct_ideal = calcular_andamento(user_id, mes, hoje, somente_dono=True)
+    if not itens:
+        return ""
+    limite = pct_ideal + TOLERANCIA_PP
+    pend = {}
+    sem_gasto = 0.0
+    if batch_ids:
+        linhas_pend = (db.session.query(CardEntry.expense_id, func.sum(CardEntry.amount))
+                       .filter(CardEntry.batch_id.in_(list(batch_ids)),
+                               CardEntry.status == "em_avaliacao",
+                               CardEntry.billing_month == mes)
+                       .group_by(CardEntry.expense_id).all())
+        for exp_id, total in linhas_pend:
+            if exp_id is None:
+                sem_gasto += float(total or 0)
+            else:
+                pend[exp_id] = float(total or 0)
+    ids_andamento = {it["expense_id"] for it in itens}
+    sem_gasto += sum(v for k, v in pend.items() if k not in ids_andamento)
+
+    linhas = []
+    for it in itens:
+        extra = pend.get(it["expense_id"], 0.0)
+        if extra:
+            pct2 = (it["spent"] + extra) / it["planned"] * 100 if it["planned"] else 0
+            bola = "🟢" if pct2 <= limite else "🔴"
+            linhas.append(f"{bola} {it['desc']}: {it['pct']:.0f}% → {pct2:.0f}% (+{_brl(extra)} em avaliação)")
+        else:
+            bola = "🟢" if it["ok"] else "🔴"
+            linhas.append(f"{bola} {it['desc']}: {it['pct']:.0f}% · {_brl(it['spent'])}")
+    linhas.append(f"Ideal hoje: {pct_ideal:.0f}% · faixa até {limite:.0f}%")
+    if sem_gasto > 0.004:
+        linhas.append(f"{_brl(sem_gasto)} em avaliação ainda sem gasto do Andamento")
+    return "\n".join(linhas)
+
+
 def registrar_dia_e_resumir(user_id: int, mes: str, hoje: date, itens: list, pct_ideal: float):
     """
     Grava a foto de hoje de cada gasto e monta o resumo diário com a variação

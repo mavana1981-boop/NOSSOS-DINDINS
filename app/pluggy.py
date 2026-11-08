@@ -332,10 +332,18 @@ def sincronizar_usuario(user_id, relatorio=None):
                         f"{diag['pagamentos']} pagamento(s)/estorno(s).")})
                 if qtde:
                     resultados.append({"card": link.card, "batch_id": batch_id, "qtde": qtde})
+                    mensagem = "Chegaram pelo Open Finance. Revise e aprove os lançamentos."
+                    try:
+                        from app.agente_andamento import andamento_com_lote, hoje_brasilia
+                        andamento = andamento_com_lote(user_id, hoje_brasilia(), [batch_id])
+                        if andamento:
+                            mensagem = f"Revise e aprove. Andamento:\n{andamento}"
+                    except Exception as e:
+                        print(f"[pluggy] andamento para o aviso falhou: {e}")
                     notificar(
                         user_id,
                         f"💳 {qtde} compra(s) nova(s) em {link.card.name}",
-                        "Chegaram pelo Open Finance. Revise e aprove os lançamentos.",
+                        mensagem,
                         link=f"/cartoes/{link.card_id}/lote/{batch_id}/revisao",
                         tag=f"openfinance-{link.card_id}",
                     )
