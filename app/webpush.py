@@ -139,7 +139,7 @@ def enviar(inscricao: dict, dados: dict, sub: str = "mailto:avisos@nossodindin.a
             return r.status
     except urllib.error.HTTPError as e:
         if e.code in (404, 410):
-            raise InscricaoExpirada(endpoint)
+            raise InscricaoExpirada(f"HTTP {e.code} {e.read()[:120].decode('utf-8', 'replace')}".strip())
         raise RuntimeError(f"push {e.code}: {e.read()[:200]!r}")
 
 
@@ -186,14 +186,14 @@ def enviar_para_usuario(user_id: int, dados: dict, erros: list = None,
             ok += 1
             if entregues is not None:
                 entregues.append(rotulo_aparelho(insc.aparelho))
-        except InscricaoExpirada:
+        except InscricaoExpirada as exp:
             # Não apaga: marca como expirada para aparecer no Avisos com a data.
             nome = rotulo_aparelho(insc.aparelho)
             print(f"[push] usuário {user_id}: inscrição expirada ({insc.aparelho})")
             if erros is not None:
                 erros.append(f"{nome} saiu da lista (o navegador cancelou a inscrição) — abra o app nele para reativar")
             insc.expirado_em = datetime.utcnow()
-            insc.ultimo_erro = "o navegador cancelou a inscrição — abra o app neste aparelho para reativar"
+            insc.ultimo_erro = f"endereço de push recusado pelo serviço ({exp})"[:300]
             insc.ultimo_erro_em = insc.expirado_em
             db.session.commit()
         except Exception as e:

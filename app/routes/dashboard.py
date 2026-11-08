@@ -1055,6 +1055,11 @@ def push_inscrever():
         return jsonify({"ok": False, "erro": "inscrição inválida"}), 400
     uid = current_user.id
     insc = PushInscricao.query.filter_by(endpoint=endpoint).first()
+    if insc is not None and insc.expirado_em is not None:
+        # O serviço de push já disse que este endereço morreu (404/410).
+        # Reenviar o mesmo endereço não adianta: o aparelho precisa gerar outro.
+        return jsonify({"ok": False, "renovar": True,
+                        "erro": "endereço antigo recusado — gerando um novo"})
     if insc is None:
         insc = PushInscricao(endpoint=endpoint)
     insc.user_id = uid

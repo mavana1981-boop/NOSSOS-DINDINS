@@ -53,7 +53,7 @@
       {% if a.instalado == false and ('Android' in ua or 'iPhone' in ua) %} · <span style="color:#c4654a;">aberto pelo navegador — o Chrome pode cortar as notificações; instale o app (⋮ → Instalar app) e abra pelo ícone</span>{% endif %}
       {% if a.expirado_em %} · <strong style="color:#c4654a;">❌ fora da lista desde {{ a.expirado_em|hora_brt }} — abra o app neste aparelho</strong>{% endif %}
       {% if a.ultimo_ok_em %} · último envio OK {{ a.ultimo_ok_em|hora_brt }}{% endif %}
-      {% if a.ultimo_erro and not a.expirado_em %} · <span style="color:#c4654a;">⚠️ {{ a.ultimo_erro }} ({{ a.ultimo_erro_em|hora_brt }})</span>{% endif %}
+      {% if a.ultimo_erro %} · <span style="color:#c4654a;">⚠️ {{ a.ultimo_erro }} ({{ a.ultimo_erro_em|hora_brt }})</span>{% endif %}
     </div>
     {% endfor %}
   </div>
@@ -200,7 +200,12 @@
           sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
         }
       }
-      const r = await post("/push/inscrever", Object.assign(sub.toJSON(), { instalado: !!standalone }));
+      let r = await post("/push/inscrever", Object.assign(sub.toJSON(), { instalado: !!standalone }));
+      if (r.renovar) {                               // endereço morto: gera um novo
+        await sub.unsubscribe();
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+        r = await post("/push/inscrever", Object.assign(sub.toJSON(), { instalado: !!standalone }));
+      }
       if (!r.ok) throw new Error(r.erro || "falha ao registrar");
       await atualizar();
       await post("/push/testar");

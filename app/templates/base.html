@@ -40,8 +40,18 @@
             await sub.unsubscribe(); sub = null;
           }
           if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
-          await fetch("/push/inscrever", { method: "POST", credentials: "same-origin",
-            headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign(sub.toJSON(), { instalado: !!(window.matchMedia("(display-mode: standalone)").matches || navigator.standalone) })) });
+          var inst = !!(window.matchMedia("(display-mode: standalone)").matches || navigator.standalone);
+          var enviar = async function (s) {
+            var r = await fetch("/push/inscrever", { method: "POST", credentials: "same-origin",
+              headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign(s.toJSON(), { instalado: inst })) });
+            return r.json();
+          };
+          var resp = await enviar(sub);
+          if (resp && resp.renovar) {             // endereço morto: gera um novo
+            await sub.unsubscribe();
+            sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+            await enviar(sub);
+          }
         } catch (e) { console.log("[push] reinscrição falhou", e); }
       });
     }
