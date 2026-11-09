@@ -295,7 +295,8 @@ def _dados_evolucao(user_id):
 
     # Metas por parte do ciclo (configuradas por gasto)
     from app.models import MetaParte
-    from app.agente_andamento import partes_do_ciclo, gasto_por_parte, redistribuir_metas
+    from app.agente_andamento import (partes_do_ciclo, gasto_por_parte,
+                                      redistribuir_metas, indice_parte)
     _metas_cfg = {m.expense_id: m for m in MetaParte.query.filter_by(user_id=user_id).all()}
     # Datas de cada divisão possível (1 a 5), para o editor
     opcoes_partes = {n: [f"{a.strftime('%d/%m')}–{b.strftime('%d/%m')}"
@@ -316,6 +317,24 @@ def _dados_evolucao(user_id):
         for _e in _lancs:
             _n = _e.subcategoria.nome if _e.subcategoria_id and _e.subcategoria else None
             _subs[_n] = _subs.get(_n, 0.0) + float(_e.amount)
+        _tem_sub = any(k is not None for k in _subs)
+
+        def _ordenar_subs(d):
+            # Maior valor primeiro; "sem subcategoria" sempre por último
+            return [(k, round(v, 2)) for k, v in
+                    sorted(d.items(), key=lambda kv: (kv[0] is None, -kv[1]))]
+
+        def _lanc_dict(e):
+            return {
+                "data": e.entry_date,
+                "desc": e.description,
+                "cartao": e.card.name if getattr(e, "card", None) else "—",
+                "parcela": (f"{e.installment_no}/{e.installments}"
+                            if (e.installments or 1) > 1 else ""),
+                "valor": float(e.amount),
+                "sub": (e.subcategoria.nome
+                        if e.subcategoria_id and e.subcategoria else None),
+            }
         _partes = []
         _cfg = _metas_cfg.get(it["expense_id"])
         if _cfg:
@@ -324,9 +343,19 @@ def _dados_evolucao(user_id):
             _metas_orig = _cfg.lista_metas()
             # Disponível rolante: sobras/estouros redistribuídos mantendo a meta total
             _disp = redistribuir_metas(_metas_orig, _gastos_p, _intervalos, _hoje_evo)
+            # Compras de cada parte (mesma regra de datas do gasto_por_parte)
+            _compras_p = [[] for _ in _intervalos]
+            for _e in _lancs:
+                _compras_p[indice_parte(_e.entry_date, _intervalos)].append(_e)
             for _i, ((_a, _b), _meta, _g, _d) in enumerate(zip(_intervalos, _metas_orig, _gastos_p, _disp)):
                 _dv = max(_d, 0.0)
+                _subs_p = {}
+                for _e in _compras_p[_i]:
+                    _n = _e.subcategoria.nome if _e.subcategoria_id and _e.subcategoria else None
+                    _subs_p[_n] = _subs_p.get(_n, 0.0) + float(_e.amount)
                 _partes.append({
+                    "compras": [_lanc_dict(_e) for _e in _compras_p[_i]],
+                    "subs": _ordenar_subs(_subs_p) if _tem_sub else [],
                     "n": _i + 1, "inicio": _a, "fim": _b,
                     "label": f"{_a.strftime('%d/%m')}–{_b.strftime('%d/%m')}",
                     "meta": round(_meta, 2),            # meta original (configurada)
@@ -346,18 +375,8 @@ def _dados_evolucao(user_id):
             "meta_total": round(sum(p["meta"] for p in _partes), 2),
             "restante_metas": round(sum(p["meta"] for p in _partes) - sum(p["gasto"] for p in _partes), 2),
             # Subtotais por subcategoria (só quando alguma foi usada)
-            "subs": (sorted(_subs.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))
-                     if any(k is not None for k in _subs) else []),
-            "lancamentos": [{
-                "data": e.entry_date,
-                "desc": e.description,
-                "cartao": e.card.name if getattr(e, "card", None) else "—",
-                "parcela": (f"{e.installment_no}/{e.installments}"
-                            if (e.installments or 1) > 1 else ""),
-                "valor": float(e.amount),
-                "sub": (e.subcategoria.nome
-                        if e.subcategoria_id and e.subcategoria else None),
-            } for e in _lancs],
+            "subs": _ordenar_subs(_subs) if _tem_sub else [],
+            "lancamentos": [_lanc_dict(e) for e in _lancs],
             "desc": it["desc"],
             "planned": it["planned"], "spent": it["spent"], "pct": it["pct"],
             "ok": it["ok"],

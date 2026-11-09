@@ -61,10 +61,21 @@
           {% else %}<span class="mono" style="color:#c4654a;font-weight:700;">{{ (-g.restante_metas)|brl }}</span> acima da meta total{% endif %}
         </span>
       </div>
+      {% if g.subs %}
+      <div class="mp-subs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+        {% for nome, val in g.subs %}
+        <span style="font-size:11.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-dim);white-space:nowrap;">
+          ↳ {{ nome or 'sem subcategoria' }} <strong class="mono" style="color:var(--text);">{{ val|brl }}</strong>
+        </span>
+        {% endfor %}
+      </div>
+      {% endif %}
       <div style="display:grid;grid-template-columns:repeat({{ g.partes|length }}, minmax(0, 1fr));gap:4px;">
         {% for p in g.partes %}
         {% set _cor = '#c4654a' if p.estourou else ('#7ea66b' if not p.futura else 'var(--text-faint)') %}
-        <div title="Parte {{ p.n }} · {{ p.label }} · gasto {{ p.gasto|brl }} de {{ p.disponivel|brl }} disponível (meta original {{ p.meta|brl }})">
+        <div class="mp-parte" data-grupo="{{ g.expense_id }}" data-alvo="mp-{{ g.expense_id }}-{{ p.n }}"
+             role="button" tabindex="0" style="cursor:pointer;border-radius:6px;padding:2px;"
+             title="Parte {{ p.n }} · {{ p.label }} · gasto {{ p.gasto|brl }} de {{ p.disponivel|brl }} disponível (meta original {{ p.meta|brl }}) — toque para ver as compras">
           <div style="position:relative;height:16px;border-radius:5px;background:var(--bg);overflow:hidden;
                       border:{{ '2px solid var(--accent)' if p.atual else '1px solid var(--border)' }};">
             <div style="position:absolute;left:0;top:0;bottom:0;width:{{ [p.pct, 100]|min }}%;background:{{ _cor }};opacity:{{ '0.45' if p.futura else '0.9' }};"></div>
@@ -86,10 +97,49 @@
             <div class="mono mp-full" style="font-size:10px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">meta {{ p.meta|brl }}</div>
             {% endif %}
             {% if p.negativo %}<div style="font-size:10.5px;color:#c4654a;">meta total esgotada</div>{% endif %}
+            <div class="mp-ver" style="font-size:10.5px;color:var(--accent);margin-top:2px;">{{ p.compras|length }} compra{{ 's' if p.compras|length != 1 }} ▾</div>
           </div>
         </div>
         {% endfor %}
       </div>
+      {% for p in g.partes %}
+      <div id="mp-{{ g.expense_id }}-{{ p.n }}" class="mp-compras" data-grupo="{{ g.expense_id }}" style="display:none;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);">
+        <div class="flex-between" style="font-size:12px;margin-bottom:4px;gap:6px;flex-wrap:wrap;">
+          <strong>Parte {{ p.n }} · {{ p.label }}</strong>
+          <span class="text-dim">gasto <strong class="mono" style="color:{{ '#c4654a' if p.estourou else 'var(--text)' }};">{{ p.gasto|brl }}</strong> de <span class="mono">{{ p.disponivel|brl }}</span></span>
+        </div>
+        {% if p.compras %}
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+          <tbody>
+            {% for l in p.compras %}
+            <tr style="border-top:1px solid var(--border);">
+              <td style="padding:5px 4px;white-space:nowrap;color:var(--text-dim);width:1%;">{{ l.data.strftime('%d/%m') if l.data else '—' }}</td>
+              <td style="padding:5px 4px;">
+                {{ l.desc }}{% if l.parcela %} <span style="color:var(--text-faint);">{{ l.parcela }}</span>{% endif %}
+                {% if l.sub %} <span style="font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-dim);white-space:nowrap;">↳ {{ l.sub }}</span>{% endif %}
+                <div class="text-faint" style="font-size:11px;">{{ l.cartao }}</div>
+              </td>
+              <td class="mono" style="padding:5px 4px;text-align:right;white-space:nowrap;font-weight:600;">{{ l.valor|brl }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          {% if p.subs %}
+          <tbody>
+            {% for nome, val in p.subs %}
+            <tr {% if loop.first %}style="border-top:1px solid var(--border-strong);"{% endif %}>
+              <td></td>
+              <td style="padding:3px 4px;color:var(--text-dim);">↳ {{ nome or 'sem subcategoria' }}</td>
+              <td class="mono" style="padding:3px 4px;text-align:right;color:var(--text-dim);">{{ val|brl }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          {% endif %}
+        </table>
+        {% else %}
+        <div class="text-dim text-small">Nenhuma compra nesta parte{{ ' ainda' if p.futura or p.atual }}.</div>
+        {% endif %}
+      </div>
+      {% endfor %}
     </div>
     {% endfor %}
   </div>
@@ -103,12 +153,34 @@
       #metas-partes .mp-data { white-space: normal; word-break: break-word; }
       #metas-partes .mp-aviso-curto { display: inline; }
     }
+    #metas-partes .mp-parte:hover, #metas-partes .mp-parte.aberta { background: var(--bg); }
+    #metas-partes .mp-parte.aberta { outline: 1px solid var(--accent); }
   </style>
+  <script>
+  // Toque numa parte → mostra as compras dela (uma aberta por gasto)
+  document.querySelectorAll("#metas-partes .mp-parte").forEach(function (el) {
+    function alternar() {
+      var alvo = document.getElementById(el.dataset.alvo), grupo = el.dataset.grupo;
+      var abrir = alvo.style.display === "none";
+      document.querySelectorAll('#metas-partes .mp-compras[data-grupo="' + grupo + '"]').forEach(function (c) { c.style.display = "none"; });
+      document.querySelectorAll('#metas-partes .mp-parte[data-grupo="' + grupo + '"]').forEach(function (p) {
+        p.classList.remove("aberta");
+        var v = p.querySelector(".mp-ver"); if (v) v.textContent = v.textContent.replace("▴", "▾");
+      });
+      if (abrir) {
+        alvo.style.display = ""; el.classList.add("aberta");
+        var v = el.querySelector(".mp-ver"); if (v) v.textContent = v.textContent.replace("▾", "▴");
+      }
+    }
+    el.addEventListener("click", alternar);
+    el.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alternar(); } });
+  });
+  </script>
   <div class="text-faint text-small" style="margin-top:12px;">
     <span class="mp-aviso-curto">Valores em R$ (sem centavos) · </span>Ciclo 16→16 dividido em partes iguais. Sobra ou estouro de parte encerrada passa para as seguintes
     (meta total fixa); se a parte atual estoura, as futuras já diminuem · <span style="color:var(--accent);">●</span> parte atual ·
     <span style="color:#7ea66b;">verde</span> dentro do disponível · <span style="color:#c4654a;">vermelho</span> acima.
-    Gastos pela data da compra.
+    Gastos pela data da compra. Toque numa parte para ver as compras dela.
   </div>
   {% else %}
   <div class="text-dim text-small" style="padding:6px 0;">

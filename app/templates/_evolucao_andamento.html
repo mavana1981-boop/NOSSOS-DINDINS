@@ -57,6 +57,13 @@
         <td style="padding:8px;white-space:nowrap;position:sticky;left:0;background:var(--bg-card);">
           <span class="evo-seta" style="display:inline-block;width:14px;color:var(--text-faint);font-size:11px;">▶</span>{{ g.desc }}
           <span style="font-size:11px;color:var(--text-faint);margin-left:4px;">({{ g.lancamentos|length }})</span>
+          {% if g.subs %}
+          <div style="padding-left:14px;margin-top:3px;display:flex;flex-direction:column;gap:1px;">
+            {% for nome, val in g.subs %}
+            <span style="font-size:11.5px;color:var(--text-dim);">↳ {{ nome or 'sem subcategoria' }}: <span class="mono">{{ val|brl }}</span></span>
+            {% endfor %}
+          </div>
+          {% endif %}
         </td>
         {% for f in g.dias %}
           {% if f %}

@@ -73,17 +73,23 @@ def partes_do_ciclo(hoje: date, n: int):
     return out
 
 
+def indice_parte(d, partes):
+    """Índice da parte que contém a data `d`. Datas fora do ciclo vão para a
+    primeira (antes) ou última parte (depois)."""
+    if d is None:
+        return len(partes) - 1
+    for i, (ini, fim) in enumerate(partes):
+        if ini <= d <= fim:
+            return i
+    return 0 if d < partes[0][0] else len(partes) - 1
+
+
 def gasto_por_parte(lancamentos, partes):
     """Soma os lançamentos (entry_date, valor) em cada parte. Datas fora do
     ciclo vão para a primeira (antes) ou última parte (depois)."""
     somas = [0.0] * len(partes)
     for d, v in lancamentos:
-        idx = 0 if d < partes[0][0] else len(partes) - 1
-        for i, (ini, fim) in enumerate(partes):
-            if ini <= d <= fim:
-                idx = i
-                break
-        somas[idx] += float(v)
+        somas[indice_parte(d, partes)] += float(v)
     return [round(x, 2) for x in somas]
 
 
