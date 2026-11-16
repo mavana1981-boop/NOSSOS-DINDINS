@@ -153,15 +153,21 @@ def list_expenses():
         user_id=current_user.id, kind="parcelado", status="ativo"
     ).all()
     expense_ids_ja = {e.id for e in expenses}
+    from app.utils import chave_serie_parcela as _csp
+    _vistos_parc = set()
     for ce in entries_parc:
         if not ce.installments or not ce.installment_no:
             continue
         if ce.expense_id and ce.expense_id in expense_ids_ja:
             continue
         first = _add_months(ce.entry_date, 1 - ce.installment_no)
+        _serie = _csp(ce.card_id, ce.description, ce.installments, ce.amount)
         for i in range(ce.installment_no, ce.installments + 1):
             d = _add_months(first, i - 1)
             if d.year == filter_year and d.month == filter_month:
+                if (_serie, i) in _vistos_parc:
+                    break
+                _vistos_parc.add((_serie, i))
                 parcelados_no_mes.append({
                     "description": ce.description,
                     "amount": float(ce.amount),

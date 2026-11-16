@@ -717,3 +717,170 @@ def parse_vinculo(raw, user_id):
         if sub and sub.expense_id == exp_id and sub.user_id == user_id:
             sub_id = sub.id
     return exp_id, sub_id
+
+
+# ─────────────────────────────────────────────────────────────
+#  Parcelas futuras como lançamentos reais de cartão
+#  Regra: ao entrar uma compra parcelada (1/N — ou k/N lançada à mão),
+#  o app já cria as parcelas seguintes (k+1..N) como CardEntry "ativo"
+#  no mês da fatura correspondente. Importações (PDF/Open Finance) de
+#  parcelas 2+ são ignoradas, pois essas parcelas já existem.
+# ─────────────────────────────────────────────────────────────
+import re as _re_parc
+
+PARC_AUTO_TAG = "[parcela auto · origem #{id}]"
+
+
+def norm_desc_parcela(s):
+    """Descrição sem o número da parcela (ex.: 'NOVA PARC 04/12' → 'NOVA PARC')."""
+    s = (s or "").upper().strip()
+    s = _re_parc.sub(r"\s+\d{1,2}\s+DE\s+\d{1,2}", "", s)
+    s = _re_parc.sub(r"\s*\b\d{1,2}/\d{1,2}\b", "", s)
+    s = _re_parc.sub(r"\s+", " ", s)
+    return s[:30].strip()
+
+
+def chave_serie_parcela(card_id, description, installments, amount):
+    """Identifica uma série parcelada (mesma compra) independente da parcela."""
+    return (card_id, norm_desc_parcela(description), int(installments or 1),
+            round(float(amount or 0), 2))
+
+
+def add_meses_bm(bm, n):
+    yr, mo = int(bm[:4]), int(bm[5:7])
+    mo = mo - 1 + n
+    return f"{yr + mo // 12}-{mo % 12 + 1:02d}"
+
+
+def _desc_parcela_i(description, k, n, i):
+    """Troca 'k/N' por 'i/N' na descrição, preservando zeros à esquerda."""
+    def _rep(m):
+        a, b = m.group(1), m.group(2)
+        if int(a) == k and int(b) == n:
+            return f"{i:0{len(a)}d}/{b}"
+        return m.group(0)
+    return _re_parc.sub(r"\b(\d{1,2})/(\d{1,2})\b", _rep, description or "", count=1)
+
+
+def _add_meses_data(d, n):
+    import calendar as _cal
+    from datetime import date as _date
+    mo = d.month - 1 + n
+    yr = d.year + mo // 12
+    mo = mo % 12 + 1
+    return _date(yr, mo, min(d.day, _cal.monthrange(yr, mo)[1]))
+
+
+def _parcela_ja_existe(entry, i):
+    """Já existe lançamento para a parcela i desta série? Considera ativos/em
+    avaliação e também parcelas automáticas desta origem que o usuário excluiu
+    (para não recriar o que foi apagado de propósito)."""
+    from app.models import CardEntry
+    alvo = chave_serie_parcela(entry.card_id, entry.description,
+                               entry.installments, entry.amount)
+    tag = PARC_AUTO_TAG.format(id=entry.id)
+    cands = CardEntry.query.filter(
+        CardEntry.card_id == entry.card_id,
+        CardEntry.user_id == entry.user_id,
+        CardEntry.installments == entry.installments,
+        CardEntry.installment_no == i,
+        CardEntry.id != entry.id,
+    ).all()
+    for c in cands:
+        if c.status == "excluido" and tag not in (c.notes or ""):
+            continue
+        k = chave_serie_parcela(c.card_id, c.description, c.installments, c.amount)
+        if k[1] == alvo[1] and abs(k[3] - alvo[3]) <= 0.05:
+            return True
+    return False
+
+
+def gerar_parcelas_futuras(entry, mes_minimo=None, commit=True):
+    """Cria as parcelas installment_no+1..N de um lançamento parcelado ativo,
+    cada uma no mês de fatura correspondente. Idempotente.
+    mes_minimo (YYYY-MM): não cria parcelas em meses anteriores a ele.
+    Retorna a quantidade criada."""
+    from app.models import CardEntry, PlannedInstallmentDeletion
+    if (not entry or entry.status != "ativo" or not entry.billing_month
+            or not entry.installments or entry.installments <= 1):
+        return 0
+    k = entry.installment_no or 1
+    n = entry.installments
+    if k >= n:
+        return 0
+    tag = PARC_AUTO_TAG.format(id=entry.id)
+    exclusoes = PlannedInstallmentDeletion.query.filter_by(
+        user_id=entry.user_id, card_id=entry.card_id).all()
+    base = norm_desc_parcela(entry.description)
+    criadas = 0
+    for i in range(k + 1, n + 1):
+        bm = add_meses_bm(entry.billing_month, i - k)
+        if mes_minimo and bm < mes_minimo:
+            continue
+        if any(x.billing_month == bm and norm_desc_parcela(x.description) == base
+               for x in exclusoes):
+            continue
+        if _parcela_ja_existe(entry, i):
+            continue
+        db.session.add(CardEntry(
+            card_id=entry.card_id,
+            user_id=entry.user_id,
+            description=_desc_parcela_i(entry.description, k, n, i)[:160],
+            amount=entry.amount,
+            entry_date=_add_meses_data(entry.entry_date, i - k),
+            expense_id=entry.expense_id,
+            subcategoria_id=entry.subcategoria_id,
+            category=entry.category,
+            kind="parcelado",
+            installments=n,
+            installment_no=i,
+            status="ativo",
+            billing_month=bm,
+            notes=tag,
+        ))
+        criadas += 1
+    if criadas and commit:
+        db.session.commit()
+    return criadas
+
+
+def atualizar_parcelas_futuras(entry, commit=True):
+    """Propaga valor/vínculo/categoria da origem para as parcelas automáticas
+    ainda ativas e cria as que faltarem."""
+    from app.models import CardEntry
+    tag = PARC_AUTO_TAG.format(id=entry.id)
+    k = entry.installment_no or 1
+    for c in CardEntry.query.filter(
+            CardEntry.notes.contains(tag), CardEntry.status == "ativo").all():
+        c.amount = entry.amount
+        c.expense_id = entry.expense_id
+        c.subcategoria_id = entry.subcategoria_id
+        c.category = entry.category
+        c.description = _desc_parcela_i(entry.description, k, entry.installments,
+                                        c.installment_no)[:160]
+    criadas = gerar_parcelas_futuras(entry, commit=False)
+    if commit:
+        db.session.commit()
+    return criadas
+
+
+def excluir_parcelas_futuras(entry, commit=True):
+    """Ao excluir a origem, exclui (soft) as parcelas automáticas dela."""
+    from app.models import CardEntry
+    tag = PARC_AUTO_TAG.format(id=entry.id)
+    n = 0
+    for c in CardEntry.query.filter(
+            CardEntry.notes.contains(tag), CardEntry.status == "ativo").all():
+        c.status = "excluido"
+        n += 1
+    if n and commit:
+        db.session.commit()
+    return n
+
+
+def e_parcela_seguinte_importada(installments, installment_no):
+    """Importação (PDF/Open Finance) de parcela 2+ → deve ser ignorada."""
+    try:
+        return int(installments or 1) > 1 and int(installment_no or 1) > 1
+    except (TypeError, ValueError):
+        return False

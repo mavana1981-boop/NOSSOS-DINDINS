@@ -328,7 +328,7 @@
   <div class="tbl-wrap">
   <table>
     <thead>
-      <tr><th>Gasto</th><th class="right">Planejado</th><th class="right">Realizado</th><th class="right">% Gasto</th><th style="width:120px;">Progresso</th><th class="no-print"></th></tr>
+      <tr><th>Gasto</th><th class="right">Planejado</th><th class="right">Disponível</th><th class="right">Realizado</th><th class="right">% Gasto</th><th style="width:120px;">Progresso</th><th class="no-print"></th></tr>
     </thead>
     <tbody>
     {% for a in andamento_mes %}
@@ -336,6 +336,8 @@
     <tr {% if not a.ok %}style="background:#fde8e4;"{% elif a.pct == 0 %}style="opacity:0.6;"{% endif %}>
       <td>{{ a.desc }}</td>
       <td class="right dim">{{ a.planned|brl }}</td>
+      {% set disp = a.planned - a.spent %}
+      <td class="right" style="color:{% if disp < 0 %}#c4654a{% else %}#5a9e6f{% endif %};">{{ disp|brl }}</td>
       <td class="right">{{ a.spent|brl }}</td>
       <td class="right" style="font-weight:700;color:{{ cor }};">{{ a.pct }}%</td>
       <td>
@@ -360,6 +362,7 @@
     <tr class="total-row">
       <td>TOTAL</td>
       <td class="right">{{ total_plan|brl }}</td>
+      <td class="right" style="color:{% if saldo_and < 0 %}#c4654a{% else %}#5a9e6f{% endif %};">{{ saldo_and|brl }}</td>
       <td class="right">{{ total_spent|brl }}</td>
       <td class="right" style="color:{% if total_spent > total_plan %}#c4654a{% else %}#5a9e6f{% endif %};">
         {{ (total_spent / total_plan * 100)|round(1) if total_plan > 0 else 0 }}%

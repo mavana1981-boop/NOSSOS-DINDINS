@@ -244,6 +244,11 @@ def sincronizar_link(api_key, link, diag=None):
 
         total_parc = int(meta.get("totalInstallments") or 1)
         parc_no = int(meta.get("installmentNumber") or 1)
+        # Parcela 2+ já foi lançada automaticamente a partir da 1ª — ignorar
+        from app.utils import e_parcela_seguinte_importada as _epsi
+        if _epsi(total_parc, parc_no):
+            diag["parcelas_seguintes"] = diag.get("parcelas_seguintes", 0) + 1
+            continue
         yr, mo = get_billing_month(entry_date, card.closing_day)
         billing_month = get_open_billing_month(link.user_id, f"{yr}-{mo:02d}")
 

@@ -343,24 +343,32 @@ def list_cards():
     parc_entries = all_parc_entries
     MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
     today2 = _date2.today()
-    proj_months = {}
+    # Cada parcela (série + nº) conta uma vez só — várias parcelas da mesma
+    # compra lançadas em meses diferentes projetam as mesmas parcelas
+    from app.utils import chave_serie_parcela as _csp
+    parc_entries = sorted(parc_entries, key=lambda e: (e.billing_month or "", e.id))
+    _vistos_proj = set()
+    _parc_unicos = []
     for ce in parc_entries:
         installment_no = ce.installment_no or 1
         first = _add_m(ce.entry_date, 1 - installment_no)
+        _serie = _csp(ce.card_id, ce.description, ce.installments, ce.amount)
         for i in range(installment_no, ce.installments + 1):
-            d = _add_m(first, i - 1)
-            if (d.year, d.month) < (today2.year, today2.month):
+            if (_serie, i) in _vistos_proj:
                 continue
-            key = (d.year, d.month)
-            proj_months[key] = proj_months.get(key, 0.0) + float(ce.amount)
+            _vistos_proj.add((_serie, i))
+            _parc_unicos.append((ce, i, _add_m(first, i - 1)))
+    proj_months = {}
+    for ce, i, d in _parc_unicos:
+        if (d.year, d.month) < (today2.year, today2.month):
+            continue
+        key = (d.year, d.month)
+        proj_months[key] = proj_months.get(key, 0.0) + float(ce.amount)
 
     # Detalhe por mês: cada entry que impacta o mês
     proj_detail = {}
-    for ce in parc_entries:
-        installment_no = ce.installment_no or 1
-        first = _add_m(ce.entry_date, 1 - installment_no)
-        for i in range(installment_no, ce.installments + 1):
-            d = _add_m(first, i - 1)
+    for ce, i, d in _parc_unicos:
+        if True:
             if (d.year, d.month) < (today2.year, today2.month):
                 continue
             key = (d.year, d.month)
@@ -492,7 +500,8 @@ def virar_mes():
     # 1. Gerar snapshot consolidado
     entries = CardEntry.query.filter(
         CardEntry.card_id.in_(card_ids),
-        (CardEntry.status == "ativo") | (CardEntry.status == None)
+        (CardEntry.status == "ativo") | (CardEntry.status == None),
+        (CardEntry.billing_month == None) | (CardEntry.billing_month <= mes_atual),
     ).all()
 
     from collections import defaultdict
@@ -994,6 +1003,17 @@ def _save_entry(entry, card):
                     ))
             db.session.commit()
             flash(f"Planejados atualizados para '{ entry.description }'.", "info")
+    # Parcelas seguintes como lançamentos reais nos meses correspondentes
+    if (entry.kind == "parcelado" and entry.installments and entry.installments > 1
+            and entry.status == "ativo"):
+        from app.utils import atualizar_parcelas_futuras as _apf
+        try:
+            _n_fut = _apf(entry)
+            if _n_fut:
+                flash(f"{_n_fut} parcela(s) seguinte(s) lançada(s) nos próximos meses.", "info")
+        except Exception as _e_fut:
+            db.session.rollback()
+            flash(f"Não foi possível gerar as parcelas seguintes: {_e_fut}", "warning")
     flash("Lançamento salvo.", "success")
     mes_back = entry.billing_month or date.today().strftime("%Y-%m")
     return redirect(url_for("cards.detail_card", card_id=card.id, mes=mes_back))
@@ -1009,6 +1029,8 @@ def delete_entry(card_id, entry_id):
     expense_id = entry.expense_id
     # Soft delete: marca como excluido para não reaparecer em restores
     entry.status = "excluido"
+    from app.utils import excluir_parcelas_futuras as _epf
+    _epf(entry, commit=False)
     db.session.commit()
     # Recalcula excedente após exclusão
     if expense_id:
@@ -1035,10 +1057,12 @@ def definir_mes_fatura(card_id):
     if not billing_month or len(billing_month) != 7:
         flash("Mês da fatura inválido.", "danger")
         return redirect(url_for("cards.detail_card", card_id=card_id))
-    entries = CardEntry.query.filter(
+    _hoje_bm = date.today().strftime("%Y-%m")
+    entries = [e for e in CardEntry.query.filter(
         CardEntry.card_id == card_id,
         CardEntry.status == "ativo",
-    ).all()
+    ).all() if not ("[parcela auto" in (e.notes or "")
+                    and (e.billing_month or "") > _hoje_bm)]
     for e in entries:
         e.billing_month = billing_month
     db.session.commit()
@@ -1583,8 +1607,13 @@ def _process_batch(card):
                 kind = "parcelado"
             desc = str(t.get("description", "Sem descrição"))[:160]
 
-            # Sem dedup — importar todos os lançamentos
-            # (parcelados 2+ atualizarão o planejado após commit)
+            # Parcela 2+ de compra parcelada: já foi lançada automaticamente
+            # quando a 1ª parcela entrou — ignorar para não duplicar
+            from app.utils import e_parcela_seguinte_importada as _epsi
+            if _epsi(inst, inst_no):
+                skipped += 1
+                skipped_list.append(f"{desc} ({inst_no}/{inst})")
+                continue
 
             entry = CardEntry(
                 card_id=card.id,
@@ -1612,6 +1641,9 @@ def _process_batch(card):
     finalizar_lote(card.id, batch_id, current_user.id)
 
     flash(f"{count} lançamento(s) importado(s) para avaliação.", "success")
+    if skipped:
+        flash(f"{skipped} parcela(s) 2ª em diante ignorada(s) — já lançadas "
+              f"automaticamente a partir da 1ª parcela.", "info")
     return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=batch_id))
 
 
@@ -1773,6 +1805,8 @@ def batch_approve_entry(card_id, batch_id, entry_id):
     entry.description = request.form.get("description", entry.description)
     entry.status = "ativo"
     db.session.commit()
+    from app.utils import gerar_parcelas_futuras as _gpf
+    _gpf(entry)
 
     # Salvar regra de categorização para uso futuro
     if entry.category and entry.category != "A classificar":
@@ -1834,7 +1868,12 @@ def batch_approve_all(card_id, batch_id):
     for e in entries:
         e.status = "ativo"
     db.session.commit()
+    from app.utils import gerar_parcelas_futuras as _gpf
+    _n_fut = sum(_gpf(e, commit=False) for e in entries)
+    db.session.commit()
     flash(f"{len(entries)} lançamento(s) aprovado(s).", "success")
+    if _n_fut:
+        flash(f"{_n_fut} parcela(s) futura(s) lançada(s) nos próximos meses.", "info")
     return redirect(url_for("cards.detail_card", card_id=card_id))
 
 
@@ -2088,3 +2127,33 @@ def apagar_por_descricao():
     db.session.commit()
     from flask import jsonify as _jd
     return _jd({"ok": True, "count": count})
+
+
+@cards_bp.route("/parcelas/gerar-futuras", methods=["GET", "POST"])
+@login_required
+def gerar_parcelas_futuras_todas():
+    """Carga única: para cada compra parcelada ativa do usuário, pega a parcela
+    mais recente e lança as seguintes nos meses correspondentes (a partir do
+    próximo mês). Idempotente — pode rodar mais de uma vez sem duplicar."""
+    from app.utils import (gerar_parcelas_futuras as _gpf,
+                           chave_serie_parcela as _csp, add_meses_bm as _amb)
+    mes_minimo = _amb(date.today().strftime("%Y-%m"), 1)
+    entries = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.status == "ativo",
+        CardEntry.installments > 1,
+        CardEntry.billing_month.isnot(None),
+    ).all()
+    ultima = {}
+    for e in entries:
+        k = _csp(e.card_id, e.description, e.installments, e.amount)
+        atual = ultima.get(k)
+        if atual is None or (e.installment_no or 1) > (atual.installment_no or 1):
+            ultima[k] = e
+    criadas = 0
+    for e in ultima.values():
+        criadas += _gpf(e, mes_minimo=mes_minimo, commit=False)
+    db.session.commit()
+    flash(f"✅ {criadas} parcela(s) futura(s) lançada(s) a partir de {mes_minimo} "
+          f"({len(ultima)} compra(s) parcelada(s) verificadas).", "success")
+    return redirect(url_for("cards.list_cards"))
