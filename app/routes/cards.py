@@ -2178,3 +2178,40 @@ def desfazer_parcelas_geradas():
     db.session.commit()
     from flask import jsonify as _j
     return _j({"ok": True, "apagadas": n})
+
+
+@cards_bp.route("/<int:card_id>/excluidos")
+@login_required
+def listar_excluidos(card_id):
+    """Lançamentos excluídos do cartão no mês (?mes=YYYY-MM), em JSON."""
+    card = Card.query.get_or_404(card_id)
+    if card.user_id != current_user.id:
+        abort(403)
+    mes = request.args.get("mes", "")
+    q = CardEntry.query.filter(CardEntry.card_id == card_id,
+                               CardEntry.status == "excluido")
+    if mes:
+        q = q.filter(CardEntry.billing_month == mes)
+    from flask import jsonify as _j
+    return _j([{"id": e.id, "desc": e.description, "valor": float(e.amount),
+                "parcela": f"{e.installment_no}/{e.installments}",
+                "mes": e.billing_month, "notes": e.notes or ""}
+               for e in q.order_by(CardEntry.id).all()])
+
+
+@cards_bp.route("/<int:card_id>/lancamento/<int:entry_id>/restaurar", methods=["POST"])
+@login_required
+def restaurar_entry(card_id, entry_id):
+    """Desfaz a exclusão de um lançamento e lança as parcelas seguintes."""
+    card = Card.query.get_or_404(card_id)
+    entry = CardEntry.query.get_or_404(entry_id)
+    if card.user_id != current_user.id or entry.card_id != card_id:
+        abort(403)
+    entry.status = "ativo"
+    db.session.commit()
+    from app.utils import gerar_parcelas_futuras as _gpf
+    n = _gpf(entry)
+    if entry.expense_id:
+        _check_excedente(entry.expense_id)
+    from flask import jsonify as _j
+    return _j({"ok": True, "parcelas_futuras": n})
