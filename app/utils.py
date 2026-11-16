@@ -736,6 +736,7 @@ def norm_desc_parcela(s):
     s = (s or "").upper().strip()
     s = _re_parc.sub(r"\s+\d{1,2}\s+DE\s+\d{1,2}", "", s)
     s = _re_parc.sub(r"\s*\b\d{1,2}/\d{1,2}\b", "", s)
+    s = _re_parc.sub(r"\bPARC(ELA)?\b", "", s)
     s = _re_parc.sub(r"\s+", " ", s)
     return s[:30].strip()
 

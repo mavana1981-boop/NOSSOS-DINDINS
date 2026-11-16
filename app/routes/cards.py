@@ -2132,28 +2132,49 @@ def apagar_por_descricao():
 @cards_bp.route("/parcelas/gerar-futuras", methods=["GET", "POST"])
 @login_required
 def gerar_parcelas_futuras_todas():
-    """Carga única: para cada compra parcelada ativa do usuário, pega a parcela
-    mais recente e lança as seguintes nos meses correspondentes (a partir do
-    próximo mês). Idempotente — pode rodar mais de uma vez sem duplicar."""
-    from app.utils import (gerar_parcelas_futuras as _gpf,
+    """Carga única: usa só as parcelas lançadas no mês de fatura aberto
+    (a fatura atual, já conferida) e lança as seguintes a partir do próximo
+    mês. Idempotente — pode rodar mais de uma vez sem duplicar."""
+    from app.utils import (gerar_parcelas_futuras as _gpf, get_open_billing_month as _gobm,
                            chave_serie_parcela as _csp, add_meses_bm as _amb)
-    mes_minimo = _amb(date.today().strftime("%Y-%m"), 1)
+    mes_base = request.args.get("mes") or _gobm(current_user.id, date.today().strftime("%Y-%m"))
+    mes_minimo = _amb(mes_base, 1)
     entries = CardEntry.query.filter(
         CardEntry.user_id == current_user.id,
         CardEntry.status == "ativo",
         CardEntry.installments > 1,
-        CardEntry.billing_month.isnot(None),
-    ).all()
+        CardEntry.billing_month == mes_base,
+    ).order_by(CardEntry.id).all()
     ultima = {}
     for e in entries:
-        k = _csp(e.card_id, e.description, e.installments, e.amount)
-        atual = ultima.get(k)
-        if atual is None or (e.installment_no or 1) > (atual.installment_no or 1):
-            ultima[k] = e
+        k = _csp(e.card_id, e.description, e.installments, e.amount) + (e.installment_no or 1,)
+        ultima.setdefault(k, e)
     criadas = 0
     for e in ultima.values():
         criadas += _gpf(e, mes_minimo=mes_minimo, commit=False)
+        db.session.flush()
     db.session.commit()
-    flash(f"✅ {criadas} parcela(s) futura(s) lançada(s) a partir de {mes_minimo} "
-          f"({len(ultima)} compra(s) parcelada(s) verificadas).", "success")
+    flash(f"✅ {criadas} parcela(s) futura(s) lançada(s) a partir de {mes_minimo}, "
+          f"com base nas {len(ultima)} parcela(s) da fatura {mes_base}.", "success")
     return redirect(url_for("cards.list_cards"))
+
+
+@cards_bp.route("/parcelas/desfazer-geradas", methods=["POST"])
+@login_required
+def desfazer_parcelas_geradas():
+    """Apaga de vez as parcelas automáticas criadas nas últimas N horas
+    (para refazer uma carga). Não toca em lançamentos digitados/importados."""
+    from datetime import timedelta as _td
+    horas = int(request.form.get("horas", "2") or 2)
+    limite = datetime.utcnow() - _td(hours=horas)
+    autos = CardEntry.query.filter(
+        CardEntry.user_id == current_user.id,
+        CardEntry.notes.like("[parcela auto%"),
+        CardEntry.created_at >= limite,
+    ).all()
+    n = len(autos)
+    for e in autos:
+        db.session.delete(e)
+    db.session.commit()
+    from flask import jsonify as _j
+    return _j({"ok": True, "apagadas": n})
