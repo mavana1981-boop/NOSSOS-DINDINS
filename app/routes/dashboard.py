@@ -214,7 +214,12 @@ def index():
     )
 
     try:
-        _evo_dash = _dados_evolucao(current_user.id)
+        # ?ciclo=-1 → ciclo anterior (histórico das metas por parte)
+        try:
+            _ciclo_off = min(0, max(-24, int(request.args.get("ciclo", "0") or 0)))
+        except ValueError:
+            _ciclo_off = 0
+        _evo_dash = _dados_evolucao(current_user.id, ciclo_off=_ciclo_off)
         _evo_dash["hoje_evo"] = _evo_dash.pop("_hoje_evo", None)
     except Exception:
         import logging
@@ -222,7 +227,7 @@ def index():
         db.session.rollback()
         _evo_dash = dict(dias_evo=[], evolucao=[], ideal_dia={}, balanco=None,
                          tolerancia=5, evo_erro=True, opcoes_partes={},
-                         hoje_evo=None)
+                         hoje_evo=None, ciclo_nav=None)
 
     return render_template(
         "dashboard.html",
@@ -252,7 +257,7 @@ def index():
     )
 
 
-def _dados_evolucao(user_id):
+def _dados_evolucao(user_id, ciclo_off=0):
     """Evolução diária do Andamento (coluna de hoje, calculada na hora) +
     balanço atual. Usado no Painel inicial e na página de Avisos."""
     from app.agente_andamento import TOLERANCIA_PP
@@ -262,8 +267,18 @@ def _dados_evolucao(user_id):
     from app.agente_andamento import (calcular_andamento, hoje_brasilia,
                                       mes_fatura_do_ciclo)
     from app.utils import get_open_billing_month as _gobm_evo
-    _hoje_evo = hoje_brasilia()
-    mes_evo = _gobm_evo(user_id, mes_fatura_do_ciclo(_hoje_evo))
+    from app.agente_andamento import ciclo as _ciclo_ref
+    from datetime import timedelta as _td_evo
+    _hoje_real = hoje_brasilia()
+    _hoje_evo = _hoje_real
+    _historico = ciclo_off < 0
+    if _historico:
+        # Último dia do ciclo pedido (ciclo_off ciclos atrás) — ciclo encerrado
+        for _ in range(-ciclo_off):
+            _hoje_evo = _ciclo_ref(_hoje_evo)[0] - _td_evo(days=1)
+        mes_evo = mes_fatura_do_ciclo(_hoje_evo)
+    else:
+        mes_evo = _gobm_evo(user_id, mes_fatura_do_ciclo(_hoje_evo))
     agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
                                                 somente_dono=True)
 
@@ -365,9 +380,9 @@ def _dados_evolucao(user_id):
                     "gasto": _g,
                     "pct": round(_g / _dv * 100, 1) if _dv > 0 else (100.0 if _g > 0 else 0.0),
                     "estourou": _g > _dv + 0.004,
-                    "encerrada": _b < _hoje_evo,
-                    "atual": _a <= _hoje_evo <= _b,
-                    "futura": _hoje_evo < _a,
+                    "encerrada": _historico or _b < _hoje_evo,
+                    "atual": (not _historico) and _a <= _hoje_evo <= _b,
+                    "futura": (not _historico) and _hoje_evo < _a,
                 })
         evolucao.append({
             "expense_id": it["expense_id"],
@@ -407,7 +422,13 @@ def _dados_evolucao(user_id):
     return dict(dias_evo=dias_evo, evolucao=evolucao, ideal_dia=ideal_dia,
                 balanco=balanco, tolerancia=TOLERANCIA_PP,
                 opcoes_partes=opcoes_partes,
-                _hoje_evo=_hoje_evo)
+                _hoje_evo=_hoje_evo,
+                ciclo_nav=dict(
+                    off=ciclo_off, historico=_historico,
+                    inicio=_cs, fim=_ce - _td_evo(days=1), mes=mes_evo,
+                    anterior=ciclo_off - 1,
+                    proximo=(ciclo_off + 1) if ciclo_off < 0 else None,
+                ))
 
 
 @dashboard_bp.route("/relatorio")
