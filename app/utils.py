@@ -884,3 +884,57 @@ def e_parcela_seguinte_importada(installments, installment_no):
         return int(installments or 1) > 1 and int(installment_no or 1) > 1
     except (TypeError, ValueError):
         return False
+
+
+# ─────────────────────────────────────────────────────────────
+#  Regras fixas de classificação (definidas pelo usuário)
+#   1. Compra parcelada (N > 1)          → "Cartão Parcelado"
+#   2. Drogaria/farmácia  < R$ 50        → "Cartão Avulso";  ≥ R$ 50 → "Farmácia"
+#   3. Posto/combustível  < R$ 50        → "Cartão Avulso";  ≥ R$ 50 → "Gasolina"
+# ─────────────────────────────────────────────────────────────
+_RX_DROGARIA = _re_parc.compile(
+    r"DROGA|DROGARIA|DROGASIL|\bRAIA\b|FARMA|PANVEL|PAGUE ?MENOS|ULTRAFARMA|NISSEI|PACHECO")
+_RX_POSTO = _re_parc.compile(
+    r"POSTO|COMBUST|SHELL|IPIRANGA|PETROBRAS|\bBR MANIA|ALE COMB|REDE AUTO|BARATAO|GASOLINA")
+
+
+def _expense_por_nome(user_id, *nomes):
+    from app.models import Expense
+    import unicodedata as _ud
+    def _n(s):
+        return _ud.normalize("NFKD", (s or "")).encode("ascii", "ignore").decode().upper().strip()
+    alvos = {_n(x) for x in nomes}
+    exps = [e for e in Expense.query.filter(Expense.payer_id == user_id)
+            .order_by(Expense.id).all() if _n(e.description) in alvos]
+    rec = [e for e in exps if e.kind == "recorrente"]
+    return (rec or exps or [None])[0]
+
+
+def regra_fixa_gasto(user_id, description, amount, installments):
+    """Devolve o Expense que a regra fixa manda usar, ou None se nenhuma se aplica."""
+    try:
+        n = int(installments or 1)
+    except (TypeError, ValueError):
+        n = 1
+    if n > 1:
+        return _expense_por_nome(user_id, "Cartão Parcelado", "Cartao Parcelado")
+    d = (description or "").upper()
+    v = float(amount or 0)
+    if _RX_DROGARIA.search(d):
+        return (_expense_por_nome(user_id, "Cartão Avulso", "Cartao Avulso") if v < 50
+                else _expense_por_nome(user_id, "Farmácia", "Farmacia"))
+    if _RX_POSTO.search(d):
+        return (_expense_por_nome(user_id, "Cartão Avulso", "Cartao Avulso") if v < 50
+                else _expense_por_nome(user_id, "Gasolina"))
+    return None
+
+
+def aplicar_regra_fixa(entry):
+    """Aplica a regra fixa ao lançamento (se houver). Retorna True se mudou."""
+    exp = regra_fixa_gasto(entry.user_id, entry.description, entry.amount, entry.installments)
+    if not exp:
+        return False
+    entry.expense_id = exp.id
+    entry.subcategoria_id = None
+    entry.category = (exp.description or "")[:60]
+    return True

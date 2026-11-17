@@ -879,6 +879,11 @@ def _save_entry(entry, card):
     else:
         entry.installments = 1
         entry.installment_no = 1
+    # Regras fixas quando o lançamento ficou sem vínculo
+    if not entry.expense_id:
+        from app.utils import aplicar_regra_fixa as _arf
+        entry.user_id = entry.user_id or current_user.id
+        _arf(entry)
     entry.notes = notes
     entry.entry_date = d
     # billing_month: usa o do form se informado, senão usa mês atual aberto
@@ -1742,6 +1747,10 @@ def finalizar_lote(card_id, batch_id, user_id):
                         e.expense_id = rule.expense_id
                         e.subcategoria_id = getattr(rule, "subcategoria_id", None)
                     break
+    # Regras fixas (parcelado / drogaria / posto) têm prioridade
+    from app.utils import aplicar_regra_fixa as _arf
+    for e in CardEntry.query.filter_by(batch_id=batch_id, status="em_avaliacao").all():
+        _arf(e)
     db.session.commit()
 
 
