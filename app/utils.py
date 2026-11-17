@@ -818,9 +818,8 @@ def gerar_parcelas_futuras(entry, mes_minimo=None, commit=True):
         bm = add_meses_bm(entry.billing_month, i - k)
         if mes_minimo and bm < mes_minimo:
             continue
-        if any(x.billing_month == bm and norm_desc_parcela(x.description) == base
-               for x in exclusoes):
-            continue
+        # (Exclusões do controle de parcelados não bloqueiam: elas se referem a
+        #  projeções duplicadas, não à parcela real lida da fatura.)
         if _parcela_ja_existe(entry, i):
             continue
         db.session.add(CardEntry(
