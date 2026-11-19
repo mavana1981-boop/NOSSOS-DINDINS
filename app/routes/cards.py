@@ -1184,7 +1184,14 @@ def _process_batch(card):
     def _parse_json(raw):
         raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         raw = re.sub(r"\n?```$", "", raw)
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except ValueError:
+            # Modelos de raciocínio às vezes cercam o JSON com texto: pega o 1º array/objeto
+            m = re.search(r"(\[.*\]|\{.*\})", raw, re.S)
+            if not m:
+                raise
+            return json.loads(m.group(1))
 
     def _try_claude():
         """Extrai transações usando a API do Claude — melhor suporte a PDFs."""
@@ -1358,17 +1365,24 @@ def _process_batch(card):
             env_keys = [k for k in os.environ if "groq" in k.lower() or "GROQ" in k]
             return None, f"GROQ_API_KEY não encontrada (vars disponíveis: {env_keys})"
 
+        # Modelos Groq (llama3-70b-8192 e llama-3.3-70b-versatile foram descontinuados).
+        # Podem ser trocados sem deploy de código via variáveis de ambiente no Railway.
+        GROQ_TEXT_MODEL = os.environ.get("GROQ_MODEL") or "openai/gpt-oss-120b"
+        GROQ_VISION_MODEL = (os.environ.get("GROQ_VISION_MODEL")
+                             or "meta-llama/llama-4-scout-17b-16e-instruct")
+
         def _groq_call(text_chunk):
             """Chama Groq com um chunk de texto."""
-            msgs = [{"role": "user", "content": [
-                {"type": "text", "text": PROMPT},
-                {"type": "text", "text": "Extrato:\n" + text_chunk},
-            ]}]
-            payload = json.dumps({
-                "model": "llama3-70b-8192",
+            msgs = [{"role": "user",
+                     "content": PROMPT + "\n\nExtrato:\n" + text_chunk}]
+            _body = {
+                "model": GROQ_TEXT_MODEL,
                 "messages": msgs,
                 "max_tokens": 8192,
-            }).encode()
+            }
+            if GROQ_TEXT_MODEL.startswith("openai/gpt-oss"):
+                _body["reasoning_effort"] = "low"
+            payload = json.dumps(_body).encode()
             req = urllib.request.Request(
                 "https://api.groq.com/openai/v1/chat/completions",
                 data=payload,
@@ -1422,7 +1436,7 @@ def _process_batch(card):
                         img_msgs[0]["content"].append({"type": "image_url",
                             "image_url": {"url": f"data:{fd['mime']};base64,{fd['b64']}"}})
                 payload = json.dumps({
-                    "model": "llama3-70b-8192",
+                    "model": GROQ_VISION_MODEL,
                     "messages": img_msgs, "max_tokens": 8192,
                 }).encode()
                 req = urllib.request.Request(
