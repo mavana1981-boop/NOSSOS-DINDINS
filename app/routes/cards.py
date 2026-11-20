@@ -442,6 +442,9 @@ def list_cards():
                            prev_mes=prev_mes,
                            next_mes=next_mes,
                            mes_fechado=mes_fechado,
+                           fechou_em=next((c.fechou_em for c in closed_months_list
+                                           if c.billing_month == mes_filter), None),
+                           hoje_iso=date.today().isoformat(),
                            closed_months_list=closed_months_list)
 
 
@@ -452,6 +455,26 @@ def fechar_mes_geral():
     mes = request.form.get("mes", "").strip()
     if not mes:
         flash("Mês não informado.", "danger")
+        return redirect(url_for("cards.list_cards"))
+    from datetime import datetime as _dtf
+    from app.utils import registrar_fechamento, add_meses_bm
+    fechou_em = None
+    _raw = request.form.get("fechou_em", "").strip()
+    if _raw:
+        try:
+            fechou_em = _dtf.strptime(_raw, "%Y-%m-%d").date()
+        except ValueError:
+            flash("Data de fechamento inválida.", "danger")
+            return redirect(url_for("cards.list_cards", mes=mes))
+    if fechou_em:
+        fr, tr = registrar_fechamento(current_user.id, mes, fechou_em)
+        db.session.commit()
+        msg = f"Fatura {mes} fechada em {fechou_em.strftime('%d/%m/%Y')}."
+        if fr:
+            msg += f" {fr} compra(s) de {fechou_em.strftime('%d/%m')} em diante foram para {add_meses_bm(mes, 1)}."
+        if tr:
+            msg += f" {tr} compra(s) anteriores ao fechamento voltaram para {mes}."
+        flash(msg, "success")
         return redirect(url_for("cards.list_cards"))
     existente = ClosedMonth.query.filter_by(user_id=current_user.id, billing_month=mes).first()
     if not existente:
@@ -899,7 +922,9 @@ def _save_entry(entry, card):
     if entry.billing_month:
         from app.utils import get_open_billing_month as _gobm
         bm_orig = entry.billing_month
-        entry.billing_month = _gobm(current_user.id, bm_orig)
+        from app.utils import ajustar_fatura_por_fechamento as _afpf_sv
+        entry.billing_month = _gobm(current_user.id,
+                                    _afpf_sv(current_user.id, entry.entry_date, bm_orig))
         if entry.billing_month != bm_orig:
             flash(
                 f"Mês {bm_orig} está fechado. "
@@ -1116,6 +1141,7 @@ def _process_batch(card):
     from app.utils import get_open_billing_month as _gobm_batch
     _bm_orig = billing_month
     billing_month = _gobm_batch(current_user.id, billing_month)
+    from app.utils import ajustar_fatura_por_fechamento as _afpf_b
     if billing_month != _bm_orig:
         flash(f"Mês {_bm_orig} está fechado. Importando para {billing_month}.", "warning")
 
@@ -1632,7 +1658,7 @@ def _process_batch(card):
                 category="A classificar",
                 status="em_avaliacao",
                 batch_id=batch_id,
-                billing_month=billing_month,
+                billing_month=_afpf_b(current_user.id, d, billing_month),
             )
             db.session.add(entry)
             if inst > 1:

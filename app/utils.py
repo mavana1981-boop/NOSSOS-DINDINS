@@ -938,3 +938,125 @@ def aplicar_regra_fixa(entry):
     entry.subcategoria_id = None
     entry.category = (exp.description or "")[:60]
     return True
+
+
+# ─────────────────────────────────────────────────────────────
+#  Data real de fechamento da fatura
+#  Ao fechar a fatura M informando a data (ex.: 13/11), toda compra com
+#  data >= fechamento vai para a fatura seguinte (M+1) — inclusive as
+#  que já estavam lançadas em M e as que forem importadas depois.
+# ─────────────────────────────────────────────────────────────
+def fechamentos_usuario(user_id):
+    """{billing_month: data_de_fechamento} das faturas com data informada."""
+    from app.models import ClosedMonth
+    return {cm.billing_month: cm.fechou_em for cm in
+            ClosedMonth.query.filter(ClosedMonth.user_id == user_id,
+                                     ClosedMonth.fechou_em.isnot(None)).all()}
+
+
+def ajustar_fatura_por_fechamento(user_id, entry_date, billing_month, permitir_recuar=False):
+    """Corrige a fatura de uma compra pela data real de fechamento.
+
+    - Avança: se a fatura M já fechou e a compra é do dia do fechamento em
+      diante, vai para M+1 (repetindo enquanto houver fechamentos).
+    - Recua (só quando a fatura foi calculada pelo dia de fechamento do
+      cartão, ex.: Open Finance): se a fatura anterior fechou DEPOIS da
+      compra, a compra pertence a ela.
+    """
+    from datetime import timedelta
+    if not billing_month or not entry_date:
+        return billing_month
+    f = fechamentos_usuario(user_id)
+    if not f:
+        return billing_month
+    bm = billing_month
+    for _ in range(24):
+        d = f.get(bm)
+        if d and entry_date >= d:
+            bm = add_meses_bm(bm, 1)
+        else:
+            break
+    if permitir_recuar and bm == billing_month:
+        ant = add_meses_bm(bm, -1)
+        d = f.get(ant)
+        if d and d - timedelta(days=45) <= entry_date < d:
+            bm = ant
+    return bm
+
+
+def _e_parcela_auto(entry):
+    return "[parcela auto · origem #" in (entry.notes or "")
+
+
+def mover_lancamento_de_fatura(entry, delta):
+    """Move a compra `delta` meses de fatura, levando junto as parcelas
+    automáticas e os parcelados planejados que nasceram dela."""
+    from app.models import CardEntry, PlannedInstallment
+    entry.billing_month = add_meses_bm(entry.billing_month, delta)
+    tag = PARC_AUTO_TAG.format(id=entry.id)
+    for c in CardEntry.query.filter(CardEntry.notes.contains(tag)).all():
+        if c.billing_month:
+            c.billing_month = add_meses_bm(c.billing_month, delta)
+    for p in PlannedInstallment.query.filter_by(origin_entry_id=entry.id).all():
+        if p.billing_month:
+            p.billing_month = add_meses_bm(p.billing_month, delta)
+
+
+def reatribuir_apos_fechamento(user_id, billing_month, fechou_em):
+    """Aplica a data de fechamento aos lançamentos já existentes:
+      - compras da fatura M com data >= fechamento → M+1
+      - compras da fatura M+1 com data < fechamento (fechamento atrasado) → M
+    Parcelas 2/N em diante seguem a compra de origem. Retorna (movidos_p_frente, movidos_p_tras)."""
+    from datetime import timedelta
+    from app.models import CardEntry
+    prox = add_meses_bm(billing_month, 1)
+    vivos = CardEntry.status.in_(["ativo", "em_avaliacao"])
+    frente = tras = 0
+    for e in CardEntry.query.filter(CardEntry.user_id == user_id,
+                                    CardEntry.billing_month == billing_month,
+                                    CardEntry.entry_date >= fechou_em, vivos).all():
+        if _e_parcela_auto(e) or (e.installment_no or 1) > 1:
+            continue
+        mover_lancamento_de_fatura(e, +1)
+        frente += 1
+    for e in CardEntry.query.filter(CardEntry.user_id == user_id,
+                                    CardEntry.billing_month == prox,
+                                    CardEntry.entry_date < fechou_em,
+                                    CardEntry.entry_date >= fechou_em - timedelta(days=12),
+                                    vivos).all():
+        if _e_parcela_auto(e) or (e.installment_no or 1) > 1:
+            continue
+        mover_lancamento_de_fatura(e, -1)
+        tras += 1
+    return frente, tras
+
+
+def fatura_que_fechou_em(user_id, fechou_em):
+    """Descobre qual fatura (YYYY-MM) contém as compras dos dias anteriores
+    ao fechamento — é a fatura que fechou nessa data."""
+    from datetime import timedelta
+    from collections import Counter
+    from app.models import CardEntry
+    cont = Counter()
+    for e in CardEntry.query.filter(CardEntry.user_id == user_id,
+                                    CardEntry.entry_date < fechou_em,
+                                    CardEntry.entry_date >= fechou_em - timedelta(days=12),
+                                    CardEntry.billing_month.isnot(None),
+                                    CardEntry.status.in_(["ativo", "em_avaliacao"])).all():
+        if _e_parcela_auto(e) or (e.installment_no or 1) > 1:
+            continue
+        cont[e.billing_month] += 1
+    return cont.most_common(1)[0][0] if cont else None
+
+
+def registrar_fechamento(user_id, billing_month, fechou_em):
+    """Fecha a fatura M na data informada e realoca os lançamentos.
+    Não faz commit. Retorna (movidos_p_frente, movidos_p_tras)."""
+    from app.models import ClosedMonth
+    cm = ClosedMonth.query.filter_by(user_id=user_id, billing_month=billing_month).first()
+    if not cm:
+        cm = ClosedMonth(user_id=user_id, billing_month=billing_month)
+        db.session.add(cm)
+    cm.fechou_em = fechou_em
+    db.session.flush()
+    return reatribuir_apos_fechamento(user_id, billing_month, fechou_em)

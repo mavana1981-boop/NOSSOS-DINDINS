@@ -112,8 +112,13 @@ def ciclo_fatura(user_id: int, billing_month: str, hoje: date = None):
       nominal, o ciclo se estende até hoje (fechamento atrasado).
     """
     from datetime import timedelta
-    cs = primeira_compra_fatura(user_id, billing_month) or _dia16(mes_add(billing_month, -1))
-    prox = primeira_compra_fatura(user_id, mes_add(billing_month, 1))
+    from app.utils import fechamentos_usuario
+    fech = fechamentos_usuario(user_id)
+    # Data real de fechamento (informada ao fechar a fatura) tem prioridade
+    cs = (fech.get(mes_add(billing_month, -1))
+          or primeira_compra_fatura(user_id, billing_month)
+          or _dia16(mes_add(billing_month, -1)))
+    prox = fech.get(billing_month) or primeira_compra_fatura(user_id, mes_add(billing_month, 1))
     ce = prox or _dia16(billing_month)
     if prox is None and hoje is not None and cs <= hoje and hoje >= ce:
         ce = hoje + timedelta(days=1)

@@ -53,6 +53,7 @@ def bootstrap():
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
         _ensure_column("card_entries", "pluggy_tx_id", "VARCHAR(64)")
+        _ensure_column("closed_months", "fechou_em", "DATE")
         _ensure_column("notificacoes", "push_status", "VARCHAR(300)")
         _ensure_column("push_inscricoes", "ultimo_ok_em", "TIMESTAMP")
         _ensure_column("push_inscricoes", "ultimo_erro", "VARCHAR(300)")
@@ -529,7 +530,45 @@ def _limpar_planejados_invalidos():
             print(f"[limpar_planejados] Erro: {_ex}")
 
 
+def _fechamento_13_11_2026():
+    """Correção pontual pedida pelo Marcelo: a fatura que fecharia em 16/11
+    fechou em 13/11/2026 — compras de 13/11 em diante vão para a seguinte.
+    Roda uma única vez (trava em agente_execucoes, segura com 2 workers)."""
+    from datetime import date as _d
+    from sqlalchemy import func as _f
+    from sqlalchemy.exc import IntegrityError as _IE
+    from app.models import AgenteExecucao, User as _U
+    from app.utils import fatura_que_fechou_em, registrar_fechamento
+    with app.app_context():
+        try:
+            db.session.add(AgenteExecucao(job="fechamento_2026_11_13", run_date=_d(2026, 11, 13)))
+            db.session.commit()
+        except _IE:
+            db.session.rollback()
+            return
+        except Exception as _e:
+            db.session.rollback()
+            print(f"[fechamento 13/11] trava: {_e}")
+            return
+        try:
+            data = _d(2026, 11, 13)
+            emails = ["mavana1981@gmail.com", "marcelo.uvara@camara.leg.br"]
+            for u in _U.query.filter(_f.lower(_U.email).in_(emails)).all():
+                bm = fatura_que_fechou_em(u.id, data)
+                if not bm:
+                    print(f"[fechamento 13/11] {u.username}: fatura não encontrada")
+                    continue
+                fr, tr = registrar_fechamento(u.id, bm, data)
+                db.session.commit()
+                print(f"[fechamento 13/11] {u.username}: fatura {bm} fechada em 13/11; "
+                      f"{fr} lançamento(s) movido(s) para a fatura seguinte")
+        except Exception as _e:
+            db.session.rollback()
+            print(f"[fechamento 13/11] erro: {_e}")
+
+
 bootstrap()
+_fechamento_13_11_2026()
 _limpar_planejados_invalidos()
 _dedup_card_entries()
 _fix_parcelados_duplicados()

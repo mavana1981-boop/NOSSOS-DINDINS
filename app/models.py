@@ -411,6 +411,9 @@ class ClosedMonth(db.Model):
     user_id       = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     billing_month = db.Column(db.String(7), nullable=False)
     closed_at     = db.Column(db.DateTime, default=db.func.now())
+    # Data real em que a fatura fechou: compras desse dia em diante vão
+    # para a fatura seguinte (ver utils.ajustar_fatura_por_fechamento)
+    fechou_em     = db.Column(db.Date, nullable=True)
     __table_args__ = (db.UniqueConstraint("user_id", "billing_month"),)
     user = db.relationship("User", backref="closed_months")
 

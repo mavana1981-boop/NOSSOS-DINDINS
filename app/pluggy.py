@@ -250,7 +250,12 @@ def sincronizar_link(api_key, link, diag=None):
             diag["parcelas_seguintes"] = diag.get("parcelas_seguintes", 0) + 1
             continue
         yr, mo = get_billing_month(entry_date, card.closing_day)
-        billing_month = get_open_billing_month(link.user_id, f"{yr}-{mo:02d}")
+        from app.utils import ajustar_fatura_por_fechamento as _afpf
+        _bm_calc = f"{yr}-{mo:02d}"
+        _bm_aj = _afpf(link.user_id, entry_date, _bm_calc, permitir_recuar=True)
+        # Recuo = a fatura anterior fechou depois da compra: fica nela mesmo fechada
+        billing_month = (_bm_aj if _bm_aj < _bm_calc
+                         else get_open_billing_month(link.user_id, _bm_aj))
 
         db.session.add(CardEntry(
             card_id=card.id,

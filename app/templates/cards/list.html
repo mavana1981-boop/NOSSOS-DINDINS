@@ -30,6 +30,14 @@
     <a href="{{ url_for('cards.list_cards', mes=next_mes) }}" class="btn btn-ghost" title="Próximo mês">→</a>
 
     {% if mes_fechado %}
+      <form method="POST" action="{{ url_for('cards.fechar_mes_geral') }}"
+            style="display:flex;gap:6px;align-items:center;" title="Data real do fechamento: compras desse dia em diante vão para a fatura seguinte">
+        <input type="hidden" name="mes" value="{{ mes_filter }}">
+        <span class="text-small text-dim">Fechou em</span>
+        <input type="date" name="fechou_em" value="{{ fechou_em.isoformat() if fechou_em else '' }}" required
+               style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+        <button class="btn btn-ghost btn-sm" style="border:1px solid var(--gold);color:var(--gold);">Salvar</button>
+      </form>
       <form method="POST" action="{{ url_for('cards.reabrir_mes') }}"
             onsubmit="return confirm('Reabrir {{ mes_label }}?');">
         <input type="hidden" name="mes" value="{{ mes_filter }}">
@@ -37,8 +45,12 @@
       </form>
     {% else %}
       <form method="POST" action="{{ url_for('cards.fechar_mes_geral') }}"
-            onsubmit="return confirm('Fechar {{ mes_label }}? O app avançará para o próximo mês.');">
+            style="display:flex;gap:6px;align-items:center;"
+            onsubmit="return confirm('Fechar {{ mes_label }}? Compras a partir da data informada vão para a próxima fatura.');">
         <input type="hidden" name="mes" value="{{ mes_filter }}">
+        <span class="text-small text-dim">Fechou em</span>
+        <input type="date" name="fechou_em" value="{{ hoje_iso }}" required
+               style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
         <button class="btn btn-ghost" style="color:var(--gold);border:1px solid var(--gold);">🔒 Fechar mês</button>
       </form>
     {% endif %}
