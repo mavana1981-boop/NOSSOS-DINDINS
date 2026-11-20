@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Eliminação de Dívidas{% endblock %}
+{% block content %}
+{% include "planejamento/_estilo.html" %}
+{% set rot = {'bola_de_neve': 'Bola de Neve', 'avalanche': 'Avalanche', 'hibrida': 'Híbrida'} %}
+{% set desc = {'bola_de_neve': 'Menor saldo primeiro — vitórias rápidas', 'avalanche': 'Maior juro primeiro — menos juros', 'hibrida': 'Vitórias rápidas e depois maior juro'} %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>⛓️ Motor de Eliminação de Dívidas</h1>
+    <p>Cadastre as dívidas com taxa em <strong>% ao mês</strong>. O app simula as três estratégias e a IA monta o plano.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('planejamento.index') }}">← Planejamento</a>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3 style="margin-top:0;">{{ 'Editar dívida' if editar else 'Nova dívida' }}</h3>
+    <form method="POST">
+      {% if editar %}<input type="hidden" name="divida_id" value="{{ editar.id }}">{% endif %}
+      <div class="form-group">
+        <label class="form-label">Nome</label>
+        <input class="form-control" name="nome" required placeholder="Ex.: Rotativo Nubank, Empréstimo BB"
+               value="{{ editar.nome if editar else '' }}">
+      </div>
+      <div class="grid grid-3">
+        <div class="form-group">
+          <label class="form-label">Saldo devedor (R$)</label>
+          <input class="form-control" name="saldo" inputmode="decimal" required
+                 value="{{ '%.2f'|format(editar.saldo) if editar else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Juros (% a.m.)</label>
+          <input class="form-control" name="taxa_mensal" inputmode="decimal" placeholder="Ex.: 2,49"
+                 value="{{ '%.3f'|format(editar.taxa_mensal)|replace('.', ',') if editar else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pagamento mínimo (R$)</label>
+          <input class="form-control" name="pagamento_minimo" inputmode="decimal"
+                 value="{{ '%.2f'|format(editar.pagamento_minimo) if editar else '' }}">
+        </div>
+      </div>
+      <button class="btn btn-primary" type="submit">Salvar</button>
+      {% if editar %}<a class="btn btn-ghost" href="{{ url_for('planejamento.dividas') }}">Cancelar</a>{% endif %}
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Pagamento extra por mês</h3>
+    <p class="text-dim text-small">Quanto você consegue pagar <em>além</em> dos mínimos. Teste valores diferentes aqui; para fixar, salve em Planejamento.</p>
+    <form method="GET" class="flex flex-gap" style="align-items:flex-end;">
+      <div class="form-group mb-0" style="flex:1;">
+        <label class="form-label">Extra (R$)</label>
+        <input class="form-control" name="extra" inputmode="decimal" value="{{ '%.2f'|format(extra) }}">
+      </div>
+      <button class="btn btn-ghost" type="submit">Simular</button>
+    </form>
+    <form method="POST" action="{{ url_for('planejamento.salvar_perfil') }}" class="mt-2">
+      <input type="hidden" name="next" value="{{ url_for('planejamento.dividas') }}">
+      {% for campo in ['capital_disponivel','horas_semana','pessoas_domicilio','gatilho_gasto','contexto'] %}
+        <input type="hidden" name="{{ campo }}" value="{{ perfil[campo] if perfil[campo] is not none else '' }}">
+      {% endfor %}
+      <input type="hidden" name="renda_override" value="{{ perfil.renda_override if perfil.renda_override else '' }}">
+      <input type="hidden" name="fixas_override" value="{{ perfil.fixas_override if perfil.fixas_override else '' }}">
+      <input type="hidden" name="pagamento_extra" value="{{ '%.2f'|format(extra) }}">
+      <button class="btn btn-ghost btn-sm" type="submit">Fixar {{ extra|brl }} como extra padrão</button>
+    </form>
+  </div>
+</div>
+
+{% if dividas %}
+<div class="card mt-3">
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Dívida</th><th class="num">Saldo</th><th class="num">Juros a.m.</th><th class="num">Juros a.a. (equiv.)</th><th class="num">Mínimo</th><th></th></tr></thead>
+      <tbody>
+      {% for d in dividas %}
+        {% set tm = (d.taxa_mensal or 0)|float %}
+        <tr>
+          <td>{{ d.nome }}{% if (d.saldo|float) * tm / 100 >= (d.pagamento_minimo|float) and tm > 0 %}
+              <span class="badge badge-debit" title="O mínimo não cobre os juros">não amortiza</span>{% endif %}</td>
+          <td class="num">{{ d.saldo|brl }}</td>
+          <td class="num">{{ '%.2f'|format(tm)|replace('.', ',') }}%</td>
+          <td class="num">{{ '%.1f'|format(((1 + tm/100) ** 12 - 1) * 100)|replace('.', ',') }}%</td>
+          <td class="num">{{ d.pagamento_minimo|brl }}</td>
+          <td class="text-right" style="white-space:nowrap;">
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('planejamento.dividas', editar=d.id) }}">Editar</a>
+            <form method="POST" action="{{ url_for('planejamento.excluir_divida', divida_id=d.id) }}" style="display:inline;"
+                  onsubmit="return confirm('Remover esta dívida?');">
+              <button class="btn btn-ghost btn-sm" type="submit">✕</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if sims %}
+{% set ok = sims.values()|selectattr('quitacao_final')|list %}
+{% set melhor = (ok|sort(attribute='total_juros')|first).estrategia if ok else None %}
+<h2 class="serif mt-3">Comparação das estratégias</h2>
+<div class="grid grid-3">
+  {% for k in ['bola_de_neve', 'avalanche', 'hibrida'] %}
+  {% set s = sims[k] %}
+  <div class="card {{ 'est-melhor' if k == melhor }}">
+    <div class="flex-between"><h3 style="margin:0;">{{ rot[k] }}</h3>{% if k == melhor %}<span class="badge badge-done">menos juros</span>{% endif %}</div>
+    <p class="text-faint text-small">{{ desc[k] }}</p>
+    {% if s.alerta %}<div class="alert alert-danger text-small">{{ s.alerta }}</div>{% endif %}
+    <div class="stat-label">Juros totais</div>
+    <div class="stat-value" style="font-size:1.5rem;">{{ s.total_juros|brl }}</div>
+    <div class="text-small text-dim mt-2">
+      Pagamento mensal: <strong>{{ s.pagamento_mensal_total|brl }}</strong><br>
+      Quitação: <strong>{{ mes_br(s.quitacao_final) if s.quitacao_final else '—' }}</strong>{% if s.meses %} ({{ s.meses }} meses){% endif %}
+    </div>
+    <ol class="text-small mt-2" style="padding-left:18px;">
+      {% for o in s.ordem %}<li>{{ o.nome }} <span class="text-faint">— {{ mes_br(o.quitada_em) if o.quitada_em else 'não quita' }}</span></li>{% endfor %}
+    </ol>
+  </div>
+  {% endfor %}
+</div>
+
+{% set s = sims[melhor or 'avalanche'] %}
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Tabela de acompanhamento — {{ rot[melhor or 'avalanche'] }}</h3>
+  <p class="text-dim text-small">Quanto pagar em cada dívida e o saldo ao fim de cada mês (primeiros 36 meses).</p>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr><th>Mês</th>
+          {% for o in s.ordem %}<th class="num">{{ o.nome }}<br><span class="text-faint">pagar · saldo</span></th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for ln in s.cronograma[:36] %}
+        <tr><td style="white-space:nowrap;">{{ mes_br(ln.mes) }}</td>
+          {% for o in s.ordem %}
+            {% set pg = ln.pagamentos.get(o.id, 0) %}{% set sd = ln.saldos.get(o.id, 0) %}
+            <td class="num">{% if pg > 0 %}{{ pg|brl }} · <span class="text-faint">{{ sd|brl }}</span>{% elif sd == 0 %}<span class="text-faint">quitada</span>{% else %}—{% endif %}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-3 flex-between">
+  <div>
+    <h3 style="margin:0;">Plano completo com IA</h3>
+    <p class="text-dim text-small mb-0">Recomendação para a sua situação, renegociação e plano mês a mês — usando os números acima.</p>
+  </div>
+  <div class="flex flex-gap">
+    {% if ultima %}<a class="btn btn-ghost" href="{{ url_for('planejamento.ver', analise_id=ultima.id) }}">Abrir última</a>{% endif %}
+    <form method="POST" action="{{ url_for('planejamento.rodar', modulo='dividas') }}">
+      <button class="btn btn-primary" type="submit">Gerar plano</button>
+    </form>
+  </div>
+</div>
+{% elif not dividas %}
+<div class="card mt-3"><div class="empty-state"><h4>Nenhuma dívida cadastrada</h4>
+  <p>Inclua empréstimos, rotativo, cheque especial, financiamentos — com saldo, juros ao mês e parcela mínima.</p></div></div>
+{% endif %}
+{% endblock %}

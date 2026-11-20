@@ -613,3 +613,51 @@ class PluggyAccountLink(db.Model):
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
 
     card = db.relationship("Card", backref="pluggy_links")
+
+
+# ── Planejamento (análises com IA) ──
+class PlanejamentoPerfil(db.Model):
+    """Dados que o app não tem sozinho e que alimentam as análises de Planejamento."""
+    __tablename__ = "planejamento_perfil"
+    id                 = db.Column(db.Integer, primary_key=True)
+    user_id            = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+                                   nullable=False, unique=True)
+    capital_disponivel = db.Column(db.Numeric(12, 2), default=0)
+    horas_semana       = db.Column(db.Integer, default=0)
+    pessoas_domicilio  = db.Column(db.Integer, default=4)
+    pagamento_extra    = db.Column(db.Numeric(12, 2), default=0)   # extra mensal p/ dívidas
+    renda_override     = db.Column(db.Numeric(12, 2), nullable=True)
+    fixas_override     = db.Column(db.Numeric(12, 2), nullable=True)
+    gatilho_gasto      = db.Column(db.Text)
+    contexto           = db.Column(db.Text)   # profissão, habilidades, objetivos
+    updated_at         = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Divida(db.Model):
+    """Dívida para o Motor de Eliminação de Dívidas (taxa em % ao mês)."""
+    __tablename__ = "dividas"
+    id               = db.Column(db.Integer, primary_key=True)
+    user_id          = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+                                 nullable=False, index=True)
+    nome             = db.Column(db.String(120), nullable=False)
+    saldo            = db.Column(db.Numeric(12, 2), nullable=False)
+    taxa_mensal      = db.Column(db.Numeric(6, 3), nullable=False, default=0)
+    pagamento_minimo = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    ativa            = db.Column(db.Boolean, default=True, nullable=False)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class PlanejamentoAnalise(db.Model):
+    """Resultado de uma análise de IA (roda em segundo plano)."""
+    __tablename__ = "planejamento_analises"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    modulo     = db.Column(db.String(30), nullable=False)   # receitas|dividas|vazamentos|orcamento
+    status     = db.Column(db.String(20), default="processando")  # processando|ok|erro
+    entrada    = db.Column(db.Text)     # JSON enviado à IA
+    resultado  = db.Column(db.Text)     # markdown
+    provedor   = db.Column(db.String(60))
+    erro       = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    finished_at = db.Column(db.DateTime, nullable=True)

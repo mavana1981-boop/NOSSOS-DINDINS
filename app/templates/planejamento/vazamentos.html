@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Detector de Vazamentos{% endblock %}
+{% block content %}
+{% include "planejamento/_estilo.html" %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>🔎 O que o app achou nos cartões</h1>
+    <p>Faturas: {{ d.faturas_analisadas|join(', ') }} ({{ d.fatura_aberta_parcial }} ainda aberta). {{ d.total_lancamentos }} lançamentos.</p>
+  </div>
+  <div class="flex flex-gap">
+    <a class="btn btn-ghost" href="{{ url_for('planejamento.index') }}">← Planejamento</a>
+    {% if ultima %}<a class="btn btn-ghost" href="{{ url_for('planejamento.ver', analise_id=ultima.id) }}">Abrir última análise</a>{% endif %}
+    <form method="POST" action="{{ url_for('planejamento.rodar', modulo='vazamentos') }}">
+      <button class="btn btn-primary" type="submit">Analisar com IA</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat"><div class="stat-label">Cartões / mês (média)</div><div class="stat-value" style="font-size:1.5rem;">{{ d.gasto_medio_mensal_cartoes|brl }}</div></div>
+  <div class="stat"><div class="stat-label">Delivery no período</div><div class="stat-value" style="font-size:1.5rem;">{{ d.delivery.total|brl }}</div><div class="stat-foot">{{ d.delivery.qtd }} pedidos</div></div>
+  <div class="stat"><div class="stat-label">Tarifas, juros, seguros</div><div class="stat-value" style="font-size:1.5rem;">{{ d.tarifas_juros_seguros.total|brl }}</div><div class="stat-foot">{{ d.tarifas_juros_seguros.qtd }} lançamentos</div></div>
+  <div class="stat"><div class="stat-label">Compras até R$ 30</div><div class="stat-value" style="font-size:1.5rem;">{{ d.pequenas_compras_ate_30.total|brl }}</div><div class="stat-foot">{{ d.pequenas_compras_ate_30.qtd }} compras</div></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3 style="margin-top:0;">Assinaturas e cobranças recorrentes prováveis</h3>
+    {% if d.assinaturas_provaveis %}
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Descrição</th><th class="num">Média</th><th class="num">Meses</th><th class="num">Por ano</th></tr></thead>
+      <tbody>{% for a in d.assinaturas_provaveis %}
+        <tr><td>{{ a.descricao }}</td><td class="num">{{ a.valor_medio|brl }}</td><td class="num">{{ a.meses_em_que_apareceu }}</td><td class="num">{{ a.estimativa_anual|brl }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="text-dim text-small">Nada recorrente detectado.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0;">Média mensal por categoria</h3>
+    <div class="table-wrap"><table class="tbl">
+      <tbody>{% for k, v in d.media_mensal_por_categoria.items() %}
+        <tr><td>{{ k }}</td><td class="num">{{ v|brl }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Maiores comerciantes no período</h3>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Descrição</th><th class="num">Total</th><th class="num">Compras</th><th class="num">Meses</th><th></th></tr></thead>
+    <tbody>{% for c in d.maiores_comerciantes[:25] %}
+      <tr><td>{{ c.descricao }}</td><td class="num">{{ c.total_periodo|brl }}</td><td class="num">{{ c.compras }}</td><td class="num">{{ c.meses }}</td>
+          <td class="text-faint text-small">{{ 'parcelado' if c.parcelado }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

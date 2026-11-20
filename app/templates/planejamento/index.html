@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Planejamento{% endblock %}
+{% block content %}
+{% include "planejamento/_estilo.html" %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Planejamento</h1>
+    <p>Quatro análises com IA usando os dados reais do app — rendas, gastos, faturas e investimentos.</p>
+  </div>
+</div>
+
+<div class="grid grid-3 mb-3">
+  <div class="stat">
+    <div class="stat-label">Renda mensal considerada</div>
+    <div class="stat-value">{{ rg.renda_mensal|brl }}</div>
+    <div class="stat-foot">{{ 'informada por você' if rg.renda_informada_manualmente else 'rendas do mês aberto' }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Gastos planejados do mês</div>
+    <div class="stat-value">{{ rg.despesas_planejadas_mes|brl }}</div>
+    <div class="stat-foot">{{ 'informado por você' if rg.despesas_informadas_manualmente else 'menu Gastos (sua parte)' }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Sobra estimada</div>
+    {% set sobra = rg.renda_mensal - rg.despesas_planejadas_mes %}
+    <div class="stat-value {{ 'positive' if sobra >= 0 else 'negative' }}">{{ sobra|brl }}</div>
+    <div class="stat-foot">antes de metas e investimentos</div>
+  </div>
+</div>
+
+<div class="plan-mods">
+  {% for key, m in modulos.items() %}
+  {% set u = ultimas[key] %}
+  <div class="card plan-mod">
+    <div class="ico">{{ m.icone }}</div>
+    <h3>{{ m.titulo }}</h3>
+    <p class="text-dim text-small mb-0">{{ m.resumo }}</p>
+    <div class="plan-status">
+      {% if u %}
+        Última: {{ u.created_at.strftime('%d/%m/%Y') }} ·
+        {% if u.status == 'ok' %}✓ pronta{% elif u.status == 'erro' %}⚠ erro{% else %}⏳ gerando…{% endif %}
+      {% else %}Ainda não rodada{% endif %}
+      {% if key == 'dividas' %} · {{ n_dividas }} dívida(s) cadastrada(s){% endif %}
+    </div>
+    <div class="acoes">
+      {% if key == 'dividas' %}
+        <a class="btn btn-primary btn-sm" href="{{ url_for('planejamento.dividas') }}">Minhas dívidas</a>
+      {% elif key == 'vazamentos' %}
+        <form method="POST" action="{{ url_for('planejamento.rodar', modulo=key) }}">
+          <button class="btn btn-primary btn-sm" type="submit">Rodar análise</button>
+        </form>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('planejamento.previa_vazamentos') }}">Ver o que o app achou</a>
+      {% else %}
+        <form method="POST" action="{{ url_for('planejamento.rodar', modulo=key) }}">
+          <button class="btn btn-primary btn-sm" type="submit">Rodar análise</button>
+        </form>
+      {% endif %}
+      {% if u %}<a class="btn btn-ghost btn-sm" href="{{ url_for('planejamento.ver', analise_id=u.id) }}">Abrir última</a>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Seus dados para as análises</h3>
+  <p class="text-dim text-small">O app já sabe suas rendas, gastos e faturas. Aqui vai só o que ele não tem como saber.</p>
+  <form method="POST" action="{{ url_for('planejamento.salvar_perfil') }}">
+    <div class="grid grid-3">
+      <div class="form-group">
+        <label class="form-label">Capital disponível (R$)</label>
+        <input class="form-control" name="capital_disponivel" inputmode="decimal"
+               value="{{ '%.2f'|format(perfil.capital_disponivel or 0) }}">
+        <div class="form-help">Fluxos de Receitas</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Horas livres por semana</label>
+        <input class="form-control" name="horas_semana" type="number" min="0" value="{{ perfil.horas_semana or 0 }}">
+        <div class="form-help">Fluxos de Receitas</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Pessoas no domicílio</label>
+        <input class="form-control" name="pessoas_domicilio" type="number" min="1" value="{{ perfil.pessoas_domicilio or 1 }}">
+        <div class="form-help">Detector de Vazamentos</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Extra mensal para dívidas (R$)</label>
+        <input class="form-control" name="pagamento_extra" inputmode="decimal"
+               value="{{ '%.2f'|format(perfil.pagamento_extra or 0) }}">
+        <div class="form-help">Além dos mínimos</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Renda mensal (opcional)</label>
+        <input class="form-control" name="renda_override" inputmode="decimal" placeholder="usar a do app"
+               value="{{ '%.2f'|format(perfil.renda_override) if perfil.renda_override else '' }}">
+        <div class="form-help">Deixe vazio para usar o menu Rendas</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Despesas fixas (opcional)</label>
+        <input class="form-control" name="fixas_override" inputmode="decimal" placeholder="usar a do app"
+               value="{{ '%.2f'|format(perfil.fixas_override) if perfil.fixas_override else '' }}">
+        <div class="form-help">Deixe vazio para usar o menu Gastos</div>
+      </div>
+    </div>
+    <div class="grid grid-2">
+      <div class="form-group">
+        <label class="form-label">Seu maior gatilho de gastos</label>
+        <textarea class="form-control" name="gatilho_gasto" rows="3"
+                  placeholder="Ex.: pedir delivery quando chego cansado; compras no app à noite">{{ perfil.gatilho_gasto or '' }}</textarea>
+        <div class="form-help">Orçamento Sem Vergonha</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contexto (profissão, habilidades, objetivos)</label>
+        <textarea class="form-control" name="contexto" rows="3"
+                  placeholder="Ex.: servidor público, formando em Direito, quero renda extra sem conflito com o cargo">{{ perfil.contexto or '' }}</textarea>
+        <div class="form-help">Ajuda a IA a sugerir fluxos de receita viáveis</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Salvar</button>
+  </form>
+</div>
+
+{% if historico %}
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Histórico</h3>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Data</th><th>Análise</th><th>Status</th><th>IA</th><th></th></tr></thead>
+      <tbody>
+      {% for a in historico %}
+        <tr>
+          <td>{{ a.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+          <td>{{ modulos[a.modulo].icone }} {{ modulos[a.modulo].titulo }}</td>
+          <td>{% if a.status == 'ok' %}✓ pronta{% elif a.status == 'erro' %}⚠ erro{% else %}⏳ gerando{% endif %}</td>
+          <td class="text-dim text-small">{{ a.provedor or '—' }}</td>
+          <td><a class="btn btn-ghost btn-sm" href="{{ url_for('planejamento.ver', analise_id=a.id) }}">Abrir</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

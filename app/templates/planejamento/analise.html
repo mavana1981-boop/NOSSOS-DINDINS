@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ mod.titulo }}{% endblock %}
+{% block content %}
+{% include "planejamento/_estilo.html" %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>{{ mod.icone }} {{ mod.titulo }}</h1>
+    <p>Gerada em {{ a.created_at.strftime('%d/%m/%Y %H:%M') }} UTC{% if a.provedor %} · {{ a.provedor }}{% endif %}</p>
+  </div>
+  <div class="flex flex-gap no-print">
+    <a class="btn btn-ghost" href="{{ url_for('planejamento.index') }}">← Planejamento</a>
+    {% if a.status != 'processando' %}
+    <form method="POST" action="{{ url_for('planejamento.rodar', modulo=a.modulo) }}">
+      <button class="btn btn-ghost" type="submit">⟳ Rodar de novo</button>
+    </form>
+    {% endif %}
+    {% if a.status == 'ok' %}<button class="btn btn-primary" onclick="window.print()">Imprimir / PDF</button>{% endif %}
+  </div>
+</div>
+
+{% if a.status == 'processando' %}
+<div class="card text-center" style="padding:48px 20px;">
+  <div class="spinner"></div>
+  <h3 style="margin:0 0 6px;">A IA está montando sua análise…</h3>
+  <p class="text-dim text-small">Costuma levar de 30 segundos a 2 minutos. A página atualiza sozinha.</p>
+</div>
+<script>
+  (function poll(){
+    setTimeout(function(){
+      fetch("{{ url_for('planejamento.status', analise_id=a.id) }}", {credentials:"same-origin"})
+        .then(function(r){ return r.json(); })
+        .then(function(j){ if (j.status !== "processando") location.reload(); else poll(); })
+        .catch(poll);
+    }, 3000);
+  })();
+</script>
+{% elif a.status == 'erro' %}
+<div class="alert alert-danger">Nenhuma IA conseguiu gerar a análise.<br><span class="text-small">{{ a.erro }}</span></div>
+{% else %}
+<div class="card plan-md">{{ html_resultado|safe }}</div>
+<p class="text-faint text-small mt-2">Análise gerada por IA a partir dos dados do app. Não substitui orientação de um profissional certificado.</p>
+{% endif %}
+
+<details class="card mt-3 no-print">
+  <summary class="text-dim text-small" style="cursor:pointer;">Dados enviados à IA</summary>
+  <pre class="mono text-small" style="white-space:pre-wrap;max-height:420px;overflow:auto;">{{ a.entrada }}</pre>
+</details>
+
+<form method="POST" action="{{ url_for('planejamento.excluir_analise', analise_id=a.id) }}" class="mt-2 no-print"
+      onsubmit="return confirm('Excluir esta análise?');">
+  <button class="btn btn-ghost btn-sm" type="submit">Excluir análise</button>
+</form>
+{% endblock %}

@@ -1,0 +1,25 @@
+<style>
+  .plan-mods { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+  .plan-mod { display:flex; flex-direction:column; gap:10px; }
+  .plan-mod h3 { margin:0; font-size:1.05rem; }
+  .plan-mod .ico { font-size:1.6rem; line-height:1; }
+  .plan-mod .acoes { margin-top:auto; display:flex; gap:8px; flex-wrap:wrap; }
+  .plan-status { font-size:.75rem; color:var(--text-faint); }
+  .plan-md { line-height:1.6; }
+  .plan-md h1,.plan-md h2 { font-family:'Fraunces',serif; margin:28px 0 10px; }
+  .plan-md h2 { font-size:1.35rem; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .plan-md h3 { font-size:1.08rem; margin:20px 0 8px; color:var(--gold); }
+  .plan-md table { width:100%; border-collapse:collapse; margin:12px 0 18px; font-size:.88rem; display:block; overflow-x:auto; }
+  .plan-md th { text-align:left; font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint);
+                border-bottom:1px solid var(--border-strong); padding:8px 10px; white-space:nowrap; }
+  .plan-md td { border-bottom:1px solid var(--border); padding:8px 10px; vertical-align:top; }
+  .plan-md li { margin:4px 0; }
+  .plan-md code { background:var(--bg-elev); padding:1px 5px; border-radius:4px; }
+  .plan-md blockquote { border-left:3px solid var(--accent); margin:12px 0; padding:4px 14px; color:var(--text-dim); }
+  .spinner { width:38px; height:38px; border:3px solid var(--border-strong); border-top-color:var(--accent);
+             border-radius:50%; animation:girar 1s linear infinite; margin:0 auto 14px; }
+  @keyframes girar { to { transform:rotate(360deg); } }
+  .est-melhor { outline:2px solid var(--green); }
+  .tbl td.num, .tbl th.num { text-align:right; white-space:nowrap; }
+  @media print { .sidebar,.no-print { display:none !important; } .main { padding:0 !important; } }
+</style>
