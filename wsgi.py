@@ -567,8 +567,58 @@ def _fechamento_13_11_2026():
             print(f"[fechamento 13/11] erro: {_e}")
 
 
+def _fechamento_13_11_2026_denise():
+    """Mesma correção (fatura fechada em 13/11/2026) para os cartões da Denise.
+    Encontra a conta pelo nome; se não achar, usa quem divide gastos da casa
+    com o Marcelo. Roda uma única vez (trava própria em agente_execucoes)."""
+    from datetime import date as _d
+    from sqlalchemy import func as _f, or_ as _or
+    from sqlalchemy.exc import IntegrityError as _IE
+    from app.models import AgenteExecucao, User as _U, HouseholdExpense as _HH
+    from app.utils import fatura_que_fechou_em, registrar_fechamento
+    with app.app_context():
+        try:
+            db.session.add(AgenteExecucao(job="fechamento_2026_11_13_denise", run_date=_d(2026, 11, 13)))
+            db.session.commit()
+        except _IE:
+            db.session.rollback()
+            return
+        except Exception as _e:
+            db.session.rollback()
+            print(f"[fechamento 13/11 denise] trava: {_e}")
+            return
+        try:
+            data = _d(2026, 11, 13)
+            alvos = _U.query.filter(_or(_f.lower(_U.full_name).contains("denise"),
+                                        _f.lower(_U.username).contains("denise"),
+                                        _f.lower(_U.email).contains("denise"))).all()
+            if not alvos:
+                emails = ["mavana1981@gmail.com", "marcelo.uvara@camara.leg.br"]
+                marcelo = [u.id for u in _U.query.filter(_f.lower(_U.email).in_(emails)).all()]
+                ids = set()
+                for hh in _HH.query.filter(_or(_HH.owner_id.in_(marcelo),
+                                               _HH.shared_with_id.in_(marcelo))).all():
+                    ids.update(x for x in (hh.owner_id, hh.shared_with_id) if x and x not in marcelo)
+                alvos = _U.query.filter(_U.id.in_(ids)).all() if ids else []
+            if not alvos:
+                print("[fechamento 13/11 denise] conta da Denise não encontrada")
+            for u in alvos:
+                bm = fatura_que_fechou_em(u.id, data)
+                if not bm:
+                    print(f"[fechamento 13/11 denise] {u.username}: fatura não encontrada")
+                    continue
+                fr, tr = registrar_fechamento(u.id, bm, data)
+                db.session.commit()
+                print(f"[fechamento 13/11 denise] {u.username}: fatura {bm} fechada em 13/11; "
+                      f"{fr} lançamento(s) movido(s) para a fatura seguinte")
+        except Exception as _e:
+            db.session.rollback()
+            print(f"[fechamento 13/11 denise] erro: {_e}")
+
+
 bootstrap()
 _fechamento_13_11_2026()
+_fechamento_13_11_2026_denise()
 _limpar_planejados_invalidos()
 _dedup_card_entries()
 _fix_parcelados_duplicados()
