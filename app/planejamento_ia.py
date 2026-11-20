@@ -314,6 +314,84 @@ def dados_patrimonio(user_id):
 # ═════════════════════════════════════════════════════════════════════
 #  Motor de dívidas (cálculo determinístico)
 # ═════════════════════════════════════════════════════════════════════
+KW_EMPRESTIMO = ["emprest", "financ", "consign", "credito pessoal", "crediario", "cdc",
+                 "renegoc", "acordo", "parcelamento", "divida", "consorcio", "fies", "cheque especial"]
+
+
+def _parcela_do_usuario(exp, user_id):
+    meu = next((sh.share_amount for sh in exp.shares if sh.user_id == user_id), None)
+    return _f(meu if meu is not None else exp.amount)
+
+
+def parcelas_restantes(exp, hoje=None):
+    """Parcelas que ainda faltam A PARTIR DO MÊS QUE VEM (a do mês atual conta como deste mês).
+    None se o gasto não tem prazo."""
+    if not exp.recurrence_months:
+        return None
+    hoje = hoje or date.today()
+    passados = (hoje.year - exp.spent_at.year) * 12 + (hoje.month - exp.spent_at.month)
+    return max(int(exp.recurrence_months) - passados - 1, 0)
+
+
+def saldo_estimado(parcela, taxa_mensal_pct, n):
+    """Saldo devedor pela Tabela Price: valor presente das parcelas restantes.
+    Sem taxa, soma simples das parcelas."""
+    if not n:
+        return 0.0
+    i = float(taxa_mensal_pct or 0) / 100.0
+    if i <= 0:
+        return round(parcela * n, 2)
+    return round(parcela * (1 - (1 + i) ** -n) / i, 2)
+
+
+def candidatos_emprestimo(user_id):
+    """Gastos recorrentes que parecem empréstimo/financiamento e ainda não viraram dívida."""
+    from app.models import Expense, Divida
+    ja = {d.expense_id for d in Divida.query.filter(Divida.user_id == user_id,
+                                                      Divida.expense_id != None).all()}  # noqa: E711
+    out = []
+    for e in Expense.query.filter_by(payer_id=user_id, kind="recorrente").all():
+        if e.id in ja:
+            continue
+        nome = _norm(f"{e.description} {e.category or ''}")
+        parece = _tem(nome, KW_EMPRESTIMO)
+        n = parcelas_restantes(e)
+        if n is not None and n <= 0:
+            continue            # já terminou
+        if not parece and n is None:
+            continue            # recorrente sem prazo e sem cara de empréstimo (conta de luz etc.)
+        parcela = _parcela_do_usuario(e, user_id)
+        out.append({"expense": e, "parcela": parcela, "restantes": n,
+                    "total_restante": round(parcela * n, 2) if n else None,
+                    "parece_emprestimo": parece})
+    out.sort(key=lambda x: (not x["parece_emprestimo"], -(x["total_restante"] or 0)))
+    return out
+
+
+def sincronizar_dividas_de_gastos(user_id):
+    """Atualiza parcela, saldo e situação das dívidas ligadas a um gasto. Chamado ao abrir a tela."""
+    from app import db
+    from app.models import Divida
+    mudou = False
+    for d in Divida.query.filter(Divida.user_id == user_id, Divida.expense_id != None).all():  # noqa: E711
+        e = d.expense
+        if not e:
+            continue
+        parcela = _parcela_do_usuario(e, user_id)
+        n = parcelas_restantes(e)
+        if _f(d.pagamento_minimo) != parcela:
+            d.pagamento_minimo = parcela; mudou = True
+        if n is not None and not d.saldo_manual:
+            novo = saldo_estimado(parcela, d.taxa_mensal, n)
+            if _f(d.saldo) != novo:
+                d.saldo = novo; mudou = True
+        ativa = not (n is not None and n <= 0 and not d.saldo_manual)
+        if d.ativa != ativa:
+            d.ativa = ativa; mudou = True
+    if mudou:
+        db.session.commit()
+
+
 def _ordem(dividas, estrategia, extra):
     if estrategia == "bola_de_neve":
         return sorted(dividas, key=lambda d: (d["saldo"], -d["taxa"]))
@@ -448,6 +526,19 @@ SISTEMA = (
 )
 
 
+def _origem_divida(divida_id):
+    from app import db
+    from app.models import Divida
+    d = db.session.get(Divida, divida_id)
+    if not d or not d.expense:
+        return {}
+    return {"origem": "empréstimo/financiamento de parcela fixa lançado em Gastos "
+                      "(o pagamento mínimo é a própria parcela; pagar a mais = amortização antecipada)",
+            "parcelas_restantes": parcelas_restantes(d.expense),
+            "saldo": ("informado pelo usuário" if d.saldo_manual
+                      else "estimado pelo valor presente das parcelas restantes")}
+
+
 def montar_entrada(user_id, modulo):
     from app.models import Divida
     p = _perfil(user_id)
@@ -488,7 +579,7 @@ def montar_entrada(user_id, modulo):
         dados = {"perfil": perfil, "renda_e_gastos": {k: rg[k] for k in
                  ("renda_mensal", "despesas_planejadas_mes", "mes_referencia")},
                  "dividas": [{"nome": d["nome"], "saldo": d["saldo"], "taxa_mensal_pct": d["taxa"],
-                              "pagamento_minimo": d["minimo"]} for d in base],
+                              "pagamento_minimo": d["minimo"], **_origem_divida(d["id"])} for d in base],
                  "simulacoes_calculadas": {k: _resumo_estrategia(v, base) for k, v in (res or {}).items()}}
         tarefa = (
             "Atue como especialista em eliminação de dívidas. As três estratégias JÁ FORAM SIMULADAS pelo "
@@ -505,7 +596,9 @@ def montar_entrada(user_id, modulo):
             "calculado: Mês | Pagar em cada dívida | Saldo restante | Marco.\n"
             "5. Uma **tabela de acompanhamento** para eu preencher: Mês | Dívida | Pago previsto | Pago real "
             "| Saldo | Observação.\n"
-            "Se houver alerta de dívida que não amortiza, comece por ele."
+            "Se houver alerta de dívida que não amortiza, comece por ele. Para empréstimos de parcela fixa, "
+            "explique como pedir amortização antecipada (redução de prazo × de parcela) e o desconto de juros "
+            "garantido pelo CDC, art. 52 §2º."
         )
     elif modulo == "vazamentos":
         dados = {"perfil": perfil, "renda_e_gastos": rg, "diagnostico_cartoes": diagnostico_vazamentos(user_id)}

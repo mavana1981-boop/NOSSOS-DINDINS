@@ -60,6 +60,8 @@ def bootstrap():
         _ensure_column("push_inscricoes", "ultimo_erro_em", "TIMESTAMP")
         _ensure_column("push_inscricoes", "expirado_em", "TIMESTAMP")
         _ensure_column("push_inscricoes", "instalado", "BOOLEAN")
+        _ensure_column("dividas", "expense_id", "INTEGER REFERENCES expenses(id) ON DELETE SET NULL")
+        _ensure_column("dividas", "saldo_manual", "BOOLEAN NOT NULL DEFAULT FALSE")
         try:
             with db.engine.connect() as _cc_px:
                 _cc_px.execute(text("CREATE INDEX IF NOT EXISTS ix_card_entries_pluggy_tx_id ON card_entries (pluggy_tx_id)"))

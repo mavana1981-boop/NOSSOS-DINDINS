@@ -151,9 +151,10 @@ def dividas():
     if request.method == "POST":
         nome = (request.form.get("nome") or "").strip()
         saldo = _dec(request.form.get("saldo"))
+        auto = request.form.get("saldo_auto") == "1"
         taxa = _dec(request.form.get("taxa_mensal"), Decimal("0"))
         minimo = _dec(request.form.get("pagamento_minimo"), Decimal("0"))
-        if not nome or saldo is None or saldo <= 0:
+        if not nome or ((saldo is None or saldo <= 0) and not auto):
             flash("Informe nome e saldo devedor.", "warning")
         else:
             did = _int(request.form.get("divida_id"), 0)
@@ -163,12 +164,23 @@ def dividas():
             if not d:
                 d = Divida(user_id=current_user.id)
                 db.session.add(d)
-            d.nome, d.saldo, d.taxa_mensal, d.pagamento_minimo = nome[:120], saldo, taxa, minimo
+            d.nome, d.taxa_mensal = nome[:120], taxa
+            if d.expense_id:
+                # parcela vem sempre do gasto; saldo é recalculado, a menos que você fixe um valor
+                d.saldo_manual = not auto
+                if not auto:
+                    d.saldo = saldo
+            else:
+                d.saldo, d.pagamento_minimo = saldo, minimo
             db.session.commit()
+            pia.sincronizar_dividas_de_gastos(current_user.id)
             flash("Dívida salva.", "success")
         return redirect(url_for("planejamento.dividas"))
 
+    pia.sincronizar_dividas_de_gastos(current_user.id)
     lista = Divida.query.filter_by(user_id=current_user.id, ativa=True).order_by(Divida.id).all()
+    candidatos = pia.candidatos_emprestimo(current_user.id)
+    restantes = {d.id: pia.parcelas_restantes(d.expense) for d in lista if d.expense}
     extra_param = request.args.get("extra")
     extra = float(_dec(extra_param, p.pagamento_extra or 0) or 0)
     sims, base = pia.comparar_estrategias(current_user.id, extra=extra)
@@ -182,6 +194,7 @@ def dividas():
         .order_by(PlanejamentoAnalise.id.desc()).first()
     return render_template("planejamento/dividas.html", dividas=lista, sims=sims, nomes=nomes,
                            extra=extra, perfil=p, editar=editar, ultima=ultima,
+                           candidatos=candidatos, restantes=restantes,
                            mes_br=pia._mes_br)
 
 
@@ -205,3 +218,30 @@ def previa_vazamentos():
     ultima = PlanejamentoAnalise.query.filter_by(user_id=current_user.id, modulo="vazamentos")\
         .order_by(PlanejamentoAnalise.id.desc()).first()
     return render_template("planejamento/vazamentos.html", d=diag, ultima=ultima)
+
+
+@planejamento_bp.route("/dividas/importar-gastos", methods=["POST"])
+@login_required
+def importar_gastos():
+    """Cria dívidas a partir de gastos recorrentes (empréstimos/financiamentos) do menu Gastos."""
+    from app.models import Expense
+    ids = [_int(x) for x in request.form.getlist("expense_id")]
+    n = 0
+    for eid in ids:
+        e = db.session.get(Expense, eid)
+        if not e or e.payer_id != current_user.id:
+            continue
+        if Divida.query.filter_by(user_id=current_user.id, expense_id=e.id).first():
+            continue
+        taxa = _dec(request.form.get(f"taxa_{eid}"), Decimal("0"))
+        saldo_inf = _dec(request.form.get(f"saldo_{eid}"))
+        d = Divida(user_id=current_user.id, nome=e.description[:120], expense_id=e.id,
+                   taxa_mensal=taxa, saldo=saldo_inf or 0, pagamento_minimo=0,
+                   saldo_manual=bool(saldo_inf) or e.recurrence_months is None)
+        db.session.add(d)
+        n += 1
+    db.session.commit()
+    pia.sincronizar_dividas_de_gastos(current_user.id)
+    flash(f"{n} empréstimo(s) importado(s) de Gastos." if n else "Nenhum gasto selecionado.",
+          "success" if n else "warning")
+    return redirect(url_for("planejamento.dividas"))

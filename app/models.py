@@ -644,7 +644,12 @@ class Divida(db.Model):
     taxa_mensal      = db.Column(db.Numeric(6, 3), nullable=False, default=0)
     pagamento_minimo = db.Column(db.Numeric(12, 2), nullable=False, default=0)
     ativa            = db.Column(db.Boolean, default=True, nullable=False)
+    # Empréstimo que já está no menu Gastos (gasto recorrente com prazo)
+    expense_id       = db.Column(db.Integer, db.ForeignKey("expenses.id", ondelete="SET NULL"), nullable=True)
+    saldo_manual     = db.Column(db.Boolean, default=False, nullable=False)  # True = não recalcula
     created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    expense = db.relationship("Expense", foreign_keys=[expense_id])
 
 
 class PlanejamentoAnalise(db.Model):

@@ -13,6 +13,34 @@
   <a class="btn btn-ghost" href="{{ url_for('planejamento.index') }}">← Planejamento</a>
 </div>
 
+{% if candidatos %}
+<div class="card mb-3" style="border-color:var(--accent);">
+  <h3 style="margin-top:0;">Empréstimos encontrados em Gastos</h3>
+  <p class="text-dim text-small">Gastos recorrentes com prazo ou com cara de empréstimo/financiamento. Marque os que são dívidas e informe os juros ao mês.
+    O saldo é estimado pelas parcelas que faltam (Tabela Price) e se atualiza sozinho todo mês; se souber o saldo exato do banco, preencha.</p>
+  <form method="POST" action="{{ url_for('planejamento.importar_gastos') }}">
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th></th><th>Gasto</th><th class="num">Parcela</th><th class="num">Faltam</th><th class="num">Soma das parcelas</th><th>Juros % a.m.</th><th>Saldo devedor real (opcional)</th></tr></thead>
+      <tbody>
+      {% for c in candidatos %}{% set e = c.expense %}
+        <tr>
+          <td><input type="checkbox" name="expense_id" value="{{ e.id }}" {% if c.parece_emprestimo %}checked{% endif %}></td>
+          <td>{{ e.description }}<br><span class="text-faint text-small">{{ e.category }}{% if e.recurrence_months %} · {{ e.recurrence_months }}x desde {{ e.spent_at.strftime('%m/%Y') }}{% else %} · sem prazo{% endif %}</span></td>
+          <td class="num">{{ c.parcela|brl }}</td>
+          <td class="num">{{ c.restantes if c.restantes is not none else '—' }}</td>
+          <td class="num">{{ c.total_restante|brl if c.total_restante else '—' }}</td>
+          <td><input class="form-control" name="taxa_{{ e.id }}" inputmode="decimal" placeholder="Ex.: 1,89" style="max-width:110px;"></td>
+          <td><input class="form-control" name="saldo_{{ e.id }}" inputmode="decimal" style="max-width:150px;"
+                     placeholder="{{ 'estimar' if c.restantes else 'obrigatório' }}"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <button class="btn btn-primary mt-2" type="submit">Importar selecionados</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="grid grid-2">
   <div class="card">
     <h3 style="margin-top:0;">{{ 'Editar dívida' if editar else 'Nova dívida' }}</h3>
@@ -23,10 +51,18 @@
         <input class="form-control" name="nome" required placeholder="Ex.: Rotativo Nubank, Empréstimo BB"
                value="{{ editar.nome if editar else '' }}">
       </div>
+      {% set ligada = editar and editar.expense_id %}
+      {% if ligada %}
+      <div class="alert alert-info text-small">Vem do gasto <strong>{{ editar.expense.description }}</strong>: a parcela
+        ({{ editar.pagamento_minimo|brl }}) e o prazo seguem o menu Gastos.</div>
+      <label class="form-check mb-2"><input type="checkbox" name="saldo_auto" value="1" {% if not editar.saldo_manual %}checked{% endif %}
+        onchange="document.getElementById('campo-saldo').required=!this.checked">
+        Calcular o saldo pelas parcelas que faltam e pelos juros</label>
+      {% endif %}
       <div class="grid grid-3">
         <div class="form-group">
           <label class="form-label">Saldo devedor (R$)</label>
-          <input class="form-control" name="saldo" inputmode="decimal" required
+          <input class="form-control" id="campo-saldo" name="saldo" inputmode="decimal" {% if not ligada or editar.saldo_manual %}required{% endif %}
                  value="{{ '%.2f'|format(editar.saldo) if editar else '' }}">
         </div>
         <div class="form-group">
@@ -36,7 +72,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Pagamento mínimo (R$)</label>
-          <input class="form-control" name="pagamento_minimo" inputmode="decimal"
+          <input class="form-control" name="pagamento_minimo" inputmode="decimal" {% if ligada %}disabled{% endif %}
                  value="{{ '%.2f'|format(editar.pagamento_minimo) if editar else '' }}">
         </div>
       </div>
@@ -77,7 +113,10 @@
       {% for d in dividas %}
         {% set tm = (d.taxa_mensal or 0)|float %}
         <tr>
-          <td>{{ d.nome }}{% if (d.saldo|float) * tm / 100 >= (d.pagamento_minimo|float) and tm > 0 %}
+          <td>{{ d.nome }}
+              {% if d.expense_id %}<br><span class="text-faint text-small">de Gastos{% if restantes.get(d.id) is not none %} · faltam {{ restantes[d.id] }} parcelas{% endif %} · saldo {{ 'informado' if d.saldo_manual else 'estimado' }}</span>{% endif %}
+              {% if (d.saldo|float) <= 0 %}<span class="badge badge-debit">informe o saldo</span>{% endif %}
+              {% if (d.saldo|float) * tm / 100 >= (d.pagamento_minimo|float) and tm > 0 %}
               <span class="badge badge-debit" title="O mínimo não cobre os juros">não amortiza</span>{% endif %}</td>
           <td class="num">{{ d.saldo|brl }}</td>
           <td class="num">{{ '%.2f'|format(tm)|replace('.', ',') }}%</td>
