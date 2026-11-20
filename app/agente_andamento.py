@@ -6,7 +6,8 @@ Roda 1x por dia (à noite) e avisa quando um gasto selecionado no
 "Andamento do Mês" ENTRA ou SAI da faixa desejável.
 
 Regra (a mesma da tela do relatório):
-  - % ideal  = % do ciclo de fechamento (dia 16 → dia 16) já decorrido
+  - % ideal  = % do ciclo da fatura já decorrido (da 1ª compra da fatura
+               até a 1ª compra da fatura seguinte; reserva: dia 16 → dia 16)
   - dentro   = % gasto <= % ideal + TOLERÂNCIA (5 p.p.)
   - fora     = % gasto  > % ideal + TOLERÂNCIA
 
@@ -41,7 +42,9 @@ def hoje_brasilia() -> date:
 #  Cálculo (compartilhado com a tela do relatório)
 # ─────────────────────────────────────────────────────────────
 def ciclo(hoje: date):
-    """(início, fim_exclusivo) do ciclo de fechamento que contém `hoje` (16 → 16)."""
+    """(início, fim_exclusivo) do ciclo NOMINAL que contém `hoje` (16 → 16).
+    Usado só como reserva quando não há lançamentos para ancorar o ciclo —
+    o ciclo real vem de `ciclo_fatura`."""
     if hoje.day >= 16:
         cs = hoje.replace(day=16)
         ce = (hoje.replace(month=hoje.month + 1, day=16) if hoje.month < 12
@@ -53,16 +56,104 @@ def ciclo(hoje: date):
     return cs, ce
 
 
-def partes_do_ciclo(hoje: date, n: int):
+# ── Ciclo real da fatura (ancorado nos lançamentos) ──────────────
+# As datas de fechamento mudam em alguns meses (ex.: nov→dez). Em vez de
+# fixar o dia 16, o ciclo da fatura M vai da data da PRIMEIRA compra
+# lançada na fatura M até a véspera da primeira compra da fatura M+1.
+JANELA_FECHAMENTO = 12   # dias em torno do dia 16 aceitos como fechamento real
+
+
+def mes_add(billing_month: str, k: int) -> str:
+    y, m = int(billing_month[:4]), int(billing_month[5:7])
+    t = y * 12 + (m - 1) + k
+    return f"{t // 12}-{t % 12 + 1:02d}"
+
+
+def _dia16(billing_month: str) -> date:
+    """Fechamento nominal da fatura `billing_month` (dia 16 do mês da fatura)."""
+    return date(int(billing_month[:4]), int(billing_month[5:7]), 16)
+
+
+def primeira_compra_fatura(user_id: int, billing_month: str):
+    """Data da primeira compra lançada na fatura `billing_month`.
+
+    Ignora parcelas 2/N em diante (trazem a data da compra original) e
+    datas muito longe do fechamento nominal (lançamentos atrasados/estornos).
+    Devolve None se a fatura ainda não tem lançamentos.
     """
-    Divide o ciclo atual em `n` partes iguais (1 a 5).
+    from datetime import timedelta
+    from sqlalchemy import func
+    from app import db
+    from app.models import CardEntry
+    ref = _dia16(mes_add(billing_month, -1))       # início nominal do ciclo
+    jan = timedelta(days=JANELA_FECHAMENTO)
+    return (db.session.query(func.min(CardEntry.entry_date))
+            .filter(CardEntry.user_id == user_id,
+                    CardEntry.billing_month == billing_month,
+                    CardEntry.status == "ativo",
+                    or_(CardEntry.installment_no.is_(None),
+                        CardEntry.installment_no <= 1),
+                    CardEntry.entry_date >= ref - jan,
+                    CardEntry.entry_date <= ref + jan)
+            .scalar())
+
+
+def ciclo_fatura(user_id: int, billing_month: str, hoje: date = None):
+    """(início, fim_exclusivo) do ciclo real da fatura `billing_month`.
+
+    - início = primeira compra da fatura (reserva: dia 16 do mês anterior)
+    - fim    = primeira compra da fatura seguinte (reserva: dia 16 do mês)
+    - se a fatura seguinte ainda não começou e `hoje` já passou do dia 16
+      nominal, o ciclo se estende até hoje (fechamento atrasado).
+    """
+    from datetime import timedelta
+    cs = primeira_compra_fatura(user_id, billing_month) or _dia16(mes_add(billing_month, -1))
+    prox = primeira_compra_fatura(user_id, mes_add(billing_month, 1))
+    ce = prox or _dia16(billing_month)
+    if prox is None and hoje is not None and cs <= hoje and hoje >= ce:
+        ce = hoje + timedelta(days=1)
+    if ce <= cs:
+        ce = cs + timedelta(days=1)
+    return cs, ce
+
+
+def mes_fatura_atual(user_id: int, hoje: date) -> str:
+    """Fatura em curso, conferida pelos lançamentos.
+
+    Parte da regra do dia 16 (pulando meses fechados) e corrige quando a
+    fatura seguinte já começou antes do dia 16, ou quando a atual ainda não
+    fechou depois do dia 16.
+    """
+    from datetime import timedelta
+    from app.models import ClosedMonth
+    from app.utils import get_open_billing_month
+    bm = get_open_billing_month(user_id, mes_fatura_do_ciclo(hoje))
+    prox = mes_add(bm, 1)
+    p_prox = primeira_compra_fatura(user_id, prox)
+    if p_prox is not None and p_prox <= hoje:
+        return get_open_billing_month(user_id, prox)
+    p_bm = primeira_compra_fatura(user_id, bm)
+    if p_bm is None or p_bm > hoje:
+        ant = mes_add(bm, -1)
+        if (hoje <= _dia16(ant) + timedelta(days=JANELA_FECHAMENTO)
+                and not ClosedMonth.query.filter_by(user_id=user_id, billing_month=ant).first()
+                and primeira_compra_fatura(user_id, ant) is not None):
+            return ant
+    return bm
+
+
+def partes_do_ciclo(hoje: date, n: int, ciclo_ref=None):
+    """
+    Divide o ciclo em `n` partes iguais (1 a 5). `ciclo_ref` = (início,
+    fim_exclusivo) do ciclo real; sem ele, usa o ciclo nominal 16 → 16.
     Retorna [(inicio, fim_inclusivo), ...]. Os dias que sobram na divisão
     ficam nas primeiras partes (ex.: 31 dias em 5 → 7, 6, 6, 6, 6).
     """
     from datetime import timedelta
     n = max(1, min(5, int(n)))
-    cs, ce = ciclo(hoje)
-    total = (ce - cs).days
+    cs, ce = ciclo_ref or ciclo(hoje)
+    total = max((ce - cs).days, 1)
+    n = min(n, total)
     base, resto = divmod(total, n)
     out, ini = [], cs
     for i in range(n):
@@ -127,18 +218,13 @@ def redistribuir_metas(metas, gastos, partes, hoje):
     return [round(x, 2) for x in disp]
 
 
-def pct_ideal_ciclo(hoje: date) -> float:
-    """% do ciclo de fechamento (dia 16 ao próximo dia 16) já decorrido."""
-    if hoje.day >= 16:
-        cs = hoje.replace(day=16)
-        ce = (hoje.replace(month=hoje.month + 1, day=16) if hoje.month < 12
-              else hoje.replace(year=hoje.year + 1, month=1, day=16))
-    else:
-        cs = (hoje.replace(month=hoje.month - 1, day=16) if hoje.month > 1
-              else hoje.replace(year=hoje.year - 1, month=12, day=16))
-        ce = hoje.replace(day=16)
+def pct_ideal_ciclo(hoje: date, ciclo_ref=None) -> float:
+    """% do ciclo já decorrido. `ciclo_ref` = (início, fim_exclusivo) do ciclo
+    real da fatura; sem ele, usa o ciclo nominal 16 → 16."""
+    cs, ce = ciclo_ref or ciclo(hoje)
     total = (ce - cs).days
-    return min(round((hoje - cs).days / total * 100, 1) if total > 0 else 0, 100)
+    pct = round((hoje - cs).days / total * 100, 1) if total > 0 else 0
+    return max(0.0, min(pct, 100))
 
 
 def mes_fatura_do_ciclo(hoje: date) -> str:
@@ -165,7 +251,7 @@ def calcular_andamento(user_id: int, billing_month: str, hoje: date, somente_don
          and (not somente_dono or hh.owner_id == user_id)],
         key=lambda h: h.display_order or 0,
     )
-    pct_ideal = pct_ideal_ciclo(hoje)
+    pct_ideal = pct_ideal_ciclo(hoje, ciclo_fatura(user_id, billing_month, hoje))
     itens = []
     for hh in links:
         exp = hh.expense
@@ -318,7 +404,7 @@ def andamento_com_lote(user_id: int, hoje: date, batch_ids=()) -> str:
     from app.models import CardEntry
     from app.utils import get_open_billing_month
 
-    mes = get_open_billing_month(user_id, mes_fatura_do_ciclo(hoje))
+    mes = mes_fatura_atual(user_id, hoje)
     itens, pct_ideal = calcular_andamento(user_id, mes, hoje, somente_dono=True)
     if not itens:
         return ""
@@ -471,7 +557,7 @@ def rodar_para_usuario(user, hoje: date) -> list:
     from app.models import AndamentoAlertaEstado, Notificacao
     from app.utils import get_open_billing_month
 
-    mes = get_open_billing_month(user.id, mes_fatura_do_ciclo(hoje))
+    mes = mes_fatura_atual(user.id, hoje)
     itens, pct_ideal = calcular_andamento(user.id, mes, hoje, somente_dono=True)
     limite = round(pct_ideal + TOLERANCIA_PP, 1)
     avisos = []

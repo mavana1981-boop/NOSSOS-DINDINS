@@ -143,23 +143,11 @@ def index():
         key=lambda h: h.display_order or 0
     )
 
-    # Percentual desejável — ciclo do dia 16 ao próximo dia 16
-    from datetime import timedelta
-    if today.day >= 16:
-        cycle_start = today.replace(day=16)
-        if today.month == 12:
-            cycle_end = today.replace(year=today.year+1, month=1, day=16)
-        else:
-            cycle_end = today.replace(month=today.month+1, day=16)
-    else:
-        if today.month == 1:
-            cycle_start = today.replace(year=today.year-1, month=12, day=16)
-        else:
-            cycle_start = today.replace(month=today.month-1, day=16)
-        cycle_end = today.replace(day=16)
-    total_days = (cycle_end - cycle_start).days
-    elapsed_days = (today - cycle_start).days
-    desired_pct = min(round(elapsed_days / total_days * 100, 1) if total_days > 0 else 0, 100)
+    # Percentual desejável — ciclo real da fatura (1ª compra da fatura →
+    # 1ª compra da fatura seguinte; reserva: dia 16 → dia 16)
+    from app.agente_andamento import ciclo_fatura as _ciclo_fat, pct_ideal_ciclo as _pct_ciclo
+    cycle_start, cycle_end = _ciclo_fat(current_user.id, mes_filter, today)
+    desired_pct = _pct_ciclo(today, (cycle_start, cycle_end))
 
     household_expenses = []
     household_total_planned = 0.0
@@ -190,7 +178,7 @@ def index():
         excedente_atual = round(spent_this_month - esperado_ate_hoje, 2)
 
         # Gasto por dia disponível: (planejado - gasto) / dias até dia 16
-        dias_ate_fechamento = (cycle_end - today).days
+        dias_ate_fechamento = max((cycle_end - today).days, 0)
         saldo_disponivel = round(planned - spent_this_month, 2)
         gasto_dia_disponivel = round(saldo_disponivel / dias_ate_fechamento, 2) if dias_ate_fechamento > 0 else 0.0
 
@@ -265,20 +253,21 @@ def _dados_evolucao(user_id, ciclo_off=0):
     # + balanço ATUAL (calculado agora, com os lançamentos de hoje)
     from app.models import AndamentoDiario, PushInscricao
     from app.agente_andamento import (calcular_andamento, hoje_brasilia,
-                                      mes_fatura_do_ciclo)
-    from app.utils import get_open_billing_month as _gobm_evo
-    from app.agente_andamento import ciclo as _ciclo_ref
+                                      mes_fatura_atual, mes_add, ciclo_fatura)
     from datetime import timedelta as _td_evo
     _hoje_real = hoje_brasilia()
     _hoje_evo = _hoje_real
     _historico = ciclo_off < 0
+    # Fatura em curso conferida pelos lançamentos; ciclos anteriores = faturas anteriores
+    mes_evo = mes_add(mes_fatura_atual(user_id, _hoje_real), ciclo_off)
     if _historico:
-        # Último dia do ciclo pedido (ciclo_off ciclos atrás) — ciclo encerrado
-        for _ in range(-ciclo_off):
-            _hoje_evo = _ciclo_ref(_hoje_evo)[0] - _td_evo(days=1)
-        mes_evo = mes_fatura_do_ciclo(_hoje_evo)
+        # Ciclo encerrado: "hoje" = último dia do ciclo real daquela fatura
+        _cs_h, _ce_h = ciclo_fatura(user_id, mes_evo)
+        _hoje_evo = _ce_h - _td_evo(days=1)
+        _cs, _ce = _cs_h, _ce_h
     else:
-        mes_evo = _gobm_evo(user_id, mes_fatura_do_ciclo(_hoje_evo))
+        _cs, _ce = ciclo_fatura(user_id, mes_evo, _hoje_evo)
+    _ciclo_atual = (_cs, _ce)
     agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
                                                 somente_dono=True)
 
@@ -295,9 +284,7 @@ def _dados_evolucao(user_id, ciclo_off=0):
             planned=it["planned"])
 
     # Gasto por dia: dias já corridos do ciclo (contando hoje) e dias que
-    # faltam até o fechamento (contando hoje) — ciclo 16 → 16.
-    from app.agente_andamento import ciclo as _ciclo
-    _cs, _ce = _ciclo(_hoje_evo)
+    # faltam até o fechamento (contando hoje) — ciclo real da fatura.
     dias_corridos = max((_hoje_evo - _cs).days + 1, 1)
     dias_restantes = max((_ce - _hoje_evo).days, 1)
 
@@ -315,7 +302,7 @@ def _dados_evolucao(user_id, ciclo_off=0):
     _metas_cfg = {m.expense_id: m for m in MetaParte.query.filter_by(user_id=user_id).all()}
     # Datas de cada divisão possível (1 a 5), para o editor
     opcoes_partes = {n: [f"{a.strftime('%d/%m')}–{b.strftime('%d/%m')}"
-                         for a, b in partes_do_ciclo(_hoje_evo, n)] for n in range(1, 6)}
+                         for a, b in partes_do_ciclo(_hoje_evo, n, _ciclo_atual)] for n in range(1, 6)}
 
     evolucao = []
     for it in agora:
@@ -353,9 +340,9 @@ def _dados_evolucao(user_id, ciclo_off=0):
         _partes = []
         _cfg = _metas_cfg.get(it["expense_id"])
         if _cfg:
-            _intervalos = partes_do_ciclo(_hoje_evo, _cfg.n_partes)
+            _intervalos = partes_do_ciclo(_hoje_evo, _cfg.n_partes, _ciclo_atual)
             _gastos_p = gasto_por_parte([(e.entry_date, e.amount) for e in _lancs], _intervalos)
-            _metas_orig = _cfg.lista_metas()
+            _metas_orig = _cfg.lista_metas()[:len(_intervalos)]
             # Disponível rolante: sobras/estouros redistribuídos mantendo a meta total
             _disp = redistribuir_metas(_metas_orig, _gastos_p, _intervalos, _hoje_evo)
             # Compras de cada parte (mesma regra de datas do gasto_por_parte)
