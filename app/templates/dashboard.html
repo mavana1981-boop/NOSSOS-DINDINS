@@ -60,6 +60,17 @@
     {% elif hoje_evo %}<span class="text-small text-dim" style="margin-left:auto;margin-right:12px;">📅 Hoje: <strong style="color:var(--text);">{{ hoje_evo.strftime('%d/%m/%Y') }}</strong></span>{% endif %}
     {% if not (ciclo_nav and ciclo_nav.historico) %}<a href="#evolucao" class="small-link">configurar ↓</a>{% endif %}
   </div>
+  {% if ciclo_nav %}
+  <div class="text-small text-dim" style="margin:-4px 0 10px;">
+    {% if ciclo_nav.primeira %}
+    🧾 1ª compra da fatura: <strong style="color:var(--text);">{{ ciclo_nav.primeira.data.strftime('%d/%m/%Y') }}</strong>
+    · {{ ciclo_nav.primeira.desc }} · {{ ciclo_nav.primeira.cartao }}
+    · R$ {{ '{:,.2f}'.format(ciclo_nav.primeira.valor).replace(',', 'X').replace('.', ',').replace('X', '.') }}
+    {% else %}
+    🧾 Fatura ainda sem lançamentos — ciclo pelo dia 16 (reserva).
+    {% endif %}
+  </div>
+  {% endif %}
   {% if _com_metas %}
   <div style="display:flex;flex-direction:column;gap:18px;">
     {% for g in _com_metas %}

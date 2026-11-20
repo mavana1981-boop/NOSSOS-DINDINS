@@ -74,20 +74,18 @@ def _dia16(billing_month: str) -> date:
     return date(int(billing_month[:4]), int(billing_month[5:7]), 16)
 
 
-def primeira_compra_fatura(user_id: int, billing_month: str):
-    """Data da primeira compra lançada na fatura `billing_month`.
+def primeira_compra_lancamento(user_id: int, billing_month: str):
+    """Lançamento (CardEntry) da primeira compra da fatura `billing_month`.
 
     Ignora parcelas 2/N em diante (trazem a data da compra original) e
     datas muito longe do fechamento nominal (lançamentos atrasados/estornos).
     Devolve None se a fatura ainda não tem lançamentos.
     """
     from datetime import timedelta
-    from sqlalchemy import func
-    from app import db
     from app.models import CardEntry
     ref = _dia16(mes_add(billing_month, -1))       # início nominal do ciclo
     jan = timedelta(days=JANELA_FECHAMENTO)
-    return (db.session.query(func.min(CardEntry.entry_date))
+    return (CardEntry.query
             .filter(CardEntry.user_id == user_id,
                     CardEntry.billing_month == billing_month,
                     CardEntry.status == "ativo",
@@ -95,7 +93,14 @@ def primeira_compra_fatura(user_id: int, billing_month: str):
                         CardEntry.installment_no <= 1),
                     CardEntry.entry_date >= ref - jan,
                     CardEntry.entry_date <= ref + jan)
-            .scalar())
+            .order_by(CardEntry.entry_date.asc(), CardEntry.id.asc())
+            .first())
+
+
+def primeira_compra_fatura(user_id: int, billing_month: str):
+    """Data da primeira compra da fatura `billing_month` (ou None)."""
+    e = primeira_compra_lancamento(user_id, billing_month)
+    return e.entry_date if e else None
 
 
 def ciclo_fatura(user_id: int, billing_month: str, hoje: date = None):

@@ -253,7 +253,8 @@ def _dados_evolucao(user_id, ciclo_off=0):
     # + balanço ATUAL (calculado agora, com os lançamentos de hoje)
     from app.models import AndamentoDiario, PushInscricao
     from app.agente_andamento import (calcular_andamento, hoje_brasilia,
-                                      mes_fatura_atual, mes_add, ciclo_fatura)
+                                      mes_fatura_atual, mes_add, ciclo_fatura,
+                                      primeira_compra_lancamento)
     from datetime import timedelta as _td_evo
     _hoje_real = hoje_brasilia()
     _hoje_evo = _hoje_real
@@ -268,6 +269,12 @@ def _dados_evolucao(user_id, ciclo_off=0):
     else:
         _cs, _ce = ciclo_fatura(user_id, mes_evo, _hoje_evo)
     _ciclo_atual = (_cs, _ce)
+    # Lançamento que definiu o início do ciclo (exibido no cabeçalho das metas)
+    _pc = primeira_compra_lancamento(user_id, mes_evo)
+    primeira_compra = (dict(
+        data=_pc.entry_date, desc=_pc.description,
+        cartao=_pc.card.name if getattr(_pc, "card", None) else "—",
+        valor=float(_pc.amount)) if _pc else None)
     agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
                                                 somente_dono=True)
 
@@ -414,6 +421,7 @@ def _dados_evolucao(user_id, ciclo_off=0):
                     off=ciclo_off, historico=_historico,
                     inicio=_cs, fim=_ce - _td_evo(days=1), mes=mes_evo,
                     anterior=ciclo_off - 1,
+                    primeira=primeira_compra,
                     proximo=(ciclo_off + 1) if ciclo_off < 0 else None,
                 ))
 
