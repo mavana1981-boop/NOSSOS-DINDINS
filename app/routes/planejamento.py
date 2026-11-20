@@ -201,7 +201,7 @@ def excluir_divida(divida_id):
 @login_required
 def previa_vazamentos():
     """Mostra o que o app achou nos cartões antes de mandar para a IA."""
-    diag = pia.diagnostico_vazamentos(current_user.id)
+    diag = pia.diagnostico_vazamentos(current_user.id, completo=True)
     ultima = PlanejamentoAnalise.query.filter_by(user_id=current_user.id, modulo="vazamentos")\
         .order_by(PlanejamentoAnalise.id.desc()).first()
     return render_template("planejamento/vazamentos.html", d=diag, ultima=ultima)

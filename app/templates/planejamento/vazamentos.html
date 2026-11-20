@@ -17,11 +17,29 @@
   </div>
 </div>
 
+{% macro abre(grupo, titulo) -%}
+class="clicavel" data-grupo="{{ grupo }}" data-titulo="{{ titulo }}" role="button" tabindex="0" title="Ver lançamentos"
+{%- endmacro %}
+{% set L = d.lancamentos %}
+
+<p class="text-faint text-small">Toque em qualquer card ou linha para ver os lançamentos.</p>
+
 <div class="grid grid-4 mb-3">
-  <div class="stat"><div class="stat-label">Cartões / mês (média)</div><div class="stat-value" style="font-size:1.5rem;">{{ d.gasto_medio_mensal_cartoes|brl }}</div></div>
-  <div class="stat"><div class="stat-label">Delivery no período</div><div class="stat-value" style="font-size:1.5rem;">{{ d.delivery.total|brl }}</div><div class="stat-foot">{{ d.delivery.qtd }} pedidos</div></div>
-  <div class="stat"><div class="stat-label">Tarifas, juros, seguros</div><div class="stat-value" style="font-size:1.5rem;">{{ d.tarifas_juros_seguros.total|brl }}</div><div class="stat-foot">{{ d.tarifas_juros_seguros.qtd }} lançamentos</div></div>
-  <div class="stat"><div class="stat-label">Compras até R$ 30</div><div class="stat-value" style="font-size:1.5rem;">{{ d.pequenas_compras_ate_30.total|brl }}</div><div class="stat-foot">{{ d.pequenas_compras_ate_30.qtd }} compras</div></div>
+  <div class="stat" {{ abre('todos_fechados', 'Todos os lançamentos (faturas fechadas)') }}>
+    <div class="stat-label">Cartões / mês (média)</div><div class="stat-value" style="font-size:1.5rem;">{{ d.gasto_medio_mensal_cartoes|brl }}</div>
+    <div class="stat-foot">{{ (L.todos_fechados or [])|length }} lançamentos ›</div></div>
+  <div class="stat" {{ abre('delivery', 'Delivery') }}>
+    <div class="stat-label">Delivery no período</div><div class="stat-value" style="font-size:1.5rem;">{{ d.delivery.total|brl }}</div><div class="stat-foot">{{ d.delivery.qtd }} pedidos ›</div></div>
+  <div class="stat" {{ abre('tarifas', 'Tarifas, juros e seguros') }}>
+    <div class="stat-label">Tarifas, juros, seguros</div><div class="stat-value" style="font-size:1.5rem;">{{ d.tarifas_juros_seguros.total|brl }}</div><div class="stat-foot">{{ d.tarifas_juros_seguros.qtd }} lançamentos ›</div></div>
+  <div class="stat" {{ abre('pequenos', 'Compras até R$ 30') }}>
+    <div class="stat-label">Compras até R$ 30</div><div class="stat-value" style="font-size:1.5rem;">{{ d.pequenas_compras_ate_30.total|brl }}</div><div class="stat-foot">{{ d.pequenas_compras_ate_30.qtd }} compras ›</div></div>
+  <div class="stat" {{ abre('transporte', 'Transporte') }}>
+    <div class="stat-label">Transporte no período</div><div class="stat-value" style="font-size:1.5rem;">{{ d.transporte.total|brl }}</div><div class="stat-foot">{{ d.transporte.qtd }} lançamentos ›</div></div>
+  <div class="stat" {{ abre('entretenimento', 'Entretenimento') }}>
+    <div class="stat-label">Entretenimento</div><div class="stat-value" style="font-size:1.5rem;">{{ d.entretenimento.total|brl }}</div><div class="stat-foot">{{ d.entretenimento.qtd }} lançamentos ›</div></div>
+  <div class="stat" {{ abre('consumo', 'Contas de consumo e telecom') }}>
+    <div class="stat-label">Consumo e telecom</div><div class="stat-value" style="font-size:1.5rem;">{{ d.contas_consumo_telecom.total|brl }}</div><div class="stat-foot">{{ d.contas_consumo_telecom.qtd }} lançamentos ›</div></div>
 </div>
 
 <div class="grid grid-2">
@@ -31,7 +49,7 @@
     <div class="table-wrap"><table class="tbl">
       <thead><tr><th>Descrição</th><th class="num">Média</th><th class="num">Meses</th><th class="num">Por ano</th></tr></thead>
       <tbody>{% for a in d.assinaturas_provaveis %}
-        <tr><td>{{ a.descricao }}</td><td class="num">{{ a.valor_medio|brl }}</td><td class="num">{{ a.meses_em_que_apareceu }}</td><td class="num">{{ a.estimativa_anual|brl }}</td></tr>
+        <tr {{ abre('com:' ~ a.chave, a.descricao) }}><td>{{ a.descricao }} <span class="text-faint">›</span></td><td class="num">{{ a.valor_medio|brl }}</td><td class="num">{{ a.meses_em_que_apareceu }}</td><td class="num">{{ a.estimativa_anual|brl }}</td></tr>
       {% endfor %}</tbody>
     </table></div>
     {% else %}<p class="text-dim text-small">Nada recorrente detectado.</p>{% endif %}
@@ -40,7 +58,7 @@
     <h3 style="margin-top:0;">Média mensal por categoria</h3>
     <div class="table-wrap"><table class="tbl">
       <tbody>{% for k, v in d.media_mensal_por_categoria.items() %}
-        <tr><td>{{ k }}</td><td class="num">{{ v|brl }}</td></tr>
+        <tr {{ abre('cat:' ~ k, 'Categoria: ' ~ k) }}><td>{{ k }} <span class="text-faint">›</span></td><td class="num">{{ v|brl }}</td></tr>
       {% endfor %}</tbody>
     </table></div>
   </div>
@@ -51,9 +69,60 @@
   <div class="table-wrap"><table class="tbl">
     <thead><tr><th>Descrição</th><th class="num">Total</th><th class="num">Compras</th><th class="num">Meses</th><th></th></tr></thead>
     <tbody>{% for c in d.maiores_comerciantes[:25] %}
-      <tr><td>{{ c.descricao }}</td><td class="num">{{ c.total_periodo|brl }}</td><td class="num">{{ c.compras }}</td><td class="num">{{ c.meses }}</td>
+      <tr {{ abre('com:' ~ c.chave, c.descricao) }}><td>{{ c.descricao }} <span class="text-faint">›</span></td><td class="num">{{ c.total_periodo|brl }}</td><td class="num">{{ c.compras }}</td><td class="num">{{ c.meses }}</td>
           <td class="text-faint text-small">{{ 'parcelado' if c.parcelado }}</td></tr>
     {% endfor %}</tbody>
   </table></div>
 </div>
+
+<dialog id="dlg-lanc" class="dlg-lanc">
+  <div class="flex-between" style="gap:12px;">
+    <h3 id="dlg-titulo" style="margin:0;"></h3>
+    <button class="btn btn-ghost btn-sm" type="button" onclick="this.closest('dialog').close()">✕</button>
+  </div>
+  <div id="dlg-resumo" class="text-dim text-small" style="margin:6px 0 12px;"></div>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Data</th><th>Descrição</th><th>Cartão</th><th>Fatura</th><th>Categoria</th><th class="num">Valor</th><th></th></tr></thead>
+    <tbody id="dlg-corpo"></tbody>
+  </table></div>
+</dialog>
+
+<style>
+  .clicavel { cursor:pointer; transition:background .15s, border-color .15s; }
+  .stat.clicavel:hover { border-color:var(--accent); }
+  tr.clicavel:hover td { background:var(--bg-card-hover); }
+  .dlg-lanc { background:var(--bg-card); color:var(--text); border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+              width:min(960px, 96vw); max-height:86vh; padding:20px; box-shadow:var(--shadow-lg); }
+  .dlg-lanc::backdrop { background:rgba(0,0,0,.6); }
+</style>
+<script>
+(function(){
+  var LANC = {{ L|tojson }};
+  var URL_EDIT = "{{ url_for('cards.edit_entry', card_id=999991, entry_id=999992) }}";
+  var dlg = document.getElementById('dlg-lanc');
+  function brl(v){ return v.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
+  function dataBr(s){ var p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+  function fatBr(s){ var m=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']; return s ? m[+s.slice(5,7)-1] + '/' + s.slice(2,4) : ''; }
+  function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+  function abrir(el){
+    var itens = LANC[el.dataset.grupo] || [];
+    var total = itens.reduce(function(a, x){ return a + x.valor; }, 0);
+    document.getElementById('dlg-titulo').textContent = el.dataset.titulo;
+    document.getElementById('dlg-resumo').textContent = itens.length + ' lançamento(s) · total ' + brl(total);
+    document.getElementById('dlg-corpo').innerHTML = itens.length ? itens.map(function(x){
+      var url = URL_EDIT.replace('999991', x.card_id).replace('999992', x.id);
+      return '<tr><td style="white-space:nowrap">' + dataBr(x.data) + '</td><td>' + esc(x.descricao) +
+             (x.parcela ? ' <span class="text-faint">' + esc(x.parcela) + '</span>' : '') + '</td><td>' + esc(x.cartao) +
+             '</td><td>' + fatBr(x.fatura) + '</td><td>' + esc(x.categoria) + '</td><td class="num">' + brl(x.valor) +
+             '</td><td><a class="btn btn-ghost btn-sm" href="' + url + '">Editar</a></td></tr>';
+    }).join('') : '<tr><td colspan="7" class="text-dim">Nenhum lançamento.</td></tr>';
+    dlg.showModal();
+  }
+  document.querySelectorAll('.clicavel').forEach(function(el){
+    el.addEventListener('click', function(){ abrir(el); });
+    el.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(el); } });
+  });
+  dlg.addEventListener('click', function(ev){ if (ev.target === dlg) dlg.close(); });
+})();
+</script>
 {% endblock %}

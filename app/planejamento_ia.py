@@ -180,7 +180,8 @@ def _tem(desc_n, kws):
     return any(k in desc_n for k in kws)
 
 
-def diagnostico_vazamentos(user_id):
+def diagnostico_vazamentos(user_id, completo=False):
+    """completo=True devolve também todos os lançamentos de cada grupo (para a tela)."""
     entradas, janela, atual = _lancamentos_cartao(user_id, MESES_ANALISE)
     fechados = [m for m in janela if m != atual]
     n_meses = max(len({e.billing_month for e in entradas if e.billing_month != atual}), 1)
@@ -191,6 +192,8 @@ def diagnostico_vazamentos(user_id):
     por_planejado = defaultdict(float)
     delivery, transporte, tarifas, entretenimento, energia = [], [], [], [], []
     pequenos = {"qtd": 0, "total": 0.0}
+    lanc = defaultdict(list)          # grupo → lançamentos (só para a tela)
+    itens_comerciante = defaultdict(list)
 
     for e in entradas:
         v = _f(e.amount)
@@ -211,6 +214,27 @@ def diagnostico_vazamentos(user_id):
 
         item = {"descricao": e.description, "valor": v, "data": e.entry_date.isoformat(),
                 "fatura": e.billing_month}
+        if completo:
+            cheio = {**item, "id": e.id, "card_id": e.card_id,
+                     "cartao": e.card.name if e.card else "", "categoria": e.category or "Outros",
+                     "parcela": (f"{e.installment_no}/{e.installments}"
+                                 if (e.installments or 1) > 1 else "")}
+            itens_comerciante[k].append(cheio)
+            if e.billing_month in fechados:
+                lanc["todos_fechados"].append(cheio)
+                lanc["cat:" + (e.category or "Outros")].append(cheio)
+            if _tem(dn, KW_DELIVERY):
+                lanc["delivery"].append(cheio)
+            elif _tem(dn, KW_TRANSPORTE):
+                lanc["transporte"].append(cheio)
+            if _tem(dn, KW_TARIFAS):
+                lanc["tarifas"].append(cheio)
+            if _tem(dn, KW_ENTRETENIMENTO):
+                lanc["entretenimento"].append(cheio)
+            if _tem(dn, KW_ENERGIA):
+                lanc["consumo"].append(cheio)
+            if v < 30 and e.kind != "parcelado":
+                lanc["pequenos"].append(cheio)
         if _tem(dn, KW_DELIVERY):
             delivery.append(item)
         elif _tem(dn, KW_TRANSPORTE):
@@ -233,20 +257,20 @@ def diagnostico_vazamentos(user_id):
         estavel = all(abs(x - media) <= max(0.15 * media, 2) for x in vals)
         nome_assin = _tem(_norm(c["descricao"]), KW_ASSINATURA)
         if (len(c["meses"]) >= 2 and estavel) or (nome_assin and len(vals) >= 1):
-            assinaturas.append({"descricao": c["descricao"], "valor_medio": round(media, 2),
+            assinaturas.append({"chave": k, "descricao": c["descricao"], "valor_medio": round(media, 2),
                                 "meses_em_que_apareceu": len(c["meses"]),
                                 "estimativa_anual": round(media * 12, 2)})
     assinaturas.sort(key=lambda x: -x["valor_medio"])
 
     top = sorted(por_comerciante.items(), key=lambda kv: -kv[1]["total"])[:50]
-    top_comerciantes = [{"descricao": c["descricao"], "total_periodo": round(c["total"], 2),
+    top_comerciantes = [{"chave": k, "descricao": c["descricao"], "total_periodo": round(c["total"], 2),
                          "compras": c["qtd"], "meses": len(c["meses"]),
-                         "parcelado": c["parcelado"]} for _, c in top]
+                         "parcelado": c["parcelado"]} for k, c in top]
 
     def _soma(lst):
         return round(sum(x["valor"] for x in lst), 2)
 
-    return {
+    resultado = {
         "faturas_analisadas": [_mes_br(m) for m in janela],
         "fatura_aberta_parcial": _mes_br(atual),
         "meses_fechados_considerados": n_meses,
@@ -266,6 +290,17 @@ def diagnostico_vazamentos(user_id):
         "pequenas_compras_ate_30": {"qtd": pequenos["qtd"], "total": round(pequenos["total"], 2)},
         "maiores_comerciantes": top_comerciantes,
     }
+    if not completo:
+        for lst in (resultado["assinaturas_provaveis"], resultado["maiores_comerciantes"]):
+            for x in lst:
+                x.pop("chave", None)
+        return resultado
+    for a in resultado["assinaturas_provaveis"] + resultado["maiores_comerciantes"]:
+        lanc["com:" + a["chave"]] = itens_comerciante[a["chave"]]
+    for lst in lanc.values():
+        lst.sort(key=lambda x: (x["data"], x["id"]), reverse=True)
+    resultado["lancamentos"] = dict(lanc)
+    return resultado
 
 
 def dados_patrimonio(user_id):
