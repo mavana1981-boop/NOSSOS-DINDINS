@@ -668,9 +668,81 @@ def _ia_claude(prompt):
         txt = "".join(b.get("text", "") for b in r.get("content", []) if b.get("type") == "text")
         return (txt, f"Claude ({model})", None) if txt.strip() else (None, None, "Claude: resposta vazia")
     except urllib.error.HTTPError as e:
-        return None, None, f"Claude {e.code}: {e.read().decode()[:200]}"
+        return None, None, f"Claude — {_resumo_erro(e)}"
     except Exception as e:
         return None, None, f"Claude: {e}"
+
+
+_CACHE_MODELOS = {}   # provedor → (timestamp, [modelos])
+
+
+def _get(url, headers=None, timeout=20):
+    req = urllib.request.Request(url, headers={"Accept": "application/json",
+                                               "User-Agent": "Mozilla/5.0", **(headers or {})})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def _versao(nome):
+    m = re.search(r"(\d+(?:\.\d+)?)", nome)
+    return float(m.group(1)) if m else 0.0
+
+
+def _modelos_gemini(key):
+    """Pergunta à API quais modelos esta chave pode usar (os nomes mudam com frequência)."""
+    c = _CACHE_MODELOS.get("gemini")
+    if c and time.time() - c[0] < 6 * 3600:
+        return c[1]
+    fixos = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-flash-lite-latest"]
+    try:
+        r = _get(f"https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=200")
+        nomes = [m["name"].split("/", 1)[-1] for m in r.get("models", [])
+                 if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+        ruins = ("image", "tts", "audio", "live", "embedding", "vision", "learnlm", "gemma", "robotics",
+                 "computer-use", "thinking-exp", "aqa", "veo", "imagen")
+        nomes = [n for n in nomes if n.startswith("gemini") and not any(b in n for b in ruins)]
+
+        def rank(n):
+            tipo = 0 if ("flash" in n and "lite" not in n) else 1 if "lite" in n else 2 if "pro" in n else 3
+            return (tipo, "preview" in n or "exp" in n, -_versao(n))
+        nomes = sorted(set(nomes), key=rank) or fixos
+    except Exception:
+        nomes = fixos
+    _CACHE_MODELOS["gemini"] = (time.time(), nomes)
+    return nomes
+
+
+def _modelos_groq(key):
+    c = _CACHE_MODELOS.get("groq")
+    if c and time.time() - c[0] < 6 * 3600:
+        return c[1]
+    fixos = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b"]
+    try:
+        r = _get("https://api.groq.com/openai/v1/models", {"Authorization": f"Bearer {key}"})
+        nomes = [m["id"] for m in r.get("data", []) if m.get("active", True)]
+        ruins = ("whisper", "tts", "guard", "embed", "playai", "distil", "compound", "orpheus", "safeguard")
+        nomes = [n for n in nomes if not any(b in n.lower() for b in ruins)]
+        pref = ["gpt-oss-120b", "kimi", "llama-4-maverick", "llama-3.3-70b", "qwen", "llama-4-scout",
+                "gpt-oss-20b", "llama"]
+
+        def rank(n):
+            low = n.lower()
+            return next((i for i, p in enumerate(pref) if p in low), len(pref))
+        nomes = sorted(nomes, key=rank) or fixos
+    except Exception:
+        nomes = fixos
+    _CACHE_MODELOS["groq"] = (time.time(), nomes)
+    return nomes
+
+
+def _resumo_erro(e):
+    try:
+        corpo = e.read().decode()
+        msg = json.loads(corpo).get("error", {})
+        msg = msg.get("message") if isinstance(msg, dict) else msg
+        return f"{e.code} {str(msg or corpo)[:90]}"
+    except Exception:
+        return str(e.code)
 
 
 def _ia_gemini(prompt):
@@ -678,22 +750,29 @@ def _ia_gemini(prompt):
     if not key:
         return None, None, "GEMINI_API_KEY não configurada"
     erros = []
-    for model in ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"):
-        try:
-            r = _post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
-                      {"systemInstruction": {"parts": [{"text": SISTEMA}]},
-                       "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                       "generationConfig": {"maxOutputTokens": 8192}}, {})
-            txt = "".join(p.get("text", "") for p in r["candidates"][0]["content"]["parts"])
-            if txt.strip():
-                return txt, f"Gemini ({model})", None
-        except urllib.error.HTTPError as e:
-            erros.append(f"{model}:{e.code}")
-            if e.code in (429, 503):
-                time.sleep(2)
-        except Exception as e:
-            erros.append(f"{model}:{repr(e)[:60]}")
-    return None, None, "Gemini: " + ", ".join(erros)
+    for model in _modelos_gemini(key)[:5]:
+        for tentativa in range(2):
+            try:
+                r = _post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                          {"systemInstruction": {"parts": [{"text": SISTEMA}]},
+                           "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                           "generationConfig": {"maxOutputTokens": 8192}}, {})
+                partes = r["candidates"][0].get("content", {}).get("parts", [])
+                txt = "".join(p.get("text", "") for p in partes if not p.get("thought"))
+                if txt.strip():
+                    return txt, f"Gemini ({model})", None
+                erros.append(f"{model}: resposta vazia")
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and tentativa == 0:
+                    time.sleep(20)          # limite por minuto: espera e tenta de novo
+                    continue
+                erros.append(f"{model}: {_resumo_erro(e)}")
+                break
+            except Exception as e:
+                erros.append(f"{model}: {repr(e)[:60]}")
+                break
+    return None, None, "Gemini — " + "; ".join(erros)
 
 
 def _ia_groq(prompt):
@@ -701,7 +780,7 @@ def _ia_groq(prompt):
     if not key:
         return None, None, "GROQ_API_KEY não configurada"
     erros = []
-    for model in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"):
+    for model in _modelos_groq(key)[:4]:
         try:
             r = _post("https://api.groq.com/openai/v1/chat/completions",
                       {"model": model, "max_tokens": 8000,
@@ -709,14 +788,15 @@ def _ia_groq(prompt):
                                     {"role": "user", "content": prompt}]},
                       {"Authorization": f"Bearer {key}", "User-Agent": "Mozilla/5.0",
                        "Accept": "application/json"})
-            txt = r["choices"][0]["message"]["content"]
+            txt = r["choices"][0]["message"].get("content") or ""
             if txt.strip():
                 return txt, f"Groq ({model})", None
+            erros.append(f"{model}: resposta vazia")
         except urllib.error.HTTPError as e:
-            erros.append(f"{model}:{e.code}")
+            erros.append(f"{model}: {_resumo_erro(e)}")
         except Exception as e:
-            erros.append(f"{model}:{repr(e)[:60]}")
-    return None, None, "Groq: " + ", ".join(erros)
+            erros.append(f"{model}: {repr(e)[:60]}")
+    return None, None, "Groq — " + "; ".join(erros)
 
 
 def chamar_ia(prompt):
