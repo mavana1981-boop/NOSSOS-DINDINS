@@ -666,3 +666,15 @@ class PlanejamentoAnalise(db.Model):
     erro       = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     finished_at = db.Column(db.DateTime, nullable=True)
+
+
+class FaturaReparoLog(db.Model):
+    """Backup dos billing_month antes de uma correção em massa (permite desfazer)."""
+    __tablename__ = "fatura_reparo_log"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    card_id    = db.Column(db.Integer, nullable=True)
+    descricao  = db.Column(db.String(200))
+    dados      = db.Column(db.Text)       # JSON [{id, de, para}]
+    desfeito   = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

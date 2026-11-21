@@ -1076,28 +1076,40 @@ def delete_entry(card_id, entry_id):
 
 # ── Lançamento em Lote ────────────────────────────────────────────────────────
 
-@cards_bp.route("/<int:card_id>/definir-mes-fatura", methods=["POST"])
+@cards_bp.route("/reparar-mes-fatura", methods=["GET", "POST"])
 @login_required
-def definir_mes_fatura(card_id):
-    """Redefine o billing_month de todos os entries ativos do cartão."""
-    card = Card.query.get_or_404(card_id)
-    if card.user_id != current_user.id:
-        abort(403)
-    billing_month = request.form.get("billing_month", "").strip()
-    if not billing_month or len(billing_month) != 7:
-        flash("Mês da fatura inválido.", "danger")
-        return redirect(url_for("cards.detail_card", card_id=card_id))
-    _hoje_bm = date.today().strftime("%Y-%m")
-    entries = [e for e in CardEntry.query.filter(
-        CardEntry.card_id == card_id,
-        CardEntry.status == "ativo",
-    ).all() if not ("[parcela auto" in (e.notes or "")
-                    and (e.billing_month or "") > _hoje_bm)]
-    for e in entries:
-        e.billing_month = billing_month
-    db.session.commit()
-    flash(f"✅ {len(entries)} lançamento(s) atualizados para fatura {billing_month}.", "success")
-    return redirect(url_for("cards.detail_card", card_id=card_id))
+def reparar_mes_fatura():
+    """Desfaz o antigo "Definir mês fatura": recalcula a fatura certa de cada
+    lançamento que foi jogado para um único mês. Mostra a prévia antes de aplicar."""
+    from app import reparo_fatura as rf
+    from app.models import FaturaReparoLog
+    from sqlalchemy import func as _func
+    hoje = date.today()
+    mes = (request.values.get("mes") or add_meses_bm(hoje.strftime("%Y-%m"), 1)).strip()[:7]
+    card_id = request.values.get("card_id", type=int)
+
+    if request.method == "POST":
+        acao = request.form.get("acao")
+        if acao == "desfazer":
+            n = rf.desfazer(current_user.id, request.form.get("log_id", type=int))
+            flash(f"Correção desfeita: {n} lançamento(s) voltaram ao mês anterior.", "success")
+        elif card_id:
+            n = rf.aplicar(current_user.id, card_id, mes)
+            flash(f"✅ {n} lançamento(s) devolvidos à fatura correta.", "success")
+        return redirect(url_for("cards.reparar_mes_fatura", mes=mes, card_id=card_id or ""))
+
+    contagem = dict(db.session.query(CardEntry.card_id, _func.count(CardEntry.id)).filter(
+        CardEntry.user_id == current_user.id, CardEntry.status == "ativo",
+        CardEntry.billing_month == mes).group_by(CardEntry.card_id).all())
+    cards = Card.query.filter_by(user_id=current_user.id).order_by(Card.name).all()
+    if not card_id and contagem:
+        card_id = max(contagem, key=contagem.get)
+    res = rf.calcular(current_user.id, card_id, mes) if card_id else None
+    resumo = rf.resumo_por_mes(res["linhas"]) if res else {}
+    logs = FaturaReparoLog.query.filter_by(user_id=current_user.id)\
+        .order_by(FaturaReparoLog.id.desc()).limit(10).all()
+    return render_template("cards/reparar_fatura.html", mes=mes, cards=cards, contagem=contagem,
+                           card_id=card_id, res=res, resumo=resumo, logs=logs)
 
 
 @cards_bp.route("/<int:card_id>/lote", methods=["GET", "POST"])

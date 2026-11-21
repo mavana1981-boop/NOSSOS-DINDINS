@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Corrigir mês da fatura{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>Corrigir mês da fatura</h1>
+    <p>Devolve à fatura certa os lançamentos que foram jogados para um único mês. Nada muda até você confirmar.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('cards.list_cards') }}">← Cartões</a>
+</div>
+
+<div class="card">
+  <form method="GET" class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;">
+    <div class="form-group mb-0">
+      <label class="form-label">Mês para onde foram jogados</label>
+      <input type="month" class="form-control" name="mes" value="{{ mes }}">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Cartão</label>
+      <select class="form-control" name="card_id">
+        {% for c in cards %}
+        <option value="{{ c.id }}" {% if c.id == card_id %}selected{% endif %}>{{ c.name }} — {{ contagem.get(c.id, 0) }} lançamento(s) em {{ mes }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-ghost" type="submit">Ver prévia</button>
+  </form>
+</div>
+
+{% if res %}
+{% set mudam = res.linhas|selectattr('para', 'ne', mes)|list %}
+<div class="grid grid-2 mt-3">
+  <div class="card">
+    <h3 style="margin-top:0;">Como fica — {{ res.card.name }}</h3>
+    <p class="text-dim text-small">Dia de fechamento cadastrado: {{ res.card.closing_day or 'não informado' }}. Confira os totais com as faturas do banco.</p>
+    <table class="tbl">
+      <thead><tr><th>Fatura</th><th class="text-right">Lançamentos</th><th class="text-right">Total</th></tr></thead>
+      <tbody>{% for m, r in resumo.items() %}
+        <tr {% if m == mes %}style="font-weight:600"{% endif %}><td>{{ m }}{% if m == mes %} (fica){% endif %}</td><td class="text-right">{{ r.qtd }}</td><td class="text-right">{{ r.total|brl }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0;">Aplicar</h3>
+    <p>{{ mudam|length }} de {{ res.linhas|length }} lançamento(s) vão sair de <strong>{{ mes }}</strong>.</p>
+    <p class="text-dim text-small">Um backup é salvo antes; dá para desfazer logo abaixo.</p>
+    {% if mudam %}
+    <form method="POST" onsubmit="return confirm('Mover {{ mudam|length }} lançamento(s) para as faturas mostradas?');">
+      <input type="hidden" name="mes" value="{{ mes }}">
+      <input type="hidden" name="card_id" value="{{ card_id }}">
+      <input type="hidden" name="acao" value="aplicar">
+      <button class="btn btn-primary" type="submit">Corrigir {{ res.card.name }}</button>
+    </form>
+    {% else %}<p class="text-small">Nada a corrigir neste cartão.</p>{% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Lançamentos</h3>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Data</th><th>Descrição</th><th class="text-right">Valor</th><th>De</th><th>Para</th><th>Como foi decidido</th></tr></thead>
+    <tbody>{% for ln in res.linhas %}
+      <tr><td>{{ ln.entry.entry_date.strftime('%d/%m/%Y') }}</td>
+        <td>{{ ln.entry.description }}{% if (ln.entry.installments or 1) > 1 %} <span class="text-faint">{{ ln.entry.installment_no }}/{{ ln.entry.installments }}</span>{% endif %}</td>
+        <td class="text-right">{{ ln.entry.amount|brl }}</td><td>{{ ln.de }}</td>
+        <td><strong {% if ln.para != ln.de %}style="color:var(--green)"{% endif %}>{{ ln.para }}</strong></td>
+        <td class="text-faint text-small">{{ ln.fonte }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if logs %}
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Correções feitas</h3>
+  <table class="tbl"><tbody>{% for l in logs %}
+    <tr><td>{{ l.created_at.strftime('%d/%m/%Y %H:%M') }} UTC</td><td>{{ l.descricao }}</td>
+      <td>{{ (l.dados|fromjson)|length }} lançamento(s)</td>
+      <td class="text-right">{% if l.desfeito %}<span class="text-faint">desfeita</span>{% else %}
+        <form method="POST" onsubmit="return confirm('Desfazer esta correção?');">
+          <input type="hidden" name="acao" value="desfazer"><input type="hidden" name="log_id" value="{{ l.id }}">
+          <input type="hidden" name="mes" value="{{ mes }}">
+          <button class="btn btn-ghost btn-sm" type="submit">Desfazer</button></form>{% endif %}</td></tr>
+  {% endfor %}</tbody></table>
+</div>
+{% endif %}
+{% endblock %}

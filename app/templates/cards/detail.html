@@ -118,16 +118,6 @@ function excluirSelecionados() {
         <button class="btn btn-ghost" style="border:1px solid var(--gold);color:var(--gold);">🔒 Fechar mês</button>
       </form>
     {% endif %}
-    <!-- Redefinir mês da fatura -->
-    <form method="POST" action="{{ url_for('cards.definir_mes_fatura', card_id=card.id) }}"
-          style="display:inline-flex;gap:6px;align-items:center;"
-          onsubmit="return confirm('Atualizar mês da fatura de todos os lançamentos ativos deste cartão?');">
-      <input type="month" name="billing_month" class="form-control"
-             style="width:160px;font-size:0.8rem;padding:4px 8px;"
-             value="{{ today.strftime('%Y-%m') if today is defined else '' }}"
-             placeholder="Mês fatura">
-      <button class="btn btn-ghost" style="font-size:0.8rem;white-space:nowrap;">📅 Definir mês fatura</button>
-    </form>
     <a href="{{ url_for('cards.edit_card', card_id=card.id) }}" class="btn btn-ghost">Editar</a>
     <form method="POST" action="{{ url_for('cards.delete_card', card_id=card.id) }}"
           style="display:inline;" onsubmit="return confirm('Remover este cartão e todos os lançamentos?');">
