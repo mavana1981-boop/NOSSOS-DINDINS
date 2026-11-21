@@ -104,43 +104,123 @@ def _perfil(user_id):
 
 
 def resumo_renda_gastos(user_id):
-    """Renda mensal e despesas fixas (planejadas) do mês aberto, com overrides do perfil."""
+    """Renda HABITUAL (só rendas recorrentes) e gastos fixos do mês corrente.
+    Rendas eventuais (13º, férias, restituição, bônus) ficam separadas em rendas_eventuais."""
     from app.models import Income, Expense
-    from app.utils import get_user_monthly_summary, get_open_billing_month
 
-    mes = get_open_billing_month(user_id, date.today().strftime("%Y-%m"))
-    ano, mm = int(mes[:4]), int(mes[5:7])
-    resumo = get_user_monthly_summary(user_id, ano, mm)
+    hoje = date.today()
+    ano, mm = hoje.year, hoje.month
+    mes = f"{ano}-{mm:02d}"
+    ini_ev, fim_ev = _add_mes(mes, -6), _add_mes(mes, 12)
 
-    rendas = []
+    rendas, eventuais = [], []
     for i in Income.query.filter_by(user_id=user_id).all():
-        if i.is_recurring and (i.received_at.year, i.received_at.month) <= (ano, mm):
-            rendas.append({"descricao": i.description, "categoria": i.category,
-                           "valor": _f(i.amount), "tipo": "recorrente"})
-        elif i.received_at.year == ano and i.received_at.month == mm:
-            rendas.append({"descricao": i.description, "categoria": i.category,
-                           "valor": _f(i.amount), "tipo": "eventual"})
+        ym = i.received_at.strftime("%Y-%m")
+        if i.is_recurring and ym <= mes:
+            rendas.append({"descricao": i.description, "categoria": i.category, "valor": _f(i.amount)})
+        elif not i.is_recurring and ini_ev <= ym <= fim_ev:
+            eventuais.append({"descricao": i.description, "categoria": i.category, "valor": _f(i.amount),
+                              "mes": ym, "data": i.received_at.isoformat(),
+                              "situacao": "futura" if ym > mes else ("deste mês" if ym == mes else "já recebida")})
+    eventuais.sort(key=lambda x: x["data"])
 
     fixas = []
     for e in Expense.query.filter_by(payer_id=user_id).all():
-        if e.is_active_on(ano, mm):
-            meu = next((s.share_amount for s in e.shares if s.user_id == user_id), None)
-            fixas.append({"descricao": e.description, "categoria": e.category,
-                          "tipo": e.kind, "valor": _f(meu if meu is not None else e.amount)})
+        if e.kind == "recorrente" and e.is_active_on(ano, mm):
+            meu = next((sh.share_amount for sh in e.shares if sh.user_id == user_id), None)
+            item = {"descricao": e.description, "categoria": e.category, "valor": _f(meu if meu is not None else e.amount)}
+            if e.recurrence_months:
+                n = (ano - e.spent_at.year) * 12 + (mm - e.spent_at.month) + 1
+                item["parcela"] = f"{n}/{e.recurrence_months}"
+            fixas.append(item)
     fixas.sort(key=lambda x: -x["valor"])
 
     p = _perfil(user_id)
-    renda = _f(p.renda_override) if (p and p.renda_override) else _f(resumo["income"])
-    despesas = _f(p.fixas_override) if (p and p.fixas_override) else _f(resumo["expense"])
+    renda = _f(p.renda_override) if (p and p.renda_override) else round(sum(r["valor"] for r in rendas), 2)
+    despesas = _f(p.fixas_override) if (p and p.fixas_override) else round(sum(x["valor"] for x in fixas), 2)
     return {
         "mes_referencia": mes,
-        "renda_mensal": renda,
-        "despesas_planejadas_mes": despesas,
+        "renda_mensal": renda,                 # habitual
+        "despesas_planejadas_mes": despesas,   # gastos fixos/recorrentes (sua parte)
         "renda_informada_manualmente": bool(p and p.renda_override),
         "despesas_informadas_manualmente": bool(p and p.fixas_override),
         "rendas": rendas,
+        "rendas_eventuais": eventuais,
         "gastos_planejados": fixas[:40],
     }
+
+
+def fluxo_caixa(user_id, passados=6, futuros=12):
+    """Série mensal do Fluxo de Caixa do app (mesma conta do menu), separando
+    renda habitual × eventual e gastos fixos × eventuais/estouros."""
+    from app.utils import get_yearly_cashflow
+    mes = date.today().strftime("%Y-%m")
+    alvo = [_add_mes(mes, k) for k in range(-passados, futuros + 1)]
+    por_ano = {}
+    out = []
+    for ym in alvo:
+        y, m = int(ym[:4]), int(ym[5:7])
+        if y not in por_ano:
+            try:
+                por_ano[y] = get_yearly_cashflow(user_id, y)
+            except Exception:
+                por_ano[y] = []
+        linha = next((r for r in por_ano[y] if r.get("month") == m), None)
+        if not linha:
+            continue
+        out.append({
+            "mes": _mes_br(ym), "ym": ym, "passado": ym < mes,
+            "renda_habitual": _f(linha["income_recurring"]),
+            "renda_eventual": _f(linha["income_eventual"]),
+            "rendas_eventuais_itens": [{"desc": x["desc"], "valor": _f(x["amount"])}
+                                       for x in linha.get("income_eventual_items", [])][:6],
+            "gastos_fixos": _f(linha["fixed_expense"]),
+            "gastos_eventuais_e_estouros": _f(linha["eventual_expense"]),
+            "maiores_eventuais": [{"desc": x["desc"], "valor": _f(x["amount"])}
+                                  for x in linha.get("eventual_items", [])][:5],
+            "saldo_do_mes": _f(linha["net"]),
+            "saldo_sem_eventuais": round(_f(linha["income_recurring"]) - _f(linha["fixed_expense"])
+                                         - _f(linha["eventual_expense"]), 2),
+        })
+    return out
+
+
+def estouro_planejados(user_id, meses=6):
+    """Planejado × gasto real nos cartões, por gasto planejado, nas últimas faturas fechadas."""
+    from app.models import Expense, CardEntry
+    from app.utils import get_open_billing_month
+    atual = get_open_billing_month(user_id, date.today().strftime("%Y-%m"))
+    janela = [_add_mes(atual, -k) for k in range(meses, 0, -1)]
+    linhas = []
+    for e in Expense.query.filter_by(payer_id=user_id, kind="recorrente").all():
+        ents = CardEntry.query.filter(CardEntry.expense_id == e.id,
+                                      CardEntry.billing_month.in_(janela + [atual]),
+                                      CardEntry.status == "ativo").all()
+        if not ents:
+            continue
+        planejado = _f(e.amount)
+        por_mes = defaultdict(float)
+        for x in ents:
+            por_mes[x.billing_month] += float(x.amount)
+        meses_l = []
+        for ym in janela:
+            if not e.is_active_on(int(ym[:4]), int(ym[5:7])):
+                continue
+            gasto = round(por_mes.get(ym, 0.0), 2)
+            meses_l.append({"fatura": _mes_br(ym), "planejado": planejado, "gasto": gasto,
+                            "estouro": round(max(gasto - planejado, 0), 2)})
+        if not meses_l:
+            continue
+        tot_est = round(sum(m["estouro"] for m in meses_l), 2)
+        linhas.append({"gasto_planejado": e.description, "planejado_mensal": planejado,
+                       "media_gasta": round(sum(m["gasto"] for m in meses_l) / len(meses_l), 2),
+                       "meses_estourados": sum(1 for m in meses_l if m["estouro"] > 0),
+                       "meses_analisados": len(meses_l), "estouro_total": tot_est,
+                       "estouro_medio_mensal": round(tot_est / len(meses_l), 2),
+                       "fatura_aberta_ate_agora": round(por_mes.get(atual, 0.0), 2),
+                       "por_mes": meses_l})
+    linhas.sort(key=lambda x: -x["estouro_total"])
+    return linhas
 
 
 def _lancamentos_cartao(user_id, meses):
@@ -405,9 +485,11 @@ def _ordem(dividas, estrategia, extra):
     return sorted(rapidas, key=lambda d: d["saldo"]) + sorted(resto, key=lambda d: -d["taxa"])
 
 
-def simular(dividas_in, extra, estrategia, inicio=None, limite_meses=600):
+def simular(dividas_in, extra, estrategia, inicio=None, limite_meses=600, aportes=None):
     """Simula mês a mês. Taxa em % a.m. O orçamento mensal total (mínimos + extra)
-    é fixo; quando uma dívida acaba, o mínimo dela "rola" para a próxima."""
+    é fixo; quando uma dívida acaba, o mínimo dela "rola" para a próxima.
+    aportes = {"YYYY-MM": valor} → pagamentos extras pontuais (verbas eventuais)."""
+    aportes = aportes or {}
     inicio = inicio or _add_mes(date.today().strftime("%Y-%m"), 1)
     dividas = [{"id": d["id"], "nome": d["nome"], "saldo": float(d["saldo"]),
                 "taxa": float(d["taxa"]) / 100.0, "minimo": float(d["minimo"])}
@@ -421,6 +503,7 @@ def simular(dividas_in, extra, estrategia, inicio=None, limite_meses=600):
     cronograma = []
     mes = inicio
     alerta = None
+    saldo_inicial = sum(d["saldo"] for d in dividas)
 
     for n in range(1, limite_meses + 1):
         vivos = [d for d in ordem if d["saldo"] > 0.005]
@@ -431,7 +514,7 @@ def simular(dividas_in, extra, estrategia, inicio=None, limite_meses=600):
             j = d["saldo"] * d["taxa"]
             d["saldo"] += j
             juros_tot[d["id"]] += j
-        caixa = orcamento
+        caixa = orcamento + float(aportes.get(mes, 0) or 0)
         for d in vivos:  # mínimos
             p = min(d["minimo"], d["saldo"], caixa)
             d["saldo"] -= p; caixa -= p
@@ -450,16 +533,21 @@ def simular(dividas_in, extra, estrategia, inicio=None, limite_meses=600):
             linha["saldos"][d["id"]] = round(d["saldo"], 2)
         cronograma.append(linha)
         mes = _add_mes(mes, 1)
+        if sum(d["saldo"] for d in ordem) > 3 * saldo_inicial:
+            alerta = ("Com esse pagamento as dívidas não terminam: os juros superam o que é pago. "
+                      "Aumente o extra mensal ou renegocie as taxas.")
+            break
     else:
         alerta = ("Com esse pagamento as dívidas não terminam em 50 anos: os juros superam "
                   "o que é pago. Aumente o extra mensal ou renegocie as taxas.")
 
-    total_juros = round(sum(juros_tot.values()), 2)
     fim = max(quitacao.values()) if len(quitacao) == len(dividas) else None
+    total_juros = round(sum(juros_tot.values()), 2) if fim else None
     return {
         "estrategia": estrategia,
         "ordem": [{"id": d["id"], "nome": d["nome"], "quitada_em": quitacao.get(d["id"]),
-                   "juros": round(juros_tot[d["id"]], 2)} for d in ordem],
+                   "juros": round(juros_tot[d["id"]], 2), "parcela": round(d["minimo"], 2)} for d in ordem],
+        "aportes_eventuais": round(sum(float(v or 0) for v in aportes.values()), 2),
         "pagamento_mensal_total": round(orcamento, 2),
         "total_juros": total_juros,
         "meses": len(cronograma) if fim else None,
@@ -483,6 +571,59 @@ def comparar_estrategias(user_id, extra=None):
     for est in ("bola_de_neve", "avalanche", "hibrida"):
         res[est] = simular(base, extra, est)
     return res, base
+
+
+def aportes_eventuais(user_id, pct):
+    """Rendas eventuais FUTURAS (13º, férias, restituição…) → aportes de pct% no mês seguinte ao recebimento."""
+    rg = resumo_renda_gastos(user_id)
+    ap = defaultdict(float)
+    for r in rg["rendas_eventuais"]:
+        if r["situacao"] in ("futura", "deste mês"):
+            ap[_add_mes(r["mes"], 1)] += r["valor"] * pct / 100.0
+    return dict(ap)
+
+
+def cenarios_antecipacao(user_id, extra=None):
+    """Compara: só parcelas × extra mensal × extra + 50%/100% das verbas eventuais,
+    usando a estratégia que paga menos juros. Mostra quando cada parcela é liberada."""
+    res, base = comparar_estrategias(user_id, extra=extra)
+    if not res:
+        return None
+    validas = [v for v in res.values() if v and v["quitacao_final"]]
+    melhor = min(validas, key=lambda v: v["total_juros"])["estrategia"] if validas else "avalanche"
+    p = _perfil(user_id)
+    if extra is None:
+        extra = _f(p.pagamento_extra) if p else 0.0
+    defs = [("Só as parcelas", 0.0, 0), (f"Parcelas + extra de {_brl(extra)}/mês", extra, 0),
+            ("Extra + 50% das verbas eventuais", extra, 50), ("Extra + 100% das verbas eventuais", extra, 100)]
+    out = []
+    vistos = set()
+    for nome, ex, pct in defs:
+        ap = aportes_eventuais(user_id, pct) if pct else {}
+        chave = (ex, tuple(sorted(ap.items())))
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        r = simular(base, ex, melhor, aportes=ap)
+        if not r:
+            continue
+        liberadas = sorted([o for o in r["ordem"] if o["quitada_em"]], key=lambda o: o["quitada_em"])
+        out.append({"cenario": nome, "estrategia": melhor, "extra_mensal": ex, "pct_eventuais": pct,
+                    "aportes": {(_mes_br(k)): round(v, 2) for k, v in sorted(ap.items())},
+                    "juros_totais": r["total_juros"],
+                    "quitacao_final": _mes_br(r["quitacao_final"]) if r["quitacao_final"] else None,
+                    "meses": r["meses"],
+                    "parcelas_liberadas": [{"divida": o["nome"], "mes": _mes_br(o["quitada_em"]),
+                                            "parcela_liberada": o["parcela"]} for o in liberadas],
+                    "_sim": r})
+    if out:
+        ref = next((c for c in out if c["juros_totais"] is not None), None)
+        base_j = ref["juros_totais"] if ref else None
+        for c in out:
+            c["economia_comparada_com"] = ref["cenario"] if ref else None
+            c["economia_juros"] = (round(base_j - c["juros_totais"], 2)
+                                                  if base_j is not None and c["juros_totais"] is not None else None)
+    return {"estrategia": melhor, "cenarios": out, "base": base}
 
 
 def _resumo_estrategia(r, base):
@@ -576,29 +717,87 @@ def montar_entrada(user_id, modulo):
         )
     elif modulo == "dividas":
         res, base = comparar_estrategias(user_id)
-        dados = {"perfil": perfil, "renda_e_gastos": {k: rg[k] for k in
-                 ("renda_mensal", "despesas_planejadas_mes", "mes_referencia")},
-                 "dividas": [{"nome": d["nome"], "saldo": d["saldo"], "taxa_mensal_pct": d["taxa"],
-                              "pagamento_minimo": d["minimo"], **_origem_divida(d["id"])} for d in base],
-                 "simulacoes_calculadas": {k: _resumo_estrategia(v, base) for k, v in (res or {}).items()}}
+        cen = cenarios_antecipacao(user_id)
+        vz = diagnostico_vazamentos(user_id)
+        recomendado = None
+        if cen and cen["cenarios"]:
+            # cronograma do cenário mais agressivo (o último) para o plano mês a mês
+            recomendado = _resumo_estrategia(cen["cenarios"][-1]["_sim"], base)
+            recomendado.pop("cronograma_primeiros_36_meses", None)
+            recomendado["cronograma_primeiros_24_meses"] = _resumo_estrategia(
+                cen["cenarios"][-1]["_sim"], base)["cronograma_primeiros_36_meses"][:24]
+        dados = {
+            "perfil": perfil,
+            "renda": {
+                "renda_habitual_mensal": rg["renda_mensal"],
+                "rendas_habituais": rg["rendas"],
+                "rendas_eventuais_6m_atras_ate_12m_a_frente": rg["rendas_eventuais"],
+                "gastos_fixos_mensais": rg["despesas_planejadas_mes"],
+                "maiores_gastos_fixos": rg["gastos_planejados"][:20],
+            },
+            "fluxo_de_caixa_mensal": fluxo_caixa(user_id),
+            "estouro_de_planejados_ultimas_faturas": [
+                {k: v for k, v in x.items() if k != "por_mes"} | {"por_fatura": x["por_mes"]}
+                for x in estouro_planejados(user_id)[:12]],
+            "vazamentos_cartoes": {
+                "gasto_medio_mensal_cartoes": vz["gasto_medio_mensal_cartoes"],
+                "media_mensal_por_categoria": vz["media_mensal_por_categoria"],
+                "assinaturas_provaveis": vz["assinaturas_provaveis"][:15],
+                "delivery": {"qtd": vz["delivery"]["qtd"], "total_periodo": vz["delivery"]["total"]},
+                "tarifas_juros_seguros": {"qtd": vz["tarifas_juros_seguros"]["qtd"],
+                                          "total_periodo": vz["tarifas_juros_seguros"]["total"],
+                                          "itens": vz["tarifas_juros_seguros"]["itens"][:10]},
+                "pequenas_compras_ate_30": vz["pequenas_compras_ate_30"],
+                "maiores_comerciantes_nao_parcelados": [c for c in vz["maiores_comerciantes"]
+                                                        if not c["parcelado"]][:15],
+                "meses_considerados": vz["meses_fechados_considerados"],
+            },
+            "dividas": [{"nome": d["nome"], "saldo": d["saldo"], "taxa_mensal_pct": d["taxa"],
+                         "parcela_ou_minimo": d["minimo"], **_origem_divida(d["id"])} for d in base],
+            "comparacao_estrategias": {k: {kk: vv for kk, vv in (_resumo_estrategia(v, base) or {}).items()
+                                           if kk != "cronograma_primeiros_36_meses"}
+                                       for k, v in (res or {}).items()},
+            "cenarios_de_antecipacao_calculados": [{k: v for k, v in c.items() if k != "_sim"}
+                                                   for c in (cen["cenarios"] if cen else [])],
+            "cenario_mais_agressivo_detalhado": recomendado,
+        }
         tarefa = (
-            "Atue como especialista em eliminação de dívidas. As três estratégias JÁ FORAM SIMULADAS pelo "
-            "app (dados em simulacoes_calculadas) — use exatamente esses números.\n\n"
-            "1. **Tabela comparativa**: Estratégia | Ordem de pagamento | Pagamento mensal | Juros totais | "
-            "Data de quitação | Vantagens | Desvantagens. (Bola de Neve = menor saldo primeiro; "
-            "Avalanche = maior taxa primeiro; Híbrida = vitórias rápidas primeiro e depois maior taxa.)\n"
-            "2. **Qual estratégia recomendo para a minha situação** e por quê (considere a diferença de "
-            "juros entre elas e o fator motivacional).\n"
-            "3. Oportunidades típicas no Brasil para reduzir a taxa: portabilidade, troca de rotativo/cheque "
-            "especial por crédito pessoal ou consignado mais barato, negociação/Desenrola, quitação com "
-            "desconto — só quando fizer sentido para as taxas informadas.\n"
-            "4. **Plano de ação mês a mês** (tabela) para a estratégia recomendada, usando o cronograma "
-            "calculado: Mês | Pagar em cada dívida | Saldo restante | Marco.\n"
-            "5. Uma **tabela de acompanhamento** para eu preencher: Mês | Dívida | Pago previsto | Pago real "
-            "| Saldo | Observação.\n"
-            "Se houver alerta de dívida que não amortiza, comece por ele. Para empréstimos de parcela fixa, "
-            "explique como pedir amortização antecipada (redução de prazo × de parcela) e o desconto de juros "
-            "garantido pelo CDC, art. 52 §2º."
+            "Atue como planejador financeiro focado em FLUXO DE CAIXA e quitação antecipada de empréstimos. "
+            "Meta do usuário: garantir um fluxo de recursos para antecipar os empréstimos. Não basta dizer a "
+            "ordem de pagamento — quero um plano de onde sai o dinheiro.\n\n"
+            "REGRAS DE LEITURA DOS DADOS:\n"
+            "- Renda HABITUAL é só renda_habitual_mensal. Rendas eventuais (13º, férias, restituição, bônus, "
+            "vendas) NUNCA entram como renda mensal: são verbas pontuais para aportes extras.\n"
+            "- Use os números calculados pelo app (fluxo, estouros, cenários, simulações) sem recalcular.\n"
+            "- Parcelas de compras parceladas antigas não são vazamento.\n\n"
+            "ESTRUTURA DA RESPOSTA:\n"
+            "## 1. Diagnóstico do fluxo de caixa\n"
+            "Tabela dos últimos 6 meses e próximos meses: Mês | Renda habitual | Renda eventual | Gastos fixos | "
+            "Eventuais/estouros | Saldo | Saldo sem eventuais. Diga claramente se o mês a mês se sustenta só "
+            "com a renda habitual e quais meses só fecharam por causa de verba eventual.\n"
+            "## 2. Onde o dinheiro está escapando\n"
+            "a) **Estouros de planejados**: tabela Gasto planejado | Planejado | Média gasta | Meses estourados | "
+            "Estouro médio/mês | Ação. b) **Maiores vazamentos** nos cartões (assinaturas, delivery, tarifas, "
+            "pequenas compras, comerciantes recorrentes) com economia mensal realista. Some quanto dá para "
+            "liberar por mês e proponha esse valor como **extra mensal fixo** para os empréstimos.\n"
+            "## 3. Estratégia de antecipação\n"
+            "Compare os cenários calculados (só parcelas × extra mensal × extra + 50%/100% das eventuais) em "
+            "tabela: Cenário | Juros totais | Economia | Quitação final | Parcelas liberadas e quando. Recomende "
+            "um cenário. Explique o efeito bola de neve: cada parcela liberada vira aporte no próximo empréstimo.\n"
+            "## 4. Plano para cada verba eventual\n"
+            "Para cada renda eventual futura: quanto vai para antecipação, em qual empréstimo, quanto fica de "
+            "reserva (sugira manter um colchão mínimo), e o que pedir ao banco: amortização com **redução de "
+            "prazo** (mais economia de juros) ou **redução de parcela** (libera fluxo mensal imediato) — "
+            "recomende qual em cada caso, lembrando o desconto proporcional de juros garantido pelo CDC "
+            "(art. 52, §2º). Para consignados, cite a portabilidade se a taxa estiver acima do mercado.\n"
+            "## 5. Calendário de 12 meses\n"
+            "Tabela: Mês | Entrada eventual | Extra mensal (cortes) | Aporte em qual empréstimo | Parcela "
+            "liberada no mês | Fluxo livre acumulado | Marco. Use o cenário mais agressivo detalhado como base.\n"
+            "## 6. Regras do jogo\n"
+            "5 a 8 regras práticas (ex.: % fixo de toda verba eventual para dívida, teto de estouro por "
+            "categoria, revisão semanal no app) e uma tabela de acompanhamento para preencher.\n"
+            "Se faltar alguma informação (ex.: taxa de juros não informada, verbas eventuais não lançadas em "
+            "Rendas), diga exatamente o que lançar no app para o plano ficar preciso."
         )
     elif modulo == "vazamentos":
         dados = {"perfil": perfil, "renda_e_gastos": rg, "diagnostico_cartoes": diagnostico_vazamentos(user_id)}

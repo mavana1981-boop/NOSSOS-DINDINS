@@ -181,6 +181,17 @@ def dividas():
     lista = Divida.query.filter_by(user_id=current_user.id, ativa=True).order_by(Divida.id).all()
     candidatos = pia.candidatos_emprestimo(current_user.id)
     restantes = {d.id: pia.parcelas_restantes(d.expense) for d in lista if d.expense}
+    cen = None
+    if lista:
+        try:
+            cen = pia.cenarios_antecipacao(current_user.id, extra=float(_dec(request.args.get("extra"), p.pagamento_extra or 0) or 0))
+        except Exception as e:
+            current_app.logger.exception("cenarios: %s", e)
+    rg = pia.resumo_renda_gastos(current_user.id)
+    try:
+        estouros = pia.estouro_planejados(current_user.id)
+    except Exception:
+        estouros = []
     extra_param = request.args.get("extra")
     extra = float(_dec(extra_param, p.pagamento_extra or 0) or 0)
     sims, base = pia.comparar_estrategias(current_user.id, extra=extra)
@@ -194,7 +205,8 @@ def dividas():
         .order_by(PlanejamentoAnalise.id.desc()).first()
     return render_template("planejamento/dividas.html", dividas=lista, sims=sims, nomes=nomes,
                            extra=extra, perfil=p, editar=editar, ultima=ultima,
-                           candidatos=candidatos, restantes=restantes,
+                           candidatos=candidatos, restantes=restantes, cen=cen, rg=rg,
+                           estouros=estouros,
                            mes_br=pia._mes_br)
 
 

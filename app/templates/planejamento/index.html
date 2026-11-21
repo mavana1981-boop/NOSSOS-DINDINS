@@ -12,14 +12,14 @@
 
 <div class="grid grid-3 mb-3">
   <div class="stat">
-    <div class="stat-label">Renda mensal considerada</div>
+    <div class="stat-label">Renda habitual (mensal)</div>
     <div class="stat-value">{{ rg.renda_mensal|brl }}</div>
-    <div class="stat-foot">{{ 'informada por você' if rg.renda_informada_manualmente else 'rendas do mês aberto' }}</div>
+    <div class="stat-foot">{{ 'informada por você' if rg.renda_informada_manualmente else 'só rendas recorrentes' }}{% if rg.rendas_eventuais %} · eventuais à parte{% endif %}</div>
   </div>
   <div class="stat">
-    <div class="stat-label">Gastos planejados do mês</div>
+    <div class="stat-label">Gastos fixos do mês</div>
     <div class="stat-value">{{ rg.despesas_planejadas_mes|brl }}</div>
-    <div class="stat-foot">{{ 'informado por você' if rg.despesas_informadas_manualmente else 'menu Gastos (sua parte)' }}</div>
+    <div class="stat-foot">{{ 'informado por você' if rg.despesas_informadas_manualmente else 'recorrentes do menu Gastos (sua parte)' }}</div>
   </div>
   <div class="stat">
     <div class="stat-label">Sobra estimada</div>

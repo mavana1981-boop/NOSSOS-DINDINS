@@ -149,7 +149,7 @@
     <p class="text-faint text-small">{{ desc[k] }}</p>
     {% if s.alerta %}<div class="alert alert-danger text-small">{{ s.alerta }}</div>{% endif %}
     <div class="stat-label">Juros totais</div>
-    <div class="stat-value" style="font-size:1.5rem;">{{ s.total_juros|brl }}</div>
+    <div class="stat-value" style="font-size:1.5rem;">{{ s.total_juros|brl if s.total_juros is not none else 'não quita' }}</div>
     <div class="text-small text-dim mt-2">
       Pagamento mensal: <strong>{{ s.pagamento_mensal_total|brl }}</strong><br>
       Quitação: <strong>{{ mes_br(s.quitacao_final) if s.quitacao_final else '—' }}</strong>{% if s.meses %} ({{ s.meses }} meses){% endif %}
@@ -186,10 +186,57 @@
   </div>
 </div>
 
+
+{% if cen and cen.cenarios %}
+<h2 class="serif mt-3">Fluxo para antecipar os empréstimos</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h3 style="margin-top:0;">Verbas eventuais</h3>
+    <p class="text-dim text-small">Rendas não recorrentes do menu Rendas (não contam como renda mensal). As futuras entram nos cenários como aporte no mês seguinte.</p>
+    {% if rg.rendas_eventuais %}
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Mês</th><th>Renda</th><th class="num">Valor</th><th></th></tr></thead>
+      <tbody>{% for r in rg.rendas_eventuais %}
+        <tr><td>{{ mes_br(r.mes) }}</td><td>{{ r.descricao }}</td><td class="num">{{ r.valor|brl }}</td><td class="text-faint text-small">{{ r.situacao }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="text-small">Nenhuma lançada. Cadastre 13º, férias, restituição etc. em <a href="{{ url_for('income.list_incomes') }}">Rendas</a> (sem marcar recorrente).</p>{% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0;">Estouros de planejados (últimas faturas)</h3>
+    {% if estouros %}
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Planejado</th><th class="num">Meta</th><th class="num">Média gasta</th><th class="num">Estouro médio</th></tr></thead>
+      <tbody>{% for x in estouros[:8] %}
+        <tr><td>{{ x.gasto_planejado }}<br><span class="text-faint text-small">estourou {{ x.meses_estourados }} de {{ x.meses_analisados }} meses</span></td>
+          <td class="num">{{ x.planejado_mensal|brl }}</td><td class="num">{{ x.media_gasta|brl }}</td>
+          <td class="num" style="color:{{ 'var(--red)' if x.estouro_medio_mensal > 0 else 'inherit' }}">{{ x.estouro_medio_mensal|brl }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="text-dim text-small">Sem lançamentos de cartão ligados a gastos planejados.</p>{% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Cenários de antecipação — estratégia {{ rot[cen.estrategia] }}</h3>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Cenário</th><th class="num">Aportes eventuais</th><th class="num">Juros totais</th><th class="num">Economia de juros</th><th>Quitação</th><th>Parcelas liberadas</th></tr></thead>
+    <tbody>{% for c in cen.cenarios %}
+      <tr><td>{{ c.cenario }}</td>
+        <td class="num">{{ c._sim.aportes_eventuais|brl }}</td>
+        <td class="num">{{ c.juros_totais|brl if c.juros_totais is not none else 'não quita' }}</td>
+        <td class="num" style="color:var(--green)">{{ c.economia_juros|brl if c.economia_juros is not none else '—' }}</td>
+        <td>{{ c.quitacao_final or 'não quita' }}</td>
+        <td class="text-small">{% for l in c.parcelas_liberadas[:4] %}{{ l.mes }}: {{ l.divida }} (+{{ l.parcela_liberada|brl }}){% if not loop.last %}<br>{% endif %}{% endfor %}{% if c.parcelas_liberadas|length > 4 %}<br>…{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="text-faint text-small mb-0">Quando um empréstimo acaba, a parcela dele passa a ser aporte no próximo (bola de neve).</p>
+</div>
+{% endif %}
 <div class="card mt-3 flex-between">
   <div>
     <h3 style="margin:0;">Plano completo com IA</h3>
-    <p class="text-dim text-small mb-0">Recomendação para a sua situação, renegociação e plano mês a mês — usando os números acima.</p>
+    <p class="text-dim text-small mb-0">Fluxo de caixa, estouros, vazamentos e um plano para usar as verbas eventuais e antecipar os empréstimos.</p>
   </div>
   <div class="flex flex-gap">
     {% if ultima %}<a class="btn btn-ghost" href="{{ url_for('planejamento.ver', analise_id=ultima.id) }}">Abrir última</a>{% endif %}
