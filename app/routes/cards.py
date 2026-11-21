@@ -1083,6 +1083,7 @@ def reparar_mes_fatura():
     lançamento que foi jogado para um único mês. Mostra a prévia antes de aplicar."""
     from app import reparo_fatura as rf
     from app.models import FaturaReparoLog
+    from app.utils import add_meses_bm
     from sqlalchemy import func as _func
     hoje = date.today()
     mes = (request.values.get("mes") or add_meses_bm(hoje.strftime("%Y-%m"), 1)).strip()[:7]
@@ -1111,8 +1112,24 @@ def reparar_mes_fatura():
     resumo = rf.resumo_por_mes(res["linhas"]) if res else {}
     logs = FaturaReparoLog.query.filter_by(user_id=current_user.id)\
         .order_by(FaturaReparoLog.id.desc()).limit(10).all()
+    log_ativo = next((l for l in logs if not l.desfeito and l.card_id == card_id), None)
+    situacao = []
+    if card_id:
+        rows = db.session.query(
+            CardEntry.billing_month,
+            _func.count(CardEntry.id),
+            _func.sum(CardEntry.amount),
+            _func.sum(db.case((CardEntry.installments > 1, 1), else_=0)),
+            _func.sum(db.case((CardEntry.installments > 1, CardEntry.amount), else_=0)),
+        ).filter(CardEntry.card_id == card_id, CardEntry.status == "ativo",
+                 CardEntry.billing_month >= add_meses_bm(mes, -4),
+                 CardEntry.billing_month <= add_meses_bm(mes, 3))\
+         .group_by(CardEntry.billing_month).order_by(CardEntry.billing_month).all()
+        situacao = [{"mes": r[0], "qtd": r[1], "total": float(r[2] or 0),
+                     "parc_qtd": int(r[3] or 0), "parc_total": float(r[4] or 0)} for r in rows]
     return render_template("cards/reparar_fatura.html", mes=mes, cards=cards, contagem=contagem,
-                           card_id=card_id, res=res, resumo=resumo, logs=logs)
+                           card_id=card_id, res=res, resumo=resumo, logs=logs,
+                           log_ativo=log_ativo, situacao=situacao)
 
 
 @cards_bp.route("/<int:card_id>/lote", methods=["GET", "POST"])

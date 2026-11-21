@@ -9,6 +9,32 @@
   <a class="btn btn-ghost" href="{{ url_for('cards.list_cards') }}">← Cartões</a>
 </div>
 
+{% if log_ativo %}
+<div class="alert alert-warning">
+  <strong>Este cartão já teve uma correção aplicada</strong> ({{ log_ativo.created_at.strftime('%d/%m %H:%M') }} UTC,
+  {{ (log_ativo.dados|fromjson)|length }} lançamentos). Por isso a prévia de {{ mes }} pode mostrar 0.
+  Para corrigir com o cálculo atual, toque abaixo:
+  <form method="POST" style="margin-top:10px;" onsubmit="return confirm('Desfazer a correção anterior e aplicar de novo com o cálculo atual?');">
+    <input type="hidden" name="acao" value="refazer"><input type="hidden" name="log_id" value="{{ log_ativo.id }}">
+    <input type="hidden" name="mes" value="{{ mes }}"><input type="hidden" name="card_id" value="{{ card_id }}">
+    <button class="btn btn-primary" type="submit">↻ Refazer com cálculo novo</button>
+  </form>
+</div>
+{% endif %}
+
+{% if situacao %}
+<div class="card mb-3">
+  <h3 style="margin-top:0;">Situação atual do cartão</h3>
+  <table class="tbl">
+    <thead><tr><th>Fatura</th><th class="text-right">Lançamentos</th><th class="text-right">Total</th><th class="text-right">Parcelados</th></tr></thead>
+    <tbody>{% for r in situacao %}
+      <tr><td>{{ r.mes }}</td><td class="text-right">{{ r.qtd }}</td><td class="text-right">{{ r.total|brl }}</td>
+        <td class="text-right">{{ r.parc_qtd }} · {{ r.parc_total|brl }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="card">
   <form method="GET" class="flex flex-gap" style="align-items:flex-end;flex-wrap:wrap;">
     <div class="form-group mb-0">
