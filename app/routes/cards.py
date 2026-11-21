@@ -1090,7 +1090,10 @@ def reparar_mes_fatura():
 
     if request.method == "POST":
         acao = request.form.get("acao")
-        if acao == "desfazer":
+        if acao == "refazer":
+            n = rf.refazer(current_user.id, request.form.get("log_id", type=int))
+            flash(f"✅ Correção refeita com o cálculo novo: {n or 0} lançamento(s) realocados.", "success")
+        elif acao == "desfazer":
             n = rf.desfazer(current_user.id, request.form.get("log_id", type=int))
             flash(f"Correção desfeita: {n} lançamento(s) voltaram ao mês anterior.", "success")
         elif card_id:

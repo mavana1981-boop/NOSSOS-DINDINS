@@ -54,6 +54,16 @@ def _por_data(user_id, card, e, _cache={}):
     return bm
 
 
+def _por_data_parcela(user_id, card, e):
+    """Parcela k/N importada traz a data da COMPRA original: a fatura dela é a
+    da compra + (k-1) meses."""
+    bm = _por_data(user_id, card, e)
+    k = e.installment_no or 1
+    if (e.installments or 1) > 1 and k > 1:
+        return add_meses_bm(bm, k - 1), f"data da compra + {k - 1} mês(es) (parcela {k}/{e.installments})"
+    return bm, "data da compra"
+
+
 def calcular(user_id, card_id, mes_errado):
     """Devolve a proposta: lista de {entry, de, para, fonte} para os lançamentos
     ativos do cartão que estão em `mes_errado`."""
@@ -96,7 +106,7 @@ def calcular(user_id, card_id, mes_errado):
         elif e.batch_id and e.batch_id in lote_mes:
             proposta[e.id] = (lote_mes[e.batch_id], "lote da fatura importada")
         else:
-            proposta[e.id] = (_por_data(user_id, card, e), "data da compra")
+            proposta[e.id] = _por_data_parcela(user_id, card, e)
 
     # 3) parcelas automáticas seguem a origem (já corrigida, se estava no lote errado)
     for e in pend_auto:
@@ -108,7 +118,7 @@ def calcular(user_id, card_id, mes_errado):
                 delta = (e.installment_no or 1) - (orig.installment_no or 1)
                 proposta[e.id] = (add_meses_bm(bm_orig, delta), "parcela da compra de origem")
                 continue
-        proposta[e.id] = (_por_data(user_id, card, e), "data da compra")
+        proposta[e.id] = _por_data_parcela(user_id, card, e)
 
     linhas = []
     for e in sorted(alvo, key=lambda x: (x.entry_date, x.id)):
@@ -155,6 +165,19 @@ def aplicar(user_id, card_id, mes_errado):
         ln["entry"].billing_month = ln["para"]
     db.session.commit()
     return len(mud)
+
+
+def refazer(user_id, log_id):
+    """Desfaz uma correção e aplica de novo com o cálculo atual."""
+    log = db.session.get(FaturaReparoLog, log_id)
+    if not log or log.user_id != user_id or log.desfeito:
+        return None
+    dados = json.loads(log.dados or "[]")
+    mes_errado = dados[0]["de"] if dados else None
+    desfazer(user_id, log_id)
+    if not mes_errado:
+        return 0
+    return aplicar(user_id, log.card_id, mes_errado)
 
 
 def desfazer(user_id, log_id):

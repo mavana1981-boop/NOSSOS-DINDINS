@@ -96,7 +96,11 @@
         <form method="POST" onsubmit="return confirm('Desfazer esta correção?');">
           <input type="hidden" name="acao" value="desfazer"><input type="hidden" name="log_id" value="{{ l.id }}">
           <input type="hidden" name="mes" value="{{ mes }}">
-          <button class="btn btn-ghost btn-sm" type="submit">Desfazer</button></form>{% endif %}</td></tr>
+          <button class="btn btn-ghost btn-sm" type="submit">Desfazer</button></form>
+        <form method="POST" style="margin-top:6px;" onsubmit="return confirm('Desfazer e aplicar de novo com o cálculo corrigido?');">
+          <input type="hidden" name="acao" value="refazer"><input type="hidden" name="log_id" value="{{ l.id }}">
+          <input type="hidden" name="mes" value="{{ mes }}">
+          <button class="btn btn-primary btn-sm" type="submit">Refazer com cálculo novo</button></form>{% endif %}</td></tr>
   {% endfor %}</tbody></table>
 </div>
 {% endif %}
