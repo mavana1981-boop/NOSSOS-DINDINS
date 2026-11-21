@@ -56,6 +56,22 @@
 </div>
 
 <div class="card mt-3">
+  <h3 style="margin-top:0;">Diagnóstico</h3>
+  <div class="text-small" style="line-height:1.7;">
+    <div><strong>Datas das compras em {{ mes }}:</strong> {{ res.diag.datas[0] if res.diag.datas }} a {{ res.diag.datas[1] if res.diag.datas }}</div>
+    <div><strong>Dia de fechamento do cartão:</strong> {{ res.card.closing_day or '—' }}</div>
+    <div><strong>Fechamentos registrados (fatura → fechou em):</strong>
+      {% for m, d in res.diag.fechamentos %}{{ m }} → {{ d }}{% if not loop.last %}; {% endif %}{% else %}nenhum{% endfor %}</div>
+    <div><strong>Meses fechados:</strong> {{ res.diag.meses_fechados|join(', ') or 'nenhum' }}</div>
+    <div><strong>Históricos “Fechar mês” deste cartão:</strong> {{ res.diag.snapshots_cartao|join(', ') or 'nenhum' }}</div>
+    <div><strong>Lotes importados → fatura calculada:</strong>
+      {% for b, m in res.diag.lotes.items() %}{{ b[:10] }}… → {{ m }}{% if not loop.last %}; {% endif %}{% else %}nenhum{% endfor %}</div>
+    <div><strong>Destino por critério:</strong>
+      {% for f, d in res.diag.por_fonte.items() %}<br>· {{ f }}: {% for m, q in d.items() %}{{ m }} ({{ q }}){% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}</div>
+  </div>
+</div>
+
+<div class="card mt-3">
   <h3 style="margin-top:0;">Lançamentos</h3>
   <div class="table-wrap"><table class="tbl">
     <thead><tr><th>Data</th><th>Descrição</th><th class="text-right">Valor</th><th>De</th><th>Para</th><th>Como foi decidido</th></tr></thead>

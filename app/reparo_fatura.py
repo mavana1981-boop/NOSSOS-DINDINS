@@ -112,7 +112,23 @@ def calcular(user_id, card_id, mes_errado):
     for e in sorted(alvo, key=lambda x: (x.entry_date, x.id)):
         para, fonte = proposta[e.id]
         linhas.append({"entry": e, "de": e.billing_month, "para": para, "fonte": fonte})
-    return {"card": card, "linhas": linhas}
+
+    from app.utils import fechamentos_usuario
+    from app.models import ClosedMonth
+    diag = {
+        "fechamentos": sorted((k, v.strftime("%d/%m/%Y")) for k, v in fechamentos_usuario(user_id).items()),
+        "meses_fechados": sorted(c.billing_month for c in ClosedMonth.query.filter_by(user_id=user_id).all()),
+        "snapshots_cartao": sorted({m for m in snap.values()}),
+        "lotes": {b: m for b, m in lote_mes.items()},
+        "por_fonte": {},
+        "datas": (min(e.entry_date for e in alvo).strftime("%d/%m/%Y"),
+                  max(e.entry_date for e in alvo).strftime("%d/%m/%Y")) if alvo else None,
+    }
+    pf = defaultdict(Counter)
+    for ln in linhas:
+        pf[ln["fonte"]][ln["para"]] += 1
+    diag["por_fonte"] = {k: dict(sorted(v.items())) for k, v in pf.items()}
+    return {"card": card, "linhas": linhas, "diag": diag}
 
 
 def resumo_por_mes(linhas):
