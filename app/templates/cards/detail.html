@@ -118,6 +118,7 @@ function excluirSelecionados() {
         <button class="btn btn-ghost" style="border:1px solid var(--gold);color:var(--gold);">🔒 Fechar mês</button>
       </form>
     {% endif %}
+    <a href="{{ url_for('cards.reparar_mes_fatura', card_id=card.id, mes=mes_filter_d) }}" class="btn btn-ghost">🛠 Corrigir mês da fatura</a>
     <a href="{{ url_for('cards.edit_card', card_id=card.id) }}" class="btn btn-ghost">Editar</a>
     <form method="POST" action="{{ url_for('cards.delete_card', card_id=card.id) }}"
           style="display:inline;" onsubmit="return confirm('Remover este cartão e todos os lançamentos?');">

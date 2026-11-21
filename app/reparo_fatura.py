@@ -67,6 +67,8 @@ def calcular(user_id, card_id, mes_errado):
     # 1) snapshots de "Fechar mês" deste cartão
     snap = {}
     for h in CardMonthHistory.query.filter_by(user_id=user_id, card_id=card_id).all():
+        if h.billing_month >= mes_errado:
+            continue   # fechado depois do erro: o snapshot já contém os lançamentos errados
         try:
             for it in json.loads(h.snapshot or "[]"):
                 if isinstance(it, dict) and it.get("id"):
