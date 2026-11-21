@@ -23,24 +23,22 @@ from app.utils import add_meses_bm
 _RE_ORIGEM = re.compile(r"\[parcela auto · origem #(\d+)\]")
 
 
-def _por_data(user_id, card, e, _cache={}):
-    """Convenção do app: a fatura M fecha no mês M+1 (ex.: fatura de outubro fechou
-    em 13/11). Compra de d pertence à fatura M quando fechou(M-1) <= d < fechou(M).
-    Usa as datas de fechamento registradas; nos meses sem registro, estima pelo
-    dia típico de fechamento (mediana dos registrados, ou o do cartão, ou 13)."""
+def _por_data(user_id, card, e):
+    """Convenção do app (agente_andamento._dia16): a fatura M fecha por volta do
+    dia 16 do PRÓPRIO mês M — fatura M = compras de fechou(M-1) até a véspera de
+    fechou(M). Ex.: fatura 2026-11 fechou em 13/11 → compras de 13/11 em diante
+    são da fatura 2026-12. Usa as datas de fechamento registradas; nos meses sem
+    registro, o dia 16 nominal."""
     import calendar
     from datetime import date as _d
     from app.utils import fechamentos_usuario
     f = fechamentos_usuario(user_id)
-    dias = sorted(v.day for v in f.values() if v)
-    dia = dias[len(dias) // 2] if dias else (card.closing_day or 13)
 
     def fech(bm):
         if f.get(bm):
             return f[bm]
-        nx = add_meses_bm(bm, 1)
-        y, m = int(nx[:4]), int(nx[5:7])
-        return _d(y, m, min(dia, calendar.monthrange(y, m)[1]))
+        y, m = int(bm[:4]), int(bm[5:7])
+        return _d(y, m, min(16, calendar.monthrange(y, m)[1]))
 
     d = e.entry_date
     bm = f"{d.year}-{d.month:02d}"
