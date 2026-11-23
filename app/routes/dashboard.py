@@ -43,14 +43,27 @@ def index():
 
     # Dados do fluxo de caixa para os cards do dashboard
     cf_months = get_yearly_cashflow(current_user.id, filter_year)
+    # Janeiro do ano seguinte (mesma regra da página Fluxo de Caixa)
+    try:
+        _jan_next = get_yearly_cashflow(current_user.id, filter_year + 1)
+    except Exception:
+        _jan_next = []
+    if _jan_next:
+        _jan = dict(_jan_next[0])
+        _jan["is_next_year"] = True
+        _jan["cumulative"] = (cf_months[-1]["cumulative"] if cf_months else 0.0) + _jan["net"]
+        cf_months = cf_months + [_jan]
     # Saldo do mês = Saldo Proj. do Relatório (mesma regra do Fluxo de Caixa)
     from app.utils import aplicar_saldo_projetado
-    aplicar_saldo_projetado(current_user.id, [(filter_year, m) for m in cf_months])
+    aplicar_saldo_projetado(current_user.id,
+                            [(filter_year + 1 if m.get("is_next_year") else filter_year, m)
+                             for m in cf_months])
     cf_current = next(
-        (m for m in cf_months if m["month"] == filter_month),
+        (m for m in cf_months if m["month"] == filter_month and not m.get("is_next_year")),
         cf_months[0] if cf_months else {}
     )
-    cf_dec = next((m for m in cf_months if m["month"] == 12), cf_months[-1] if cf_months else {})
+    cf_dec = next((m for m in cf_months if m["month"] == 12 and not m.get("is_next_year")),
+                  cf_months[-1] if cf_months else {})
     # Usar filter_year/filter_month para calcular saldos entre membros
     from app.utils import get_user_balance_with as _gubw
     from app.models import User as _User

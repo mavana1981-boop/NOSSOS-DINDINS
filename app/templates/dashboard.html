@@ -298,9 +298,10 @@
 
 <!-- Fluxo de Caixa -->
 {% set _cf_ano = cf_months[:12] %}
+{% set _cf_tab = cf_months[:13] %}
 <div class="card mb-3" style="border-left:4px solid var(--accent);">
   <div class="card-title">
-    <h3>Fluxo de Caixa {{ filter_year }}</h3>
+    <h3>Fluxo de Caixa {{ filter_year }} <span class="text-faint" style="font-size:0.75rem;font-weight:400;">até Jan/{{ filter_year + 1 }}</span></h3>
     <a href="{{ url_for('cashflow.index', year=filter_year) }}" class="small-link">abrir completo →</a>
   </div>
   {% if _cf_ano %}
@@ -316,11 +317,12 @@
         </tr>
       </thead>
       <tbody>
-        {% for m in _cf_ano %}
-        {% set _atual = (m.month == filter_month) %}
-        <tr {% if _atual %}style="background:rgba(217,119,87,0.10);border-left:3px solid var(--accent);"{% elif m.month < filter_month %}style="opacity:0.6;"{% endif %}>
+        {% for m in _cf_tab %}
+        {% set _prox = m.get('is_next_year') %}
+        {% set _atual = (m.month == filter_month and not _prox) %}
+        <tr {% if _atual %}style="background:rgba(217,119,87,0.10);border-left:3px solid var(--accent);"{% elif _prox %}style="border-top:2px dashed var(--border-strong);"{% elif m.month < filter_month %}style="opacity:0.6;"{% endif %}>
           <td style="white-space:nowrap;">
-            <strong {% if _atual %}style="color:var(--accent);"{% endif %}>{{ m.month_name }}</strong>
+            <strong {% if _atual %}style="color:var(--accent);"{% endif %}>{{ m.month_name }}{% if _prox %}/{{ (filter_year + 1) % 100 }}{% endif %}</strong>
             {% if _atual %}<span style="font-size:0.6rem;background:var(--accent);color:white;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;">ATUAL</span>{% endif %}
           </td>
           <td class="text-right amount" style="color:var(--green);">{{ m.income|brl }}</td>
@@ -330,7 +332,7 @@
         </tr>
         {% endfor %}
         <tr style="border-top:2px solid var(--border-strong);font-weight:700;">
-          <td>Total</td>
+          <td>Total {{ filter_year }}</td>
           <td class="text-right amount" style="color:var(--green);">{{ _cf_ano|sum(attribute='income')|brl }}</td>
           <td class="text-right amount" style="color:var(--red);">{{ _cf_ano|sum(attribute='total_expense')|brl }}</td>
           {% set _net_ano = _cf_ano|sum(attribute='net') %}
