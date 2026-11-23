@@ -110,10 +110,16 @@ def bootstrap():
             print(f"[migrate] payment_defaults: {_epd}")
         try:
             with db.engine.connect() as _cc_del:
-                # Recriar tabela com billing_month (em vez de installment_no)
-                _cc_del.execute(text(
-                    "DROP TABLE IF EXISTS planned_installment_deletions"
-                ))
+                # Recriar tabela com billing_month (em vez de installment_no) — SÓ se ainda
+                # estiver no formato antigo. Antes ela era apagada a cada reinício e as
+                # exclusões de parcelas planejadas se perdiam a cada deploy.
+                _insp_del = inspect(db.engine)
+                _recriar = False
+                if _insp_del.has_table("planned_installment_deletions"):
+                    _cols_del = {c["name"] for c in _insp_del.get_columns("planned_installment_deletions")}
+                    if "billing_month" not in _cols_del:
+                        _cc_del.execute(text("DROP TABLE planned_installment_deletions"))
+                        _recriar = True
                 _cc_del.execute(text("""
                     CREATE TABLE IF NOT EXISTS planned_installment_deletions (
                         id SERIAL PRIMARY KEY,
@@ -126,7 +132,8 @@ def bootstrap():
                     )
                 """))
                 _cc_del.commit()
-                print("[migrate] planned_installment_deletions recriada com billing_month")
+                if _recriar:
+                    print("[migrate] planned_installment_deletions recriada com billing_month")
         except Exception as _edel:
             print(f"[migrate] planned_installment_deletions: {_edel}")
         # Corrigir FK de origin_entry_id para ON DELETE SET NULL
@@ -343,13 +350,24 @@ def bootstrap():
                 print(f"[bootstrap] admin '{admin_username}' criado.")
             else:
                 reset_pw = os.environ.get("RESET_ADMIN_PASSWORD", "").strip()
-                if reset_pw:
+                # Aplica RESET_ADMIN_PASSWORD uma única vez por valor: antes a senha era
+                # resetada a cada reinício enquanto a variável existisse no Railway.
+                from app.models import AppConfig
+                import hashlib as _hl
+                _marca = _hl.sha256(f"{admin_username}|{reset_pw}".encode()).hexdigest() if reset_pw else None
+                _ja = AppConfig.query.get("admin_reset_aplicado")
+                if reset_pw and not (_ja and _ja.value == _marca):
                     existing.password_hash = generate_password_hash(reset_pw)
+                    if _ja:
+                        _ja.value = _marca
+                    else:
+                        db.session.add(AppConfig(key="admin_reset_aplicado", value=_marca))
                     db.session.commit()
-                    print(f"[bootstrap] senha do admin '{admin_username}' resetada.")
+                    print(f"[bootstrap] senha do admin '{admin_username}' resetada (uma vez).")
                 else:
                     print(f"[bootstrap] admin '{admin_username}' já existe — dados preservados.")
         except Exception as e:
+            db.session.rollback()
             print(f"[bootstrap] erro ao criar admin: {e}")
 
 
