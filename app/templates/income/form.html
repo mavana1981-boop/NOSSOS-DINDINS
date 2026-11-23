@@ -23,7 +23,7 @@
       <div class="form-group">
         <label class="form-label">Valor (R$) *</label>
         <input class="form-control mono" name="amount" required inputmode="decimal"
-               value="{{ income.amount if income }}"
+               value="{{ ('%.2f'|format(income.amount|float)).replace('.', ',') if income else '' }}"
                placeholder="0,00">
       </div>
       <div class="form-group">

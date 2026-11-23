@@ -113,11 +113,14 @@ def resumo_renda_gastos(user_id):
     mes = f"{ano}-{mm:02d}"
     ini_ev, fim_ev = _add_mes(mes, -6), _add_mes(mes, 12)
 
+    from app.utils import salarios_mes_mapa, valor_renda_no_mes
+    _sal = salarios_mes_mapa(user_id)
     rendas, eventuais = [], []
     for i in Income.query.filter_by(user_id=user_id).all():
         ym = i.received_at.strftime("%Y-%m")
         if i.is_recurring and ym <= mes:
-            rendas.append({"descricao": i.description, "categoria": i.category, "valor": _f(i.amount)})
+            rendas.append({"descricao": i.description, "categoria": i.category,
+                           "valor": _f(valor_renda_no_mes(i, ano, mm, _sal))})
         elif not i.is_recurring and ini_ev <= ym <= fim_ev:
             eventuais.append({"descricao": i.description, "categoria": i.category, "valor": _f(i.amount),
                               "mes": ym, "data": i.received_at.isoformat(),

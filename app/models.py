@@ -719,3 +719,34 @@ class CarteiraNotificacao(db.Model):
     created_at  = db.Column(db.DateTime, default=datetime.utcnow)
 
     entry = db.relationship("CardEntry")
+
+
+# ── Salário do mês (valor recebido + consignados descontados em folha) ──
+class SalarioMes(db.Model):
+    """
+    Salário calculado de um mês: valor que caiu na conta + empréstimos consignados
+    do mês (descontados em folha). O resultado substitui, SÓ naquele mês, o valor
+    da renda fixa escolhida (income_id).
+    """
+    __tablename__ = "salarios_mes"
+    id                = db.Column(db.Integer, primary_key=True)
+    user_id           = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+                                  nullable=False, index=True)
+    mes_ref           = db.Column(db.String(7), nullable=False)        # YYYY-MM
+    income_id         = db.Column(db.Integer, db.ForeignKey("incomes.id", ondelete="CASCADE"),
+                                  nullable=False)
+    valor_informado   = db.Column(db.Numeric(12, 2), nullable=False)   # o que caiu na conta
+    consignados_total = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    valor_entrada     = db.Column(db.Numeric(12, 2), nullable=False)   # informado + consignados
+    detalhe           = db.Column(db.Text)   # JSON [{expense_id, descricao, valor}]
+    updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("user_id", "mes_ref", "income_id"),)
+
+    income = db.relationship("Income")
+
+    def itens(self):
+        import json
+        try:
+            return json.loads(self.detalhe or "[]")
+        except Exception:
+            return []

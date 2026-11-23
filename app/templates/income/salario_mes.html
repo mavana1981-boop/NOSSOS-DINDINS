@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Calcular salário do mês{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>🧮 Calcular salário do mês</h1>
+    <p>Valor que caiu na conta + empréstimos consignados do mês = entrada. Substitui a renda fixa <strong>só neste mês</strong>.</p>
+  </div>
+  <div class="flex flex-gap" style="align-items:center;gap:8px;flex-wrap:wrap;">
+    <a href="{{ url_for('income.salario_mes', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
+    <span style="font-weight:600;min-width:120px;text-align:center;">{{ mes_label }}</span>
+    <a href="{{ url_for('income.salario_mes', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
+  </div>
+</div>
+
+{% if not fixas %}
+  <div class="card">
+    <div class="empty-state">
+      <h4>Nenhuma renda fixa em {{ mes_label }}</h4>
+      <p>Cadastre o salário como renda <strong>recorrente</strong> para poder substituí-lo pelo valor calculado.</p>
+      <a href="{{ url_for('income.new_income') }}" class="btn btn-primary btn-sm mt-2">+ Nova renda</a>
+    </div>
+  </div>
+{% else %}
+
+{% if tem_override %}
+<div class="alert alert-warning mb-3">Há um ajuste manual da renda fixa no Fluxo de Caixa de {{ mes_label }}. Ao salvar, ele é removido para valer o salário calculado.</div>
+{% endif %}
+
+<form method="POST" id="form-salario">
+  <input type="hidden" name="mes" value="{{ mes }}">
+  <div class="grid grid-2">
+    <div class="card">
+      <h3 style="margin-top:0;">1. Salário recebido</h3>
+      <div class="form-group">
+        <label class="form-label">Renda fixa que será substituída</label>
+        <select class="form-control" name="income_id"
+                onchange="location.href='{{ url_for('income.salario_mes', mes=mes) }}&income_id='+this.value">
+          {% for i in fixas %}
+          <option value="{{ i.id }}" {% if renda and i.id == renda.id %}selected{% endif %}>
+            {{ i.description }} — {{ i.amount|brl }}{% if i.id in calculados %} (calculado){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Valor que caiu na conta em {{ mes_label }} (R$)</label>
+        <input class="form-control mono" name="valor_informado" id="valor_informado" required inputmode="decimal"
+               autofocus placeholder="Ex.: 8.500,00"
+               value="{{ ('%.2f'|format(atual.valor_informado|float)).replace('.', ',') if atual else '' }}">
+      </div>
+      {% if atual %}
+      <p class="text-faint text-small" style="margin:0;">Último cálculo salvo em {{ atual.updated_at|hora_brt if atual.updated_at else '' }}.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">2. Consignados do mês</h3>
+      {% if candidatos %}
+      <p class="text-dim text-small" style="margin-top:0;">Empréstimos do menu Gastos ativos em {{ mes_label }}. Marque os que são descontados em folha.</p>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th></th><th>Gasto</th><th class="text-right">Parcela do mês</th></tr></thead>
+        <tbody>
+        {% for c in candidatos %}{% set e = c.expense %}
+          <tr>
+            <td><input type="checkbox" class="chk-cons" name="expense_id" value="{{ e.id }}"
+                       data-valor="{{ c.valor }}" {% if c.consignado %}checked{% endif %}></td>
+            <td>{{ e.description }}<br><span class="text-faint text-small">{{ e.category }}{% if c.parcela %} · parcela {{ c.parcela }}{% endif %}</span></td>
+            <td class="text-right amount">{{ c.valor|brl }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}
+      <p class="text-dim">Nenhum empréstimo ativo em {{ mes_label }} no menu Gastos. A entrada será só o valor informado.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mt-2" style="border:1px solid var(--green);">
+    <h3 style="margin-top:0;">3. Entrada do mês</h3>
+    <div class="grid grid-3">
+      <div class="stat"><div class="stat-label">Caiu na conta</div><div class="stat-value" id="v-inf">R$ 0,00</div></div>
+      <div class="stat"><div class="stat-label">+ Consignados</div><div class="stat-value" id="v-cons">R$ 0,00</div></div>
+      <div class="stat"><div class="stat-label">= Entrada (renda fixa de {{ mes_label }})</div><div class="stat-value positive" id="v-ent">R$ 0,00</div></div>
+    </div>
+    {% if renda %}
+    <p class="text-dim text-small">Substitui <strong>{{ renda.description }}</strong> ({{ renda.amount|brl }}) somente em {{ mes_label }}. Os outros meses continuam com o valor cadastrado.</p>
+    {% endif %}
+    <div class="flex flex-gap" style="gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" type="submit">{{ 'Atualizar' if atual else 'Salvar' }} salário de {{ mes_label }}</button>
+    </div>
+  </div>
+</form>
+
+{% if atual %}
+<form method="POST" action="{{ url_for('income.salario_mes_remover', sal_id=atual.id) }}" class="mt-2"
+      onsubmit="return confirm('Remover o salário calculado de {{ mes_label }}? O mês volta a usar a renda cadastrada.');">
+  <button class="btn btn-danger btn-sm">Remover cálculo deste mês</button>
+</form>
+{% endif %}
+{% endif %}
+
+{% if historico %}
+<div class="card mt-3">
+  <h3 style="margin-top:0;">Meses calculados</h3>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Mês</th><th>Renda</th><th class="text-right">Caiu na conta</th><th class="text-right">Consignados</th><th class="text-right">Entrada</th><th></th></tr></thead>
+    <tbody>
+    {% for h in historico %}
+      <tr>
+        <td>{{ meses_pt[h.mes_ref[5:7]|int - 1] }}/{{ h.mes_ref[:4] }}</td>
+        <td>{{ h.income.description if h.income else '—' }}</td>
+        <td class="text-right amount">{{ h.valor_informado|brl }}</td>
+        <td class="text-right amount" title="{% for d in h.itens() %}{{ d.descricao }}: {{ d.valor|brl }}&#10;{% endfor %}">{{ h.consignados_total|brl }}</td>
+        <td class="text-right amount" style="color:var(--green);">{{ h.valor_entrada|brl }}</td>
+        <td class="text-right"><a class="btn btn-ghost btn-sm" href="{{ url_for('income.salario_mes', mes=h.mes_ref, income_id=h.income_id) }}">Abrir</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  function parse(s) {
+    s = String(s || "").replace(/[^\d,.\-]/g, "");
+    if (!s) return 0;
+    if (s.indexOf(",") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+    else if ((s.match(/\./g) || []).length === 1 && s.split(".")[1].length <= 2) { /* ponto decimal */ }
+    else s = s.replace(/\./g, "");
+    var v = parseFloat(s);
+    return isNaN(v) ? 0 : v;
+  }
+  function brl(v) { return v.toLocaleString("pt-BR", {style: "currency", currency: "BRL"}); }
+  function calc() {
+    var inp = document.getElementById("valor_informado");
+    if (!inp) return;
+    var inf = parse(inp.value), cons = 0;
+    document.querySelectorAll(".chk-cons:checked").forEach(function (c) { cons += parseFloat(c.dataset.valor) || 0; });
+    document.getElementById("v-inf").textContent = brl(inf);
+    document.getElementById("v-cons").textContent = brl(cons);
+    document.getElementById("v-ent").textContent = brl(inf + cons);
+  }
+  document.addEventListener("input", calc);
+  document.addEventListener("change", calc);
+  calc();
+})();
+</script>
+{% endblock %}

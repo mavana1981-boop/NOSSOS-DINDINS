@@ -489,7 +489,11 @@ def relatorio_membros():
         _Inc.user_id == current_user.id,
         _Inc.is_recurring == True,
     ).all()
-    total_renda = sum(float(r.amount) for r in rendas_ativas)
+    from app.utils import salarios_mes_mapa, valor_renda_no_mes
+    _sal_rel = salarios_mes_mapa(current_user.id)
+    for r in rendas_ativas:   # valor do mês (salário calculado, se houver)
+        r.valor_mes = valor_renda_no_mes(r, filter_year, filter_month, _sal_rel)
+    total_renda = sum(r.valor_mes for r in rendas_ativas)
 
     # ── 2. Gastos fixos ───────────────────────────────────────────────────
     # Gastos fixos = lógica EXATA do fluxo de caixa coluna "Fixos":

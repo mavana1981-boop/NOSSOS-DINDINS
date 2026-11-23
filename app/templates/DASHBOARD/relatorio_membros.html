@@ -202,7 +202,7 @@
     <thead><tr><th>Descrição</th><th class="right">Valor</th></tr></thead>
     <tbody>
     {% for r in rendas_ativas %}
-    <tr><td>{{ r.description }}</td><td class="right green">{{ r.amount|brl }}</td></tr>
+    <tr><td>{{ r.description }}</td><td class="right green">{{ (r.valor_mes if r.valor_mes is defined else r.amount)|brl }}</td></tr>
     {% else %}
     <tr><td colspan="2" class="vazio">Nenhuma renda fixa cadastrada</td></tr>
     {% endfor %}
