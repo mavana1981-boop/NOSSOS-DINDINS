@@ -437,6 +437,7 @@ def get_yearly_cashflow(user_id, year):
     # Rendas recorrentes do usuário
     all_incomes = Income.query.filter_by(user_id=user_id).all()
     _salarios = salarios_mes_mapa(user_id)   # salário calculado substitui a renda fixa no mês
+    _excl = exclusoes_fluxo(user_id)          # itens tirados do fluxo só em um mês
 
     # Gastos de outros users repassados para este user
     debitos = []
@@ -459,18 +460,32 @@ def get_yearly_cashflow(user_id, year):
         eventual_items   = []
         income_recurring_items = []
         income_eventual_items  = []
+        excluded_items         = []
+
+        def _excluido(tipo, ref, grupo, desc, valor):
+            if (year, m, tipo, str(ref)) in _excl:
+                excluded_items.append({"desc": desc, "amount": round(float(valor), 2),
+                                       "tipo": tipo, "ref": str(ref), "grupo": grupo})
+                return True
+            return False
 
         # Rendas: is_recurring=True → recorrente todo mês; False → eventual só no mês
         for inc in all_incomes:
             v_inc = valor_renda_no_mes(inc, year, m, _salarios)
             if inc.is_recurring:
                 if (year, m) >= (inc.received_at.year, inc.received_at.month):
+                    if _excluido("income", inc.id, "income_recurring", inc.description, v_inc):
+                        continue
                     income_recurring += v_inc
-                    income_recurring_items.append({"desc": inc.description, "amount": v_inc})
+                    income_recurring_items.append({"desc": inc.description, "amount": v_inc,
+                                                   "tipo": "income", "ref": str(inc.id)})
             else:
                 if inc.received_at.year == year and inc.received_at.month == m:
+                    if _excluido("income", inc.id, "income_eventual", inc.description, v_inc):
+                        continue
                     income_eventual += v_inc
-                    income_eventual_items.append({"desc": inc.description, "amount": v_inc})
+                    income_eventual_items.append({"desc": inc.description, "amount": v_inc,
+                                                  "tipo": "income", "ref": str(inc.id)})
 
         # Gastos
         for exp, valor in expenses:
@@ -494,20 +509,26 @@ def get_yearly_cashflow(user_id, year):
                     ).all()
                     repasse_v = sum(float(s.share_amount) for s in repasse_share)
                     v = max(0.0, round(v - repasse_v, 2))
-                fixed_total += v
                 parc_fix = ""
                 if exp.recurrence_months:
                     md = (year - exp.spent_at.year) * 12 + (m - exp.spent_at.month) + 1
                     parc_fix = f" ({md}/{exp.recurrence_months})"
+                if _excluido("expense", exp.id, "fixed", exp.description + parc_fix, v):
+                    continue
+                fixed_total += v
                 fixed_items.append({
                     "desc": exp.description + parc_fix,
                     "amount": round(float(v), 2),
+                    "tipo": "expense", "ref": str(exp.id),
                 })
             else:
+                if _excluido("expense", exp.id, "eventual", exp.description, v):
+                    continue
                 eventual_total += v
                 eventual_items.append({
                     "desc": exp.description,
                     "amount": round(float(v), 2),
+                    "tipo": "expense", "ref": str(exp.id),
                 })
 
         # Gastos repassados ao usuário → gastos fixos no fluxo dele
@@ -521,10 +542,13 @@ def get_yearly_cashflow(user_id, year):
             if exp3.kind == "recorrente" and exp3.recurrence_months:
                 md2 = (year - exp3.spent_at.year) * 12 + (m - exp3.spent_at.month) + 1
                 parc_fix2 = f" ({md2}/{exp3.recurrence_months})"
+            if _excluido("expense", exp3.id, "fixed", f"{exp3.description}{parc_fix2}", v2):
+                continue
             fixed_total += v2
             fixed_items.append({
                 "desc": f"{exp3.description}{parc_fix2}",
                 "amount": v2,
+                "tipo": "expense", "ref": str(exp3.id),
             })
 
         # Excedente parcelados: projeção do mês - planejado "cartao parcelado"
@@ -532,11 +556,14 @@ def get_yearly_cashflow(user_id, year):
         total_parc_mes = round(sum(p["amount"] for p in parc_mes), 2)
         if total_parc_mes > 0:
             excedente_parc = round(total_parc_mes - _planned_parc, 2)  # igual ao menu
-            if excedente_parc > 0:
+            _desc_exc = f"Cartão Parcelado - excedente ({total_parc_mes:.2f} - {_planned_parc:.2f})"
+            if excedente_parc > 0 and not _excluido("parcelado", "excedente", "eventual",
+                                                    _desc_exc, excedente_parc):
                 eventual_total += excedente_parc
                 eventual_items.append({
-                    "desc": f"Cartão Parcelado - excedente ({total_parc_mes:.2f} - {_planned_parc:.2f})",
+                    "desc": _desc_exc,
                     "amount": excedente_parc,
+                    "tipo": "parcelado", "ref": "excedente",
                 })
 
         # Excedentes de compras pontuais do cartão
@@ -547,10 +574,13 @@ def get_yearly_cashflow(user_id, year):
                 continue  # já contabilizado em parcelados_por_mes
             if grp_cc["planned"] > 0 and grp_cc["total"] > grp_cc["planned"]:
                 exc_cc = round(grp_cc["total"] - grp_cc["planned"], 2)
+                if _excluido("excedente", key_cc, "eventual", f"Excedente: {key_cc}", exc_cc):
+                    continue
                 eventual_total += exc_cc
                 eventual_items.append({
                     "desc": f"Excedente: {key_cc}",
                     "amount": exc_cc,
+                    "tipo": "excedente", "ref": str(key_cc),
                 })
 
         # Aplica overrides manuais
@@ -600,6 +630,7 @@ def get_yearly_cashflow(user_id, year):
             "fixed_items": sorted(fixed_items, key=lambda x: x["amount"], reverse=True),
             "income_recurring_items": sorted(income_recurring_items, key=lambda x: x["amount"], reverse=True),
             "income_eventual_items": sorted(income_eventual_items, key=lambda x: x["amount"], reverse=True),
+            "excluded_items": excluded_items,
         })
     return result
 
@@ -1118,3 +1149,14 @@ def consignados_do_mes(user_id, ano, mes, marcar_ids=None):
                     "parcela": e.parcel_label(ano, mes)})
     out.sort(key=lambda x: (not x["consignado"], x["expense"].description.lower()))
     return out
+
+
+def exclusoes_fluxo(user_id):
+    """{(ano, mes, tipo, ref)} dos itens tirados do Fluxo de Caixa num mês específico."""
+    from app.models import FluxoExclusao
+    try:
+        return {(e.year, e.month, e.tipo, e.ref)
+                for e in FluxoExclusao.query.filter_by(user_id=user_id).all()}
+    except Exception as e:
+        print(f"[fluxo_exclusao] erro ao ler: {e}")
+        return set()

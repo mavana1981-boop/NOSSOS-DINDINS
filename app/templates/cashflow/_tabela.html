@@ -1,0 +1,537 @@
+{# Tabela do Fluxo de Caixa (usada no menu Fluxo de Caixa e no Painel).
+   Espera: months, year, current_month_num, current_month_year, totals #}
+{% macro cf_grupo(titulo, cor, itens, total_exibido, chave, ano, mes) %}
+  {% set soma = itens|sum(attribute='amount') %}
+  <div class="cf-grp" data-grp="{{ chave }}">
+    <div class="cf-grp-h" style="color:{{ cor }};">{{ titulo }} <span class="text-faint">({{ itens|length }})</span></div>
+    {% if itens %}
+    <ul class="cf-grp-l">
+      {% for it in itens %}
+      <li><span class="cf-it-d">{{ it.desc }}</span><span class="cf-it-v"><span class="mono" style="color:{{ cor }};">{{ it.amount|brl }}</span>{% if it.tipo %}<button type="button" class="cf-x" title="Excluir só deste mês"
+            data-year="{{ ano }}" data-month="{{ mes }}" data-tipo="{{ it.tipo }}" data-ref="{{ it.ref }}" data-desc="{{ it.desc }}">×</button>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-faint text-small" style="padding:4px 0;">Nenhum item.</div>
+    {% endif %}
+    {% if (total_exibido - soma)|abs > 0.05 %}
+    <div class="cf-grp-adj"><span>± Ajuste manual</span><span class="mono">{{ (total_exibido - soma)|brl }}</span></div>
+    {% endif %}
+    <div class="cf-grp-t"><span>Total</span><span class="mono" style="color:{{ cor }};">{{ total_exibido|brl }}</span></div>
+  </div>
+{% endmacro %}
+
+<style>
+  .cf-toggle{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;line-height:1;width:16px;padding:0;margin-right:4px;display:inline-block;}
+  tr.cf-open .cf-toggle{color:var(--accent);}
+  tr.cf-detail > td{background:var(--bg);padding:12px 14px !important;border-bottom:2px solid var(--border-strong);}
+  .cf-det-grid{position:sticky;left:14px;box-sizing:border-box;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+  @media (max-width:900px){.cf-det-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  @media (max-width:560px){.cf-det-grid{grid-template-columns:1fr;}}
+  .cf-grp{font-size:0.82rem;border-radius:8px;padding:8px 10px;border:1px solid var(--border);background:var(--surface);transition:box-shadow .2s;}
+  .cf-grp.cf-hl{box-shadow:0 0 0 2px var(--accent);}
+  .cf-grp-h{font-weight:700;margin-bottom:6px;}
+  .cf-grp-l{list-style:none;margin:0;padding:0;max-height:260px;overflow-y:auto;}
+  .cf-grp-l li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-top:1px solid var(--border);}
+  .cf-grp-l li:first-child{border-top:none;}
+  .cf-it-d{min-width:0;overflow-wrap:anywhere;}
+  .cf-grp-l .mono{white-space:nowrap;}
+  .cf-badge-excl{font-size:0.6rem;background:var(--gold);color:#222;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;}
+  .cf-grp-adj{display:flex;justify-content:space-between;color:var(--gold);font-size:0.78rem;padding-top:4px;}
+  .cf-it-v{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+  .cf-x{background:none;border:1px solid transparent;color:var(--text-faint);cursor:pointer;font-size:0.95rem;line-height:1;padding:0 4px;border-radius:4px;}
+  .cf-x:hover{color:var(--red);border-color:var(--red);}
+  .cf-excl{margin-top:10px;font-size:0.8rem;border:1px dashed var(--border-strong);border-radius:8px;padding:8px 10px;}
+  .cf-excl li{display:flex;justify-content:space-between;gap:10px;padding:3px 0;color:var(--text-dim);}
+  .cf-excl .cf-it-d{text-decoration:line-through;}
+  .cf-rest{background:none;border:1px solid var(--green);color:var(--green);border-radius:4px;font-size:0.7rem;padding:1px 6px;cursor:pointer;}
+  .cf-grp-t{display:flex;justify-content:space-between;font-weight:700;border-top:2px solid var(--border);margin-top:6px;padding-top:4px;}
+</style>
+
+<!-- Tabela detalhada -->
+<div class="card mt-3" id="cf-tabela">
+  <div class="card-title">
+    <h3>Detalhamento mês a mês</h3>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span class="text-faint text-small">▸ ou clique no valor = abrir itens · × = excluir item só do mês · duplo clique = editar · Saldo = Saldo Proj. do Relatório</span>
+      <button type="button" id="cf-toggle-all" class="btn btn-ghost btn-sm" style="font-size:0.75rem;">Expandir todos</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th class="text-right">Renda fixa</th>
+          <th class="text-right">Renda eventual</th>
+          <th class="text-right" style="background:rgba(100,200,100,0.12);font-weight:800;border-bottom:2px solid var(--green);">Total renda</th>
+          <th class="text-right">Fixos</th>
+          <th class="text-right">Eventuais</th>
+          <th class="text-right" style="background:rgba(200,100,100,0.12);font-weight:800;border-bottom:2px solid var(--red);">Total gasto</th>
+          <th class="text-right">Saldo</th>
+          <th class="text-right" style="background:rgba(107,141,181,0.16);font-weight:800;font-size:1.05em;border-bottom:2px solid var(--accent);">Acumulado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in months %}
+        {% set yr = year + 1 if m.get('is_next_year') else year %}
+        {% set n_excl = (m.excluded_items or [])|length %}
+        {% set is_current_mo = (m.month == current_month_num and year == current_month_year and not m.get('is_next_year')) %}
+        {% if m.is_next_year is defined and m.is_next_year %}
+        <tr class="cf-row" data-idx="{{ loop.index0 }}" style="border-top:2px dashed var(--border-strong);opacity:0.8;">
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong>{{ m.month_name }}/{{ year + 1 }}</strong>{% if n_excl %}<span class="cf-badge-excl" title="Itens excluídos deste mês">{{ n_excl }} excl.</span>{% endif %} <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
+        {% elif is_current_mo %}
+        <tr class="cf-row" data-idx="{{ loop.index0 }}" style="background:rgba(107,141,181,0.12);border-left:3px solid var(--accent);position:relative;">
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong style="color:var(--accent);">{{ m.month_name }}/{{ year }}</strong>{% if n_excl %}<span class="cf-badge-excl" title="Itens excluídos deste mês">{{ n_excl }} excl.</span>{% endif %}
+            <span style="font-size:0.6rem;background:var(--accent);color:white;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;">ATUAL</span>
+          </td>
+        {% else %}
+        <tr class="cf-row" data-idx="{{ loop.index0 }}">
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong>{{ m.month_name }}/{{ year }}</strong>{% if n_excl %}<span class="cf-badge-excl" title="Itens excluídos deste mês">{{ n_excl }} excl.</span>{% endif %}</td>
+        {% endif %}
+          <td class="text-right amount cf-cell editable-cell" data-col="income_recurring" data-idx="{{ loop.index0 }}"
+              data-year="{{ yr }}" data-month="{{ m.month }}" data-field="income_recurring" data-value="{{ m.income_recurring }}"
+              style="color:var(--green);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.income_recurring|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell editable-cell" data-col="income_eventual" data-idx="{{ loop.index0 }}"
+              data-year="{{ yr }}" data-month="{{ m.month }}" data-field="income_eventual" data-value="{{ m.income_eventual }}"
+              style="color:var(--blue);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.income_eventual|brl }}</span>
+          </td>
+          <td class="text-right amount" style="color:var(--green);font-weight:800;background:rgba(100,200,100,0.08);padding:4px 8px;border-radius:4px;font-size:1.05em;">{{ m.income|brl }}</td>
+          <td class="text-right amount cf-cell editable-cell" data-col="fixed" data-idx="{{ loop.index0 }}"
+              data-year="{{ yr }}" data-month="{{ m.month }}" data-field="fixed" data-value="{{ m.fixed_expense }}"
+              style="color:var(--gold);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.fixed_expense|brl }}</span>
+          </td>
+          <td class="text-right amount cf-cell editable-cell" data-col="eventual" data-idx="{{ loop.index0 }}"
+              data-year="{{ yr }}" data-month="{{ m.month }}" data-field="eventual" data-value="{{ m.eventual_expense }}"
+              style="color:var(--red);cursor:pointer;" title="Clique para editar">
+            <span style="text-decoration:underline dotted;">{{ m.eventual_expense|brl }}</span>
+          </td>
+          <td class="text-right amount" style="color:var(--red);font-weight:800;background:rgba(200,100,100,0.08);padding:4px 8px;border-radius:4px;font-size:1.05em;">{{ m.total_expense|brl }}</td>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.net >= 0 else 'var(--red)' }};font-weight:700;cursor:pointer;"
+              data-year="{{ yr }}" data-month="{{ m.month }}" data-field="net" data-value="{{ m.net }}" data-year="{{ yr }}" data-month="{{ m.month }}"{% if m.net_override is defined and m.net_override %} data-overridden="1"{% endif %} title="Duplo clique para editar / Clique para ver cálculo"
+
+               data-mem="saldo"{% if m.saldo_proj %}
+               data-p-renda="{{ m.saldo_proj.renda }}" data-p-fixos="{{ m.saldo_proj.fixos }}"
+               data-p-ev="{{ m.saldo_proj.total_ev }}" data-p-exc="{{ m.saldo_proj.excedente }}"
+               data-p-calc="{{ m.saldo_proj.saldo }}"{% endif %}>
+            {{ m.net|brl }}
+          </td>
+          <td class="text-right amount editable-cell" style="color:{{ 'var(--green)' if m.cumulative >= 0 else 'var(--red)' }};cursor:pointer;font-weight:800;font-size:1.15em;background:rgba(107,141,181,0.10);white-space:nowrap;"
+              data-year="{{ yr }}" data-month="{{ m.month }}" data-field="cumulative" data-ev="{{ m.income_eventual }}" data-value="{{ m.cumulative }}" title="Duplo clique para editar / Clique para ver cálculo"
+               data-cum-month="{{ m.month_name }}"
+               data-mem="cum">
+            {{ m.cumulative|brl }}
+          </td>
+        </tr>
+        <tr class="cf-detail" id="cf-det-{{ loop.index0 }}" hidden>
+          <td colspan="9">
+            <div class="cf-det-grid">
+              {{ cf_grupo('Renda fixa', 'var(--green)', m.income_recurring_items or [], m.income_recurring, 'income_recurring', yr, m.month) }}
+              {{ cf_grupo('Renda eventual', 'var(--blue)', m.income_eventual_items or [], m.income_eventual, 'income_eventual', yr, m.month) }}
+              {{ cf_grupo('Fixos', 'var(--gold)', m.fixed_items or [], m.fixed_expense, 'fixed', yr, m.month) }}
+              {{ cf_grupo('Eventuais', 'var(--red)', m.eventual_items or [], m.eventual_expense, 'eventual', yr, m.month) }}
+            </div>
+            {% if n_excl %}
+            {% set rot_grp = {'income_recurring': 'Renda fixa', 'income_eventual': 'Renda eventual', 'fixed': 'Fixos', 'eventual': 'Eventuais'} %}
+            <div class="cf-excl cf-det-grid" style="display:block;">
+              <strong>Excluídos de {{ m.month_name }}/{{ yr }}</strong> <span class="text-faint">(não entram no cálculo deste mês; os outros meses não mudam)</span>
+              <ul class="cf-grp-l" style="max-height:none;">
+                {% for it in m.excluded_items %}
+                <li><span><span class="cf-it-d">{{ it.desc }}</span> <span class="text-faint">· {{ rot_grp.get(it.grupo, it.grupo) }}</span></span>
+                  <span class="cf-it-v"><span class="mono">{{ it.amount|brl }}</span>
+                  <button type="button" class="cf-rest" data-year="{{ yr }}" data-month="{{ m.month }}" data-tipo="{{ it.tipo }}" data-ref="{{ it.ref }}">↺ voltar</button></span></li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border-strong);">
+          <td><strong>Ano</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income_recurring|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--blue);"><strong>{{ totals.income_eventual|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.income|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--gold);"><strong>{{ totals.fixed|brl }}</strong></td>
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.eventual|brl }}</strong></td>
+          <td class="text-right amount text-dim"><strong>{{ totals.total_expense|brl }}</strong></td>
+          {% if totals.net >= 0 %}
+          <td class="text-right amount" style="color:var(--green);"><strong>{{ totals.net|brl }}</strong></td>
+          {% else %}
+          <td class="text-right amount" style="color:var(--red);"><strong>{{ totals.net|brl }}</strong></td>
+          {% endif %}
+          <td style="background:rgba(107,141,181,0.10);"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- Modal memória de cálculo -->
+<div id="mem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:12px;padding:24px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <strong id="mem-title">Memória de cálculo</strong>
+      <button onclick="document.getElementById('mem-modal').style.display='none'"
+              style="background:none;border:none;font-size:1.4rem;cursor:pointer;">×</button>
+    </div>
+    <div id="mem-body"></div>
+    <button onclick="document.getElementById('mem-modal').style.display='none'"
+            class="btn btn-primary btn-sm" style="width:100%;margin-top:16px;">Fechar</button>
+  </div>
+</div>
+
+<script>
+var CASHFLOW_YEAR = {{ year }};
+var CF_RECARREGAR = function () { window.location.reload(); };
+
+// Edição inline — duplo clique em qualquer célula editável
+// Modal de memória de cálculo — Saldo
+// Lê os valores diretamente das células da mesma linha (mais confiável que data-attrs)
+function mostrarMemoria(td) {
+  try {
+    var row = td.closest('tr');
+    function cellVal(col) {
+      var cell = row.querySelector('[data-col="' + col + '"]');
+      if (!cell) return 0;
+      var v = parseFloat(cell.getAttribute('data-value') || '0');
+      return isNaN(v) ? 0 : v;
+    }
+    var netExibido = parseFloat(td.getAttribute('data-value') || '0');
+    function pv(k) { var v = parseFloat(td.getAttribute('data-p-' + k) || '0'); return isNaN(v) ? 0 : v; }
+    function linha(rot, v, cor) {
+      return '<div style="display:flex;justify-content:space-between;gap:12px;"><span>' + rot +
+             '</span><span class="mono" style="color:' + cor + ';">' + fmtBRL(v) + '</span></div>';
+    }
+    var netCalc = pv('calc');
+    var isOverride = !!td.getAttribute('data-overridden') && Math.abs(netCalc - netExibido) > 0.05;
+
+    var html = '<div style="font-size:0.9rem;line-height:2;">';
+    html += '<div style="font-size:0.75rem;color:var(--text-dim);line-height:1.4;margin-bottom:6px;">Mesmo cálculo do Saldo Proj. da Projeção de Saldo do Relatório. Renda eventual não entra.</div>';
+    html += linha('+ Renda fixa', pv('renda'), 'var(--green)');
+    html += linha('− Gastos fixos', pv('fixos'), 'var(--red)');
+    html += linha('− Excedentes', pv('ev'), 'var(--red)');
+    html += linha('− Excedente parcelados', pv('exc'), 'var(--red)');
+    if (isOverride) {
+      html += '<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;color:var(--text-dim);">';
+      html += '<span>= Calculado</span><span class="mono">' + fmtBRL(netCalc) + '</span></div>';
+      var ajuste = netExibido - netCalc;
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;color:var(--gold);font-size:0.8rem;gap:8px;">';
+      html += '<span>± Ajuste manual: <strong>' + fmtBRL(ajuste) + '</strong></span>';
+      var yr = td.getAttribute("data-year") || '';
+      var mo = td.getAttribute("data-month") || '';
+      html += '<button onclick="limparAjuste(this,' + yr + ',' + mo + ')" style="font-size:0.7rem;background:none;border:1px solid var(--gold);color:var(--gold);border-radius:4px;padding:2px 6px;cursor:pointer;">✕ Limpar</button>';
+      html += '</div>';
+    }
+    html += '<div style="border-top:2px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">';
+    html += '<span>= Saldo</span><span class="mono" style="color:' + (netExibido >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(netExibido) + '</span></div>';
+    html += '</div>';
+
+    document.getElementById('mem-body').innerHTML = html;
+    document.getElementById('mem-title').textContent = 'Memória: Saldo';
+    document.getElementById('mem-modal').style.display = 'flex';
+  } catch(e) { console.error('mostrarMemoria:', e); }
+}
+
+// Modal de memória — Acumulado
+function mostrarMemoriaCum(td) {
+  var cum = parseFloat(td.getAttribute('data-value') || '0');
+  var mes = td.getAttribute('data-cum-month') || '';
+  var html =
+    '<div style="font-size:0.9rem;line-height:2;">' +
+    '<div>Soma de janeiro até <strong>' + mes + '</strong> de cada mês: saldo projetado + renda eventual.</div>' +
+    (parseFloat(td.getAttribute('data-ev') || '0') > 0 ? '<div style="display:flex;justify-content:space-between;"><span>Renda eventual deste mês</span><span class="mono" style="color:var(--blue);">' + fmtBRL(td.getAttribute('data-ev')) + '</span></div>' : '') +
+    '<div style="border-top:2px solid var(--border);margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;">' +
+    '<span>= Acumulado</span><span class="mono" style="color:' + (cum >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmtBRL(cum) + '</span></div>' +
+    '</div>';
+  document.getElementById('mem-body').innerHTML = html;
+  document.getElementById('mem-title').textContent = 'Memória: Acumulado';
+  document.getElementById('mem-modal').style.display = 'flex';
+}
+
+function limparAjuste(btn, year, month) {
+  if (!confirm('Remover ajuste manual de ' + month + '/' + year + '? O saldo voltará ao valor calculado.')) return;
+  var fd = new FormData();
+  fd.append('year', year);
+  fd.append('month', month);
+  fd.append('field', 'net');
+  fetch('/fluxo/limpar-override', {method:'POST', body:fd, credentials:'same-origin'})
+    .then(r => r.json()).then(d => {
+      if (d.ok) { document.getElementById('mem-modal').style.display='none'; window.location.reload(); }
+    });
+}
+
+function fmtBRL(v) {
+  return 'R$ ' + (parseFloat(v) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function getVal(row, col) {
+  var cell = row.querySelector('[data-col="' + col + '"]');
+  return cell ? (parseFloat(cell.getAttribute('data-value')) || 0) : 0;
+}
+
+function setVal(row, col, val) {
+  var cell = row.querySelector('[data-col="' + col + '"]');
+  if (!cell) return;
+  cell.setAttribute('data-value', val);
+  cell.textContent = (val >= 0 ? '' : '-') + 'R$ ' + Math.abs(val).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  cell.style.color = col === 'net' ? (val >= 0 ? 'var(--green)' : 'var(--red)') :
+                     col === 'cumulative' ? (val >= 0 ? 'var(--green)' : 'var(--red)') : '';
+}
+
+function recalcularTabela() {
+  var rows = document.querySelectorAll('#cf-tabela tbody tr');
+  var cumAcc = 0;
+
+  rows.forEach(function(row) {
+    var netCell = row.querySelector('[data-field="net"]');
+    var cumCell = row.querySelector('[data-field="cumulative"]');
+    if (!netCell || !cumCell) return;
+
+    // Calcular saldo da linha (salvo ou calculado)
+    var netVal;
+    if (netCell.getAttribute('data-overridden')) {
+      netVal = parseFloat(netCell.getAttribute('data-value') || '0');
+    } else {
+      var rf = getVal(row, 'income_recurring');
+      var re = getVal(row, 'income_eventual');
+      var gf = getVal(row, 'fixed');
+      var ge = getVal(row, 'eventual');
+      netVal = Math.round((rf + re - gf - ge) * 100) / 100;
+      // Atualizar display do saldo se mudou
+      if (Math.abs(netVal - parseFloat(netCell.getAttribute('data-value')||'0')) > 0.01) {
+        netCell.setAttribute('data-value', netVal);
+        var nc = netVal >= 0 ? 'var(--green)' : 'var(--red)';
+        netCell.innerHTML = '<span style="color:' + nc + ';font-weight:700;">' +
+          (netVal < 0 ? '-' : '') + 'R$ ' + Math.abs(netVal).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+      }
+    }
+
+    // Acumulado: se override, usar esse valor E redefinir o cumAcc
+    if (cumCell.getAttribute('data-overridden')) {
+      cumAcc = parseFloat(cumCell.getAttribute('data-value') || '0');
+      // não altera o display — o valor override é o que vale
+    } else {
+      cumAcc = Math.round((cumAcc + netVal) * 100) / 100;
+      cumCell.setAttribute('data-value', cumAcc);
+      var cc = cumAcc >= 0 ? 'var(--green)' : 'var(--red)';
+      cumCell.innerHTML = '<span style="color:' + cc + ';">' +
+        (cumAcc < 0 ? '-' : '') + 'R$ ' + Math.abs(cumAcc).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>';
+    }
+  });
+}
+
+function abrirEdicao(td) {
+  if (td.querySelector('input')) return;
+  var val = td.getAttribute('data-value') || '0';
+  var numVal = parseFloat(val).toFixed(2).replace('.', ',');
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.value = numVal;
+  input.style.cssText = 'width:100%;text-align:right;background:var(--bg);border:2px solid var(--accent);border-radius:4px;padding:2px 4px;color:inherit;font-family:inherit;font-size:inherit;';
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  function salvar() {
+    var raw = input.value.trim();
+    // Normalizar para formato BR antes de enviar ao Python:
+    // "1000.50" (US) → "1000,50" | "1.000,50" (BR) → "1000,50" | "1000" → "1000"
+    var v;
+    if (raw.indexOf(',') > -1) {
+      // Tem vírgula: ponto é separador de milhar → remover pontos
+      v = raw.replace(/[.]/g, '');   // "1.000,50" → "1000,50"
+    } else if (raw.indexOf('.') > -1) {
+      // Só tem ponto: é decimal americano → converter para vírgula
+      v = raw.replace('.', ',');    // "1000.50" → "1000,50"
+    } else {
+      v = raw;                       // "1000" → "1000"
+    }
+    var fd = new FormData();
+    fd.append('year', td.getAttribute('data-year'));
+    fd.append('month', td.getAttribute('data-month'));
+    fd.append('field', td.getAttribute('data-field'));
+    fd.append('value', v);
+    fetch('/fluxo/ajustar', {method:'POST', body:fd, credentials:'same-origin'})
+      .then(function(r) {
+        var ct = r.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          if (r.status === 401 || r.url.includes('login')) {
+            alert('Sessão expirada. Faça login novamente.');
+            window.location.href = '/login';
+          } else {
+            r.text().then(function(t) { alert('Erro do servidor: ' + t.substring(0,200)); });
+          }
+          return null;
+        }
+        return r.json();
+      })
+      .then(function(j) {
+        if (!j) return;
+        if (j.ok) {
+          // Atualizar data-value da célula editada e marcar como override
+          var numVal = parseFloat(v.replace(/[.]/g,'').replace(',','.')) || 0;
+          td.setAttribute('data-value', numVal);
+          td.setAttribute('data-overridden', '1');
+          td.innerHTML = fmtBRL(numVal);
+          // Saldo e acumulado são recalculados no servidor (saldo projetado)
+          window.location.reload();
+        }
+        else if (j.error === 'sessao_expirada') {
+          alert('Sessão expirada. Faça login novamente.');
+          window.location.href = '/auth/login';
+        }
+        else { alert('Erro ao salvar: ' + (j.error || 'verifique os logs')); }
+      })
+      .catch(function(err) { alert('Falha de rede: ' + err); });
+  }
+  input.addEventListener('blur', salvar);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { window.location.reload(); }
+  });
+}
+
+// Clique simples = memória (saldo/acumulado) ou detalhe (cf-cell)
+// Duplo clique = editar qualquer célula editável
+document.querySelectorAll('#cf-tabela .editable-cell').forEach(function(td) {
+  var clickTimer = null;
+
+  td.addEventListener('click', function(e) {
+    if (td.querySelector('input')) return; // já em edição
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(function() {
+      // Clique simples: só abre memória (não edita)
+      if (td.getAttribute('data-mem') === 'saldo') mostrarMemoria(td);
+      else if (td.getAttribute('data-mem') === 'cum') mostrarMemoriaCum(td);
+      // cf-cell: abre modal de itens — tratado pelo listener da .cf-cell abaixo
+    }, 220);
+  });
+
+  td.addEventListener('dblclick', function(e) {
+    e.stopPropagation();
+    clearTimeout(clickTimer); // cancelar clique simples
+    abrirEdicao(td);          // editar
+  });
+});
+// Fechar modal de memória clicando fora
+var _mm = document.getElementById('mem-modal');
+if (_mm) _mm.addEventListener('click', function(e) {
+  if (e.target === this) this.style.display = 'none';
+});
+
+// Painel ocupa só a largura visível da tabela (que rola na horizontal)
+function cfAjustarLargura() {
+  var wrap = document.querySelector('#cf-tabela .table-wrap');
+  if (!wrap) return;
+  var w = wrap.clientWidth - 28;
+  document.querySelectorAll('.cf-det-grid').forEach(function(g) { g.style.width = w + 'px'; });
+}
+window.addEventListener('resize', cfAjustarLargura);
+
+function cfToggle(idx, abrir, grp) {
+  var row = document.querySelector('tr.cf-row[data-idx="' + idx + '"]');
+  var det = document.getElementById('cf-det-' + idx);
+  if (!row || !det) return;
+  if (abrir === undefined) abrir = det.hidden;
+  det.hidden = !abrir;
+  if (abrir) cfAjustarLargura();
+  row.classList.toggle('cf-open', abrir);
+  var btn = row.querySelector('.cf-toggle');
+  if (btn) { btn.setAttribute('aria-expanded', abrir ? 'true' : 'false'); btn.textContent = abrir ? '\u25BE\uFE0E' : '\u25B8\uFE0E'; }
+  det.querySelectorAll('.cf-grp').forEach(function(g) { g.classList.remove('cf-hl'); });
+  if (abrir && grp) {
+    var g = det.querySelector('.cf-grp[data-grp="' + grp + '"]');
+    if (g) { g.classList.add('cf-hl'); setTimeout(function(){ g.classList.remove('cf-hl'); }, 1600); }
+  }
+}
+
+document.querySelectorAll('#cf-tabela .cf-toggle').forEach(function(btn) {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    cfToggle(btn.getAttribute('data-idx'));
+  });
+});
+
+// Clique simples numa célula de renda/gasto abre a linha destacando o grupo;
+// espera 220 ms para não disparar junto com o duplo clique (edição)
+document.querySelectorAll('#cf-tabela .cf-cell').forEach(function(td) {
+  var t = null;
+  td.addEventListener('click', function() {
+    if (td.querySelector('input')) return;
+    clearTimeout(t);
+    t = setTimeout(function() {
+      if (td.querySelector('input')) return;
+      var idx = td.getAttribute('data-idx');
+      var det = document.getElementById('cf-det-' + idx);
+      var grp = td.getAttribute('data-col');
+      // já aberta: clique no mesmo valor fecha; em outro, só destaca
+      if (det && !det.hidden && td.classList.contains('cf-last')) { cfToggle(idx, false); td.classList.remove('cf-last'); return; }
+      document.querySelectorAll('.cf-cell.cf-last').forEach(function(c){ c.classList.remove('cf-last'); });
+      td.classList.add('cf-last');
+      cfToggle(idx, true, grp);
+    }, 220);
+  });
+  td.addEventListener('dblclick', function() { clearTimeout(t); });
+});
+
+var _cfAll = document.getElementById('cf-toggle-all');
+if (_cfAll) _cfAll.addEventListener('click', function() {
+  var abrir = _cfAll.getAttribute('data-open') !== '1';
+  document.querySelectorAll('tr.cf-row').forEach(function(r) { cfToggle(r.getAttribute('data-idx'), abrir); });
+  _cfAll.setAttribute('data-open', abrir ? '1' : '0');
+  _cfAll.textContent = abrir ? 'Recolher todos' : 'Expandir todos';
+});
+
+// Excluir / restaurar item só deste mês
+function cfPost(url, el) {
+  var fd = new FormData();
+  ['year', 'month', 'tipo', 'ref', 'desc'].forEach(function (k) {
+    var v = el.getAttribute('data-' + k); if (v !== null) fd.append(k, v);
+  });
+  return fetch(url, {method: 'POST', body: fd, credentials: 'same-origin'})
+    .then(function (r) { return r.json().catch(function () { return {ok: false, error: 'HTTP ' + r.status}; }); });
+}
+document.querySelectorAll('#cf-tabela .cf-x').forEach(function (b) {
+  b.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var mes = b.getAttribute('data-month') + '/' + b.getAttribute('data-year');
+    if (!confirm('Excluir "' + b.getAttribute('data-desc') + '" só de ' + mes + '?\nOs outros meses e o cadastro não mudam.')) return;
+    b.disabled = true;
+    cfPost('/fluxo/excluir-item', b).then(function (j) {
+      if (j.ok) CF_RECARREGAR(); else { b.disabled = false; alert('Erro: ' + (j.error || '')); }
+    });
+  });
+});
+document.querySelectorAll('#cf-tabela .cf-rest').forEach(function (b) {
+  b.addEventListener('click', function (e) {
+    e.stopPropagation(); b.disabled = true;
+    cfPost('/fluxo/restaurar-item', b).then(function (j) {
+      if (j.ok) CF_RECARREGAR(); else { b.disabled = false; alert('Erro: ' + (j.error || '')); }
+    });
+  });
+});
+// Reabre as linhas que estavam abertas antes de recarregar
+(function () {
+  var KEY = 'cf-abertos-' + location.pathname;
+  try {
+    (JSON.parse(sessionStorage.getItem(KEY) || '[]')).forEach(function (i) { cfToggle(String(i), true); });
+    sessionStorage.removeItem(KEY);
+  } catch (e) {}
+  CF_RECARREGAR = function () {
+    try {
+      var abertos = [];
+      document.querySelectorAll('#cf-tabela tr.cf-row.cf-open').forEach(function (r) { abertos.push(r.getAttribute('data-idx')); });
+      sessionStorage.setItem(KEY, JSON.stringify(abertos));
+    } catch (e) {}
+    window.location.reload();
+  };
+})();
+</script>
