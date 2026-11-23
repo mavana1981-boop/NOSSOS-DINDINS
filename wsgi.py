@@ -53,6 +53,7 @@ def bootstrap():
         _ensure_column("card_entries", "batch_id", "VARCHAR(64)")
         _ensure_column("card_entries", "billing_month", "VARCHAR(7)")
         _ensure_column("card_entries", "pluggy_tx_id", "VARCHAR(64)")
+        _ensure_column("card_entries", "origem", "VARCHAR(20)")
         _ensure_column("closed_months", "fechou_em", "DATE")
         _ensure_column("notificacoes", "push_status", "VARCHAR(300)")
         _ensure_column("push_inscricoes", "ultimo_ok_em", "TIMESTAMP")

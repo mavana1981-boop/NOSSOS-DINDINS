@@ -299,6 +299,9 @@ class CardEntry(db.Model):
     subcategoria = db.relationship("Subcategoria", foreign_keys=[subcategoria_id])
     # ID da transação na Pluggy (Open Finance) — evita importar a mesma compra duas vezes
     pluggy_tx_id = db.Column(db.String(64), nullable=True, index=True)
+    # De onde veio o lançamento quando não foi digitado/importado: "carteira" = notificação
+    # da Carteira do Google (fica "aguardando Open Finance" até a Pluggy confirmar)
+    origem = db.Column(db.String(20), nullable=True)
 
     user = db.relationship("User", backref="user_card_entries")
     expense = db.relationship("Expense", backref="expense_card_entries")
@@ -678,3 +681,41 @@ class FaturaReparoLog(db.Model):
     dados      = db.Column(db.Text)       # JSON [{id, de, para}]
     desfeito   = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ── Carteira do Google (notificações de compra por aproximação) ──
+class CarteiraConfig(db.Model):
+    """Token do webhook e mapeamento final do cartão na Carteira → cartão do app."""
+    __tablename__ = "carteira_config"
+    id               = db.Column(db.Integer, primary_key=True)
+    user_id          = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+                                 nullable=False, unique=True)
+    token            = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    cartao_padrao_id = db.Column(db.Integer, db.ForeignKey("cards.id", ondelete="SET NULL"), nullable=True)
+    # JSON {"1234": card_id} — o final mostrado na Carteira é o do cartão virtual (token),
+    # normalmente diferente do final impresso no cartão físico
+    mapa_finais      = db.Column(db.Text, default="{}")
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    cartao_padrao = db.relationship("Card", foreign_keys=[cartao_padrao_id])
+
+
+class CarteiraNotificacao(db.Model):
+    """Registro de cada notificação recebida (para conferir o que foi lido)."""
+    __tablename__ = "carteira_notificacoes"
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    titulo      = db.Column(db.String(300))
+    texto       = db.Column(db.Text)
+    app_origem  = db.Column(db.String(120))
+    hash        = db.Column(db.String(64), index=True)
+    valor       = db.Column(db.Numeric(12, 2), nullable=True)
+    loja        = db.Column(db.String(160))
+    final       = db.Column(db.String(4))
+    # lancado | aguardando_cartao | ignorada | duplicada | erro
+    resultado   = db.Column(db.String(30))
+    detalhe     = db.Column(db.String(300))
+    entry_id    = db.Column(db.Integer, db.ForeignKey("card_entries.id", ondelete="SET NULL"), nullable=True)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+    entry = db.relationship("CardEntry")

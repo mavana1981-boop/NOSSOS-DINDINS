@@ -7,11 +7,14 @@
     <h1>Open Finance</h1>
     <p>Compras dos cartões chegam sozinhas, uma vez por dia, para você revisar.</p>
   </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+  <a class="btn btn-ghost" href="{{ url_for('carteira.index') }}">📱 Carteira do Google</a>
   {% if items %}
   <form method="POST" action="{{ url_for('openfinance.sincronizar') }}">
     <button class="btn btn-ghost" type="submit">⟳ Sincronizar agora</button>
   </form>
   {% endif %}
+  </div>
 </div>
 
 {% if not configurado %}

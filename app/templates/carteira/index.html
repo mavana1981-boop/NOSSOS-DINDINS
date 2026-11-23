@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Carteira do Google{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>📱 Carteira do Google</h1>
+    <p>Compras por aproximação entram na hora, a partir da notificação do celular. Depois o Open Finance confirma, sem duplicar.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('openfinance.index') }}">← Open Finance</a>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">1. Endereço do webhook</h3>
+  <p class="text-dim text-small">Esse endereço é secreto: quem tiver ele consegue lançar compras na sua conta.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <input class="form-control" id="url-webhook" readonly value="{{ url_webhook }}" style="flex:1;min-width:260px;font-family:monospace;font-size:12px;">
+    <button class="btn btn-primary btn-sm" type="button"
+            onclick="navigator.clipboard.writeText(document.getElementById('url-webhook').value);this.textContent='Copiado ✓'">Copiar</button>
+    <form method="POST" action="{{ url_for('carteira.novo_token') }}"
+          onsubmit="return confirm('Gerar novo endereço? O atual para de funcionar.');">
+      <button class="btn btn-ghost btn-sm" type="submit">Gerar novo</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">2. Configurar o MacroDroid no celular</h3>
+  <ol class="text-small" style="line-height:1.7;padding-left:18px;">
+    <li>Instale o <strong>MacroDroid</strong> (Play Store) e crie uma macro nova.</li>
+    <li><strong>Gatilho:</strong> Dispositivo/Notificação → <em>Notificação recebida</em> → selecione o app <strong>Google Wallet</strong>.
+      Permita o acesso às notificações quando ele pedir.</li>
+    <li><strong>Ação:</strong> Web → <em>Solicitação HTTP</em> → método <strong>POST</strong>, URL = o endereço acima.
+      Corpo: tipo <code>application/json</code>, com o conteúdo:
+      <pre style="white-space:pre-wrap;font-size:12px;margin:6px 0;">{"titulo": "[notification_title]", "texto": "[notification]", "app": "[notification_app_name]"}</pre>
+      <span class="text-faint">Use o botão "…" do campo para inserir as variáveis da notificação, caso os nomes apareçam diferentes na sua versão.</span></li>
+    <li>Nas configurações do Android, deixe o MacroDroid <strong>sem restrição de bateria</strong>. Senão o sistema o encerra e as notificações se perdem.</li>
+    <li>Faça uma compra pequena e confira abaixo, em "Últimas notificações", como ela foi lida.</li>
+  </ol>
+  <p class="text-faint text-small">Quer lançar também a partir do app da Caixa? Crie outra macro igual, com o app da Caixa como gatilho.</p>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">3. Qual cartão é qual</h3>
+  <p class="text-dim text-small">
+    A Carteira mostra o final do <strong>cartão virtual</strong> (ex.: •••• 4821), que costuma ser diferente do final impresso no cartão.
+    Informe aqui os finais que aparecem nas notificações. Se for mais de um, separe por vírgula.
+  </p>
+  <form method="POST" action="{{ url_for('carteira.salvar_config') }}">
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr><th>Cartão no app</th><th>Final(is) na Carteira</th></tr></thead>
+        <tbody>
+          {% for c in cards %}
+          <tr>
+            <td>{{ c.name }}{% if c.last_digits %} <span class="text-dim">(•••• {{ c.last_digits }})</span>{% endif %}</td>
+            <td><input class="form-control" name="finais_{{ c.id }}" placeholder="ex.: 4821"
+                       value="{{ finais_por_cartao.get(c.id, '') }}"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <label class="text-small">Quando não der para saber o cartão, lançar em:</label>
+      <select name="cartao_padrao_id" class="form-control" style="max-width:280px;">
+        <option value="">— deixar aguardando —</option>
+        {% for c in cards %}
+        <option value="{{ c.id }}" {% if cfg.cartao_padrao_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary btn-sm" type="submit">Salvar</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">Testar a leitura</h3>
+  <p class="text-dim text-small">Cole o título e o texto de uma notificação para ver como o app leria. Nada é lançado.</p>
+  <form method="POST" action="{{ url_for('carteira.testar') }}" style="display:grid;gap:8px;">
+    <input class="form-control" name="titulo" placeholder="Título (ex.: PADARIA BOM PÃO)">
+    <input class="form-control" name="texto" placeholder="Texto (ex.: R$ 23,50 com Visa •••• 4821)">
+    <div><button class="btn btn-ghost btn-sm" type="submit">Testar</button></div>
+  </form>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">Últimas notificações</h3>
+  {% if recentes %}
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Quando</th><th>Notificação</th><th>Leitura</th><th>Resultado</th></tr></thead>
+      <tbody>
+        {% for r in recentes %}
+        <tr>
+          <td class="text-dim text-small">{{ r.created_at|data_br if r.created_at }}</td>
+          <td class="text-small"><strong>{{ r.titulo }}</strong><br><span class="text-dim">{{ r.texto }}</span></td>
+          <td class="text-small">
+            {% if r.valor %}{{ r.valor|brl }} · {{ r.loja }}{% if r.final %} · •••• {{ r.final }}{% endif %}{% else %}—{% endif %}
+          </td>
+          <td class="text-small">
+            {% if r.resultado == 'lancado' %}<span class="badge badge-shared">lançada</span>
+            {% elif r.resultado == 'aguardando_cartao' %}<span class="badge badge-solo">sem cartão</span>
+            {% else %}<span class="badge badge-solo">{{ r.resultado }}</span>{% endif %}
+            <div class="text-faint">{{ r.detalhe or '' }}</div>
+            {% if r.resultado == 'aguardando_cartao' %}
+            <form method="POST" action="{{ url_for('carteira.reprocessar', reg_id=r.id) }}" style="margin-top:4px;">
+              <button class="btn btn-ghost btn-sm" type="submit">Lançar agora</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-dim text-small">Nenhuma notificação recebida ainda.</p>
+  {% endif %}
+</div>
+{% endblock %}

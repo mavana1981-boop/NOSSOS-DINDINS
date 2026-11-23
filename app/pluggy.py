@@ -238,6 +238,15 @@ def sincronizar_link(api_key, link, diag=None):
         if valor <= 0:
             continue
         desc = (tx.get("description") or tx.get("descriptionRaw") or "Sem descrição").strip()[:160]
+        # Compra que já entrou pela notificação da Carteira do Google: só confirma
+        _tp = int(meta.get("totalInstallments") or 1)
+        _pn = int(meta.get("installmentNumber") or 1)
+        if _pn == 1:
+            from app.carteira import casar_com_pluggy as _ccp
+            if _ccp(card, valor, entry_date, tx["id"], _tp, _pn):
+                ids_existentes.add(tx["id"])
+                diag["confirmadas_carteira"] = diag.get("confirmadas_carteira", 0) + 1
+                continue
         if (desc[:40].upper(), str(round(float(valor), 2)), entry_date) in existentes_suaves:
             diag["ja_lancadas"] += 1
             continue
@@ -280,6 +289,8 @@ def sincronizar_link(api_key, link, diag=None):
         qtde += 1
 
     diag["importadas"] = qtde
+    if diag.get("confirmadas_carteira"):
+        db.session.flush()
     if qtde:
         db.session.flush()
         finalizar_lote(card.id, batch_id, link.user_id)  # parcelas planejadas + regras
@@ -339,7 +350,9 @@ def sincronizar_usuario(user_id, relatorio=None):
                         f"a Pluggy devolveu {diag['recebidas']} transação(ões); "
                         f"{diag['importadas']} importada(s), {diag['ja_importadas']} já importada(s), "
                         f"{diag['ja_lancadas']} já lançada(s) à mão/PDF, das importadas {diag['pendentes']} ainda pendente(s) no banco, "
-                        f"{diag['pagamentos']} pagamento(s)/estorno(s).")})
+                        f"{diag['pagamentos']} pagamento(s)/estorno(s)"
+                        + (f", {diag['confirmadas_carteira']} lançada(s) pela Carteira do Google e agora confirmada(s)"
+                           if diag.get('confirmadas_carteira') else "") + ".")})
                 if qtde:
                     resultados.append({"card": link.card, "batch_id": batch_id, "qtde": qtde})
                     mensagem = "Chegaram pelo Open Finance. Revise e aprove os lançamentos."
