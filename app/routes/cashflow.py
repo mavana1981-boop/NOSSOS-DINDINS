@@ -162,6 +162,57 @@ def ajustar():
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
+TIPOS_EXCLUSAO = {"income", "expense", "excedente", "parcelado"}
+
+
+@cashflow_bp.route("/excluir-item", methods=["POST"])
+@login_required
+def excluir_item():
+    """Tira uma renda ou gasto do fluxo SÓ no mês informado (não apaga o cadastro)."""
+    from flask import jsonify
+    from app.models import FluxoExclusao, Income, Expense
+    year = request.form.get("year", type=int)
+    month = request.form.get("month", type=int)
+    tipo = (request.form.get("tipo") or "").strip()
+    ref = (request.form.get("ref") or "").strip()[:200]
+    desc = (request.form.get("desc") or "").strip()[:250]
+    if not year or not month or not 1 <= month <= 12 or tipo not in TIPOS_EXCLUSAO or not ref:
+        return jsonify({"ok": False, "error": "dados inválidos"}), 400
+    # Renda/gasto precisa ser do usuário (gasto repassado: ele tem uma cota)
+    if tipo == "income":
+        inc = Income.query.get(int(ref)) if ref.isdigit() else None
+        if not inc or inc.user_id != current_user.id:
+            return jsonify({"ok": False, "error": "renda não encontrada"}), 404
+    elif tipo == "expense":
+        exp = Expense.query.get(int(ref)) if ref.isdigit() else None
+        if not exp or (exp.payer_id != current_user.id
+                       and not any(sh.user_id == current_user.id for sh in exp.shares)):
+            return jsonify({"ok": False, "error": "gasto não encontrado"}), 404
+    if not FluxoExclusao.query.filter_by(user_id=current_user.id, year=year, month=month,
+                                         tipo=tipo, ref=ref).first():
+        db.session.add(FluxoExclusao(user_id=current_user.id, year=year, month=month,
+                                     tipo=tipo, ref=ref, descricao=desc))
+        db.session.commit()
+    return jsonify({"ok": True})
+
+
+@cashflow_bp.route("/restaurar-item", methods=["POST"])
+@login_required
+def restaurar_item():
+    """Volta um item excluído para o fluxo daquele mês."""
+    from flask import jsonify
+    from app.models import FluxoExclusao
+    FluxoExclusao.query.filter_by(
+        user_id=current_user.id,
+        year=request.form.get("year", type=int),
+        month=request.form.get("month", type=int),
+        tipo=(request.form.get("tipo") or "").strip(),
+        ref=(request.form.get("ref") or "").strip(),
+    ).delete()
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
 @cashflow_bp.route("/limpar-override", methods=["POST"])
 @login_required
 def limpar_override():

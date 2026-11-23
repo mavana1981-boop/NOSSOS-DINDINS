@@ -62,6 +62,16 @@ def index():
         (m for m in cf_months if m["month"] == filter_month and not m.get("is_next_year")),
         cf_months[0] if cf_months else {}
     )
+    _m12 = cf_months[:12]
+    cf_totals = {
+        "income":           sum(m["income"] for m in _m12),
+        "income_recurring": sum(m["income_recurring"] for m in _m12),
+        "income_eventual":  sum(m["income_eventual"] for m in _m12),
+        "fixed":            sum(m["fixed_expense"] for m in _m12),
+        "eventual":         sum(m["eventual_expense"] for m in _m12),
+        "net":              sum(m["net"] for m in _m12),
+    }
+    cf_totals["total_expense"] = cf_totals["fixed"] + cf_totals["eventual"]
     cf_dec = next((m for m in cf_months if m["month"] == 12 and not m.get("is_next_year")),
                   cf_months[-1] if cf_months else {})
     # Usar filter_year/filter_month para calcular saldos entre membros
@@ -236,6 +246,7 @@ def index():
         summary=summary,
         cf_current=cf_current,
         cf_months=cf_months,
+        cf_totals=cf_totals,
         cf_dec=cf_dec,
         credits_debits=credits_debits_detail,
         projects=projects[:4],
