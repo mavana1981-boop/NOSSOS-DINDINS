@@ -27,14 +27,16 @@
 <div class="card" style="margin-top:16px;">
   <h3 style="margin-top:0;">2. Configurar o MacroDroid no celular</h3>
   <ol class="text-small" style="line-height:1.7;padding-left:18px;">
-    <li>Instale o <strong>MacroDroid</strong> (Play Store) e crie uma macro nova.</li>
-    <li><strong>Gatilho:</strong> Dispositivo/Notificação → <em>Notificação recebida</em> → selecione o app <strong>Google Wallet</strong>.
-      Permita o acesso às notificações quando ele pedir.</li>
-    <li><strong>Ação:</strong> Web → <em>Solicitação HTTP</em> → método <strong>POST</strong>, URL = o endereço acima.
-      Corpo: tipo <code>application/json</code>, com o conteúdo:
-      <pre style="white-space:pre-wrap;font-size:12px;margin:6px 0;">{"titulo": "[notification_title]", "texto": "[notification]", "app": "[notification_app_name]"}</pre>
-      <span class="text-faint">Use o botão "…" do campo para inserir as variáveis da notificação, caso os nomes apareçam diferentes na sua versão.</span></li>
-    <li>Nas configurações do Android, deixe o MacroDroid <strong>sem restrição de bateria</strong>. Senão o sistema o encerra e as notificações se perdem.</li>
+    <li>Instale o <strong>MacroDroid</strong> (Play Store), toque em <strong>Macros → +</strong>.</li>
+    <li><strong>Gatilho</strong> (caixa vermelha, +): <em>Eventos do dispositivo</em> → <em>Notificação</em> →
+      <em>Notificação recebida</em> → <em>Selecionar aplicativo(s)</em> → marque <strong>Carteira</strong> / <strong>Google Wallet</strong>
+      → Incluir → <em>Qualquer conteúdo</em>. Marque "Ignorar notificações em andamento" e "Evitar vários disparos".
+      Quando pedir, libere o <strong>acesso às notificações</strong> para o MacroDroid.</li>
+    <li><strong>Ação</strong> (caixa azul, +): <em>Web/Conectividade</em> → <em>Solicitação HTTP</em> → método <strong>POST</strong>,
+      URL = o endereço acima. Em <em>Corpo</em>, tipo <code>application/json</code>:
+      <pre style="white-space:pre-wrap;font-size:12px;margin:6px 0;">{"titulo": "{not_title}", "texto": "{not_text}", "app": "{not_app_name}"}</pre>
+      <span class="text-faint">As variáveis também podem ser inseridas pelo botão "…" do campo (Título da notificação, Texto da notificação, Nome do app).</span></li>
+    <li>Nas configurações do Android, deixe o MacroDroid <strong>sem restrição de bateria</strong>.</li>
     <li>Faça uma compra pequena e confira abaixo, em "Últimas notificações", como ela foi lida.</li>
   </ol>
   <p class="text-faint text-small">Quer lançar também a partir do app da Caixa? Crie outra macro igual, com o app da Caixa como gatilho.</p>
