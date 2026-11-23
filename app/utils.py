@@ -122,14 +122,15 @@ def get_user_monthly_summary(user_id, year, month):
     from app.models import Income, Expense, ExpenseShare
     from datetime import date as _date
     incomes = Income.query.filter_by(user_id=user_id).all()
+    _sal = salarios_mes_mapa(user_id)
     income_total = 0.0
     last_day = _date(year, month, 28)
     for i in incomes:
         if i.received_at.year == year and i.received_at.month == month:
-            income_total += float(i.amount)
+            income_total += valor_renda_no_mes(i, year, month, _sal)
         elif i.is_recurring and i.received_at <= last_day:
             if (year, month) >= (i.received_at.year, i.received_at.month):
-                income_total += float(i.amount)
+                income_total += valor_renda_no_mes(i, year, month, _sal)
 
     proprios = 0.0  # o que o usuário paga de verdade
     cotas = 0.0     # o que outros lhe devem
@@ -435,6 +436,7 @@ def get_yearly_cashflow(user_id, year):
 
     # Rendas recorrentes do usuário
     all_incomes = Income.query.filter_by(user_id=user_id).all()
+    _salarios = salarios_mes_mapa(user_id)   # salário calculado substitui a renda fixa no mês
 
     # Gastos de outros users repassados para este user
     debitos = []
@@ -460,7 +462,7 @@ def get_yearly_cashflow(user_id, year):
 
         # Rendas: is_recurring=True → recorrente todo mês; False → eventual só no mês
         for inc in all_incomes:
-            v_inc = float(inc.amount)
+            v_inc = valor_renda_no_mes(inc, year, m, _salarios)
             if inc.is_recurring:
                 if (year, m) >= (inc.received_at.year, inc.received_at.month):
                     income_recurring += v_inc
@@ -1060,3 +1062,59 @@ def registrar_fechamento(user_id, billing_month, fechou_em):
     cm.fechou_em = fechou_em
     db.session.flush()
     return reatribuir_apos_fechamento(user_id, billing_month, fechou_em)
+
+
+# ═════════════════════════════════════════════════════════════════════
+#  Salário do mês — valor recebido + consignados substitui a renda fixa
+# ═════════════════════════════════════════════════════════════════════
+def salarios_mes_mapa(user_id):
+    """{(ano, mes, income_id): valor_entrada} dos salários calculados do usuário."""
+    from app.models import SalarioMes
+    out = {}
+    try:
+        for s in SalarioMes.query.filter_by(user_id=user_id).all():
+            try:
+                out[(int(s.mes_ref[:4]), int(s.mes_ref[5:7]), s.income_id)] = float(s.valor_entrada)
+            except (ValueError, TypeError):
+                continue
+    except Exception as e:  # tabela ainda não criada, etc.
+        print(f"[salario_mes] erro ao ler: {e}")
+    return out
+
+
+def valor_renda_no_mes(inc, ano, mes, mapa=None):
+    """Valor da renda no mês: o salário calculado, se houver para essa renda fixa; senão o cadastrado."""
+    if mapa and inc.is_recurring:
+        v = mapa.get((ano, mes, inc.id))
+        if v is not None:
+            return v
+    return float(inc.amount)
+
+
+KW_CONSIGNADO = ["consign"]
+
+
+def consignados_do_mes(user_id, ano, mes, marcar_ids=None):
+    """
+    Gastos recorrentes do usuário ativos no mês com cara de empréstimo (ou com prazo).
+    Vêm marcados ('consignado'): os com 'consign' na descrição/categoria e os
+    usados no último cálculo (marcar_ids).
+    Retorna lista de dicts {expense, valor, consignado, parcela}.
+    """
+    from app.models import Expense
+    from app.planejamento_ia import KW_EMPRESTIMO, _norm, _tem
+    marcar_ids = set(marcar_ids or [])
+    out = []
+    for e in Expense.query.filter_by(payer_id=user_id, kind="recorrente").all():
+        if not e.is_active_on(ano, mes):
+            continue
+        nome = _norm(f"{e.description} {e.category or ''}")
+        if not (_tem(nome, KW_EMPRESTIMO) or e.recurrence_months or e.id in marcar_ids):
+            continue
+        meu = next((sh.share_amount for sh in e.shares if sh.user_id == user_id), None)
+        valor = float(meu if meu is not None else e.amount)
+        out.append({"expense": e, "valor": round(valor, 2),
+                    "consignado": _tem(nome, KW_CONSIGNADO) or e.id in marcar_ids,
+                    "parcela": e.parcel_label(ano, mes)})
+    out.sort(key=lambda x: (not x["consignado"], x["expense"].description.lower()))
+    return out

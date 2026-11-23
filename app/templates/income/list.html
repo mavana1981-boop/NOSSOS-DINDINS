@@ -11,6 +11,7 @@
     <a href="{{ url_for('income.list_incomes', mes=prev_mes) }}" class="btn btn-ghost btn-sm">←</a>
     <span style="font-weight:600;min-width:120px;text-align:center;">{{ mes_label }}</span>
     <a href="{{ url_for('income.list_incomes', mes=next_mes) }}" class="btn btn-ghost btn-sm">→</a>
+    <a href="{{ url_for('income.salario_mes', mes=mes) }}" class="btn btn-ghost btn-sm">🧮 Calcular salário do mês</a>
     <a href="{{ url_for('income.new_income') }}" class="btn btn-primary btn-sm">+ Nova renda</a>
   </div>
 </div>
@@ -64,7 +65,12 @@
               {% if i.is_recurring %}🔁 Recorrente{% else %}📅 Eventual{% endif %}
             </button>
           </td>
-          <td class="text-right amount" style="color:var(--green);">{{ i.amount|brl }}</td>
+          <td class="text-right amount" style="color:var(--green);">
+            {{ (i.valor_mes if i.valor_mes is defined else i.amount)|brl }}
+            {% if i.salario_calculado is defined and i.salario_calculado %}
+            <div class="text-faint text-small"><a href="{{ url_for('income.salario_mes', mes=mes, income_id=i.id) }}">🧮 salário calculado</a> · cadastro {{ i.amount|brl }}</div>
+            {% endif %}
+          </td>
           <td class="text-right">
             <a href="{{ url_for('income.edit_income', income_id=i.id) }}" class="btn btn-ghost btn-sm">Editar</a>
             <form method="POST" action="{{ url_for('income.delete_income', income_id=i.id) }}"
