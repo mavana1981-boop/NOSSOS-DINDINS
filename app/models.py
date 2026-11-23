@@ -750,3 +750,21 @@ class SalarioMes(db.Model):
             return json.loads(self.detalhe or "[]")
         except Exception:
             return []
+
+
+class FluxoExclusao(db.Model):
+    """
+    Item tirado do Fluxo de Caixa só num mês (renda ou gasto pontualmente excluído).
+    tipo: income | expense | excedente (chave do gasto do cartão) | parcelado
+    """
+    __tablename__ = "fluxo_exclusoes"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    year       = db.Column(db.Integer, nullable=False)
+    month      = db.Column(db.Integer, nullable=False)
+    tipo       = db.Column(db.String(20), nullable=False)
+    ref        = db.Column(db.String(200), nullable=False)
+    descricao  = db.Column(db.String(250))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("user_id", "year", "month", "tipo", "ref"),)
