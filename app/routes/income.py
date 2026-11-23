@@ -9,12 +9,8 @@ income_bp = Blueprint("income", __name__)
 
 
 def _parse_decimal(s):
-    if not s:
-        return None
-    try:
-        return Decimal(str(s).replace(".", "").replace(",", ".").strip())
-    except (InvalidOperation, ValueError):
-        return None
+    """Aceita 8.500,00 / 8500,00 / 8500.00 / 8500 (antes '8500.00' virava 850000)."""
+    return _parse_valor(s)
 
 
 @income_bp.route("/")
