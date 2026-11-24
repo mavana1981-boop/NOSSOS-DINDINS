@@ -314,12 +314,62 @@ def get_consolidated_cards(user_id, year=None, month=None):
 #  Parcelados projetados — fonte única (menu Parcelados, Fluxo de
 #  Caixa, Relatório e Saldo Proj. usam exatamente estes números)
 # ─────────────────────────────────────────────────────────────
+def projetar_series_em_andamento(user_id, dias=60):
+    """Lançamentos de cartão k/N (k>1) feitos à mão nos últimos `dias` cuja série
+    não tem projeção nem 1/N (ex.: consórcio cadastrado na parcela 15/80): projeta
+    as parcelas k..N no menu Parcelados, do mês atual em diante. Idempotente."""
+    from datetime import datetime as _dt, timedelta as _td, date as _date
+    from app.models import CardEntry, PlannedInstallment, PlannedInstallmentDeletion
+    limite = _dt.utcnow() - _td(days=dias)
+    hoje = _date.today()
+    mes_atual = f"{hoje.year}-{hoje.month:02d}"
+    cands = CardEntry.query.filter(
+        CardEntry.user_id == user_id, CardEntry.status == "ativo",
+        CardEntry.installments > 1, CardEntry.installment_no > 1,
+        CardEntry.billing_month.isnot(None), CardEntry.created_at >= limite).all()
+    criadas = 0
+    for e in cands:
+        if "[parcela auto · origem #" in (e.notes or ""):
+            continue                                   # gerada automaticamente
+        if PlannedInstallment.query.filter_by(origin_entry_id=e.id).first():
+            continue                                   # já projetada
+        base = norm_desc_parcela(e.description)
+        if any(norm_desc_parcela(p.description) == base for p in PlannedInstallment.query.filter_by(
+                user_id=user_id, card_id=e.card_id, installments=e.installments).all()):
+            continue                                   # série já tem projeção
+        if any(norm_desc_parcela(c.description) == base for c in CardEntry.query.filter(
+                CardEntry.user_id == user_id, CardEntry.card_id == e.card_id,
+                CardEntry.installments == e.installments, CardEntry.installment_no == 1,
+                CardEntry.status == "ativo").all()):
+            continue                                   # série começou no app (1/N)
+        dels = {(norm_desc_parcela(d.description), d.billing_month) for d in
+                PlannedInstallmentDeletion.query.filter_by(user_id=user_id, card_id=e.card_id).all()}
+        k = e.installment_no
+        for i in range(k, e.installments + 1):
+            bm = add_meses_bm(e.billing_month, i - k)
+            if bm < mes_atual or (base, bm) in dels:
+                continue
+            db.session.add(PlannedInstallment(
+                user_id=user_id, card_id=e.card_id, description=e.description,
+                amount=e.amount, installment_no=i, installments=e.installments,
+                billing_month=bm, expense_id=e.expense_id, origin_entry_id=e.id))
+            criadas += 1
+    if criadas:
+        db.session.commit()
+    return criadas
+
+
 def parcelados_projetados(user_id):
     """Todas as parcelas projetadas (planned_installments) do usuário, já
     sincronizadas com o lançamento de cartão de origem (valor, nº de
     parcelas e descrição). Mesma lista exibida no menu Parcelados."""
     from app.models import PlannedInstallment, CardEntry
     from app import db
+    try:
+        projetar_series_em_andamento(user_id)
+    except Exception as _e:
+        db.session.rollback()
+        print(f"[parcelados] projetar séries em andamento: {_e}")
     pis = PlannedInstallment.query.filter_by(user_id=user_id).all()
     mudou = False
     for p in pis:
