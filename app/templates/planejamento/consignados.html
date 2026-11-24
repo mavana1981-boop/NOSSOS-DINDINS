@@ -199,11 +199,16 @@
       <label class="cg-estrat"><input type="radio" name="estrat" value="fluxo">
         <b>Maior fluxo de caixa</b><span>Liquida as parcelas dos próximos meses: some o desconto em folha/conta logo. Desconto menor.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="equilibrado">
-        <b>Equilibrado</b><span>Metade do valor vai para o maior desconto e metade para liberar as próximas parcelas.</span></label>
+        <b>Equilibrado</b><span>Parte do valor busca o maior desconto e parte alivia as parcelas ao longo dos próximos 12 meses, sempre no mês mais pesado (não só nos primeiros).</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="quitar">
         <b>Quitar inteiros</b><span>Quita de uma vez o(s) empréstimo(s) de maior taxa que couberem no valor; o que sobrar vai para o maior desconto.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="escolher">
         <b>Escolher empréstimo</b><span>Concentra todo o valor no empréstimo que você escolher. Se der para quitá-lo e sobrar, a sobra vai para os outros.</span></label>
+    </div>
+    <div class="mt-2" id="box-equilibrio" style="display:none;">
+      <label class="form-label">Peso: desconto × alívio no ano — <span id="s-peso-txt"></span></label>
+      <input type="range" id="s-peso" min="0" max="100" step="10" value="50" style="width:100%;max-width:420px;accent-color:var(--accent);">
+      <div class="text-faint text-small" style="max-width:420px;display:flex;justify-content:space-between;"><span>só desconto</span><span>só alívio no ano</span></div>
     </div>
     <div class="cg-sim-in mt-2" id="box-escolher" style="display:none;">
       <div class="form-group mb-0">
@@ -336,7 +341,7 @@
   }
 
   // ── Simulador: valor único disponível hoje
-  ["s-valor", "s-filtro", "s-alvo", "s-alvo-ordem"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
+  ["s-valor", "s-filtro", "s-alvo", "s-alvo-ordem", "s-peso"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
   document.querySelectorAll("input[name=estrat]").forEach(r => r.addEventListener("change", simular));
   const boxEscolher = document.getElementById("box-escolher");
 
@@ -379,6 +384,27 @@
     return Math.max(disp, 0);
   }
 
+  // Alívio distribuído no ano: a cada passo reduz o mês (dos próximos 12) com a maior parcela total
+  // e, dentro dele, liquida a parcela de maior desconto (empate: maior juros).
+  function nivelarAno(lista, disp, reg) {
+    const bloqueadas = new Set();
+    while (disp > 0.01) {
+      const carga = {};
+      lista.forEach(e => e.rest.forEach(p => { if (p.d <= 12) carga[p.d] = (carga[p.d] || 0) + p.v; }));
+      const cands = [];
+      lista.forEach(e => { if (e.i > 0) e.rest.forEach(p => {
+        if (p.d <= 12 && p.v > 0.005 && !bloqueadas.has(p)) cands.push({e, p, fator: Math.pow(1 + e.i, p.d)});
+      }); });
+      if (!cands.length) break;
+      cands.sort((a, b) => carga[b.p.d] - carga[a.p.d] || b.fator - a.fator);
+      const c = cands[0], custo = c.p.v / c.fator;
+      if (custo <= disp + 0.005) { disp -= custo; reg(c.e, custo, c.p.v, c.p, true); c.p.v = 0; }
+      else if (c.e.parcial) { const abate = disp * c.fator; reg(c.e, disp, abate, c.p, false); c.p.v -= abate; disp = 0; }
+      else bloqueadas.add(c.p);   // não cabe inteira e o banco não aceita parcial: tenta a próxima
+    }
+    return Math.max(disp, 0);
+  }
+
   function rodar(estrat, valor, filtro) {
     const lista = EMP.filter(e => filtro === "todos" || e.consignado)
       .map(e => ({...e, parcial: PARCIAL.has(e.id), rest: e.futuras.map(f => ({d: f.d, v: e.parcela}))}));
@@ -408,10 +434,11 @@
       const quitou = alvo.length && alvo[0].rest.every(p => p.v < 0.005);
       if (quitou && disp > 0.01) disp = liquidar(lista.filter(e => e.id !== alvoId), disp, ordemAlvo, reg);
     } else if (estrat === "equilibrado") {
-      const metade = disp / 2;
-      const sobra1 = liquidar(lista, metade, "desconto", reg);
-      disp = liquidar(lista, disp - metade + sobra1, "fluxo", reg);
-      if (disp > 0.01) disp = liquidar(lista, disp, "desconto", reg);
+      const peso = +document.getElementById("s-peso").value / 100;   // fração para o alívio no ano
+      const parteFluxo = disp * peso;
+      const sobraF = nivelarAno(lista, parteFluxo, reg);
+      disp = liquidar(lista, disp - parteFluxo + sobraF, "desconto", reg);
+      if (disp > 0.01) disp = nivelarAno(lista, disp, reg);
     } else {
       disp = liquidar(lista, disp, estrat, reg);
     }
@@ -457,6 +484,9 @@
     const filtro = document.getElementById("s-filtro").value;
     const estrat = document.querySelector("input[name=estrat]:checked").value;
     boxEscolher.style.display = estrat === "escolher" ? "" : "none";
+    document.getElementById("box-equilibrio").style.display = estrat === "equilibrado" ? "" : "none";
+    const pesoV = +document.getElementById("s-peso").value;
+    document.getElementById("s-peso-txt").textContent = `${100 - pesoV}% desconto · ${pesoV}% alívio no ano`;
     const R = rodar(estrat, valor, filtro);
     const tem = valor > 0;
 
