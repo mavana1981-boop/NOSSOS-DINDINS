@@ -950,8 +950,29 @@ def _save_entry(entry, card):
     # Planned installments: atualizar SOMENTE quando editada a 1ª parcela
     # Parcelas 2, 3... nunca tocam no planejado — evita exclusão acidental
     # Só criar planejados para parcelados reais (2+ parcelas)
+    # Série que já começou (ex.: consórcio lançado na parcela 15/80): se ainda não há
+    # projeção para ela, esta parcela vira a origem e projeta k..N.
+    from app.models import PlannedInstallment as _PI_chk
+    _k_orig = entry.installment_no or 1
+    _origem_projecao = False
+    if (entry.installments and entry.installments > 1 and _k_orig > 1 and entry.billing_month):
+        if _PI_chk.query.filter_by(origin_entry_id=entry.id).first():
+            _origem_projecao = True          # já é a origem da projeção desta série
+        else:
+            from app.utils import norm_desc_parcela as _ndp
+            _base_serie = _ndp(entry.description)
+            _serie_tem_pi = any(
+                _ndp(p.description) == _base_serie
+                for p in _PI_chk.query.filter_by(user_id=entry.user_id, card_id=entry.card_id,
+                                                 installments=entry.installments).all())
+            _serie_tem_1 = CardEntry.query.filter(
+                CardEntry.user_id == entry.user_id, CardEntry.card_id == entry.card_id,
+                CardEntry.installments == entry.installments, CardEntry.installment_no == 1,
+                CardEntry.status == "ativo", CardEntry.id != entry.id).all()
+            _serie_tem_1 = any(_ndp(c.description) == _base_serie for c in _serie_tem_1)
+            _origem_projecao = not _serie_tem_pi and not _serie_tem_1
     if (entry.installments and entry.installments > 1
-            and entry.installment_no == 1 and entry.billing_month):
+            and (_k_orig == 1 or _origem_projecao) and entry.billing_month):
         from app.models import PlannedInstallment, PlannedInstallmentDeletion
         import re as _re_sv3
         def _nsv3(s):
@@ -976,12 +997,12 @@ def _save_entry(entry, card):
                 db.session.delete(_old_pi)
             db.session.flush()
 
-            # Criar PI para parcela 1
+            # Criar PI para a parcela desta entrada (1, ou k numa série já em andamento)
             if not _excluido_sv3(entry.billing_month):
                 db.session.add(PlannedInstallment(
                     user_id=entry.user_id, card_id=entry.card_id,
                     description=entry.description, amount=entry.amount,
-                    installment_no=1, installments=entry.installments,
+                    installment_no=_k_orig, installments=entry.installments,
                     billing_month=entry.billing_month,
                     expense_id=entry.expense_id, origin_entry_id=entry.id,
                 ))
@@ -996,8 +1017,10 @@ def _save_entry(entry, card):
                 s = _re_norm_sv.sub(r"\s+\d{1,2}\s+\d{1,2}(?=\s|$)", "", s)
                 return s.strip()
 
-            for _i in range(2, entry.installments + 1):
-                _steps = _i - 1
+            from app.utils import PARC_AUTO_TAG as _PAT
+            _auto_tag_sv = _PAT.format(id=entry.id)
+            for _i in range(_k_orig + 1, entry.installments + 1):
+                _steps = _i - _k_orig
                 _pmo = _bmo + _steps - 1
                 _pyr = _byr + _pmo // 12
                 _pmo = (_pmo % 12) + 1
@@ -1016,9 +1039,11 @@ def _save_entry(entry, card):
                     db.func.upper(CardEntry.description).contains(
                         _norm_sv(entry.description)[:20]
                     )
-                ).first()
+                ).all()
+                _real_exists = [c for c in _real_exists if _auto_tag_sv not in (c.notes or "")]
                 if _real_exists:
                     continue  # parcela já importada — não projetar
+                # (parcelas lançadas automaticamente por esta mesma origem não contam como importadas)
 
                 _pi_ex = PlannedInstallment.query.filter_by(
                     user_id=entry.user_id, card_id=entry.card_id,
