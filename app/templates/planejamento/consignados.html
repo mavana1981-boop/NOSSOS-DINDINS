@@ -28,7 +28,7 @@
   .cg-acao b { color:var(--text); font-weight:600; }
   .tbl tr.cg-quit td { background:rgba(126,166,107,.08); }
   .tbl tr.cg-hl td { background:rgba(217,119,87,.08); }
-  .cg-estrats { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
+  .cg-estrats { display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr)); gap:10px; }
   .cg-estrat { border:1px solid var(--border-strong); border-radius:var(--radius); padding:10px 12px; cursor:pointer; display:block; }
   .cg-estrat input { margin-right:6px; accent-color:var(--accent); }
   .cg-estrat span { display:block; font-size:.76rem; color:var(--text-faint); margin-top:4px; line-height:1.35; }
@@ -201,6 +201,23 @@
         <b>Equilibrado</b><span>Metade do valor vai para o maior desconto e metade para liberar as próximas parcelas.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="quitar">
         <b>Quitar inteiros</b><span>Quita de uma vez o(s) empréstimo(s) de maior taxa que couberem no valor; o que sobrar vai para o maior desconto.</span></label>
+      <label class="cg-estrat"><input type="radio" name="estrat" value="escolher">
+        <b>Escolher empréstimo</b><span>Concentra todo o valor no empréstimo que você escolher. Se der para quitá-lo e sobrar, a sobra vai para os outros.</span></label>
+    </div>
+    <div class="cg-sim-in mt-2" id="box-escolher" style="display:none;">
+      <div class="form-group mb-0">
+        <label class="form-label">Concentrar em</label>
+        <select class="form-control" id="s-alvo">
+          {% for x in d.lista if not x.sem_prazo and x.futuras %}<option value="{{ x.id }}">{{ x.nome }} — {{ ('%.2f'|format(x.taxa))|replace('.', ',') }}% a.m.</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label">Quais parcelas desse empréstimo</label>
+        <select class="form-control" id="s-alvo-ordem">
+          <option value="desconto">As últimas (maior desconto)</option>
+          <option value="fluxo">As próximas (libera caixa já)</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -317,8 +334,9 @@
   }
 
   // ── Simulador: valor único disponível hoje
-  ["s-valor", "s-filtro"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
+  ["s-valor", "s-filtro", "s-alvo", "s-alvo-ordem"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
   document.querySelectorAll("input[name=estrat]").forEach(r => r.addEventListener("change", simular));
+  const boxEscolher = document.getElementById("box-escolher");
 
   // Liquidação parcial: BB por padrão (lembra a escolha neste navegador)
   const LS = "cg-parcial-v1";
@@ -334,7 +352,7 @@
     simular();
   });
 
-  const ROTULO = {desconto: "Maior desconto", fluxo: "Maior fluxo de caixa", equilibrado: "Equilibrado", quitar: "Quitar inteiros"};
+  const ROTULO = {desconto: "Maior desconto", fluxo: "Maior fluxo de caixa", equilibrado: "Equilibrado", quitar: "Quitar inteiros", escolher: "Escolher empréstimo"};
   const ORDEM = {
     desconto: (a, b) => b.fator - a.fator || b.d - a.d,   // mais juros abatidos por real
     fluxo: (a, b) => a.d - b.d || b.e.i - a.e.i,          // parcelas mais próximas primeiro
@@ -380,6 +398,13 @@
         if (custo <= disp + 0.005) { e.rest.forEach(p => { reg(e, p.v / Math.pow(1 + e.i, p.d), p.v, p, true); p.v = 0; }); disp -= custo; }
       }
       disp = liquidar(lista, disp, "desconto", reg);
+    } else if (estrat === "escolher") {
+      const alvoId = +document.getElementById("s-alvo").value;
+      const ordemAlvo = document.getElementById("s-alvo-ordem").value;
+      const alvo = lista.filter(e => e.id === alvoId);
+      disp = liquidar(alvo, disp, ordemAlvo, reg);
+      const quitou = alvo.length && alvo[0].rest.every(p => p.v < 0.005);
+      if (quitou && disp > 0.01) disp = liquidar(lista.filter(e => e.id !== alvoId), disp, ordemAlvo, reg);
     } else if (estrat === "equilibrado") {
       const metade = disp / 2;
       const sobra1 = liquidar(lista, metade, "desconto", reg);
@@ -419,6 +444,7 @@
     const valor = num(document.getElementById("s-valor").value);
     const filtro = document.getElementById("s-filtro").value;
     const estrat = document.querySelector("input[name=estrat]:checked").value;
+    boxEscolher.style.display = estrat === "escolher" ? "" : "none";
     const R = rodar(estrat, valor, filtro);
     const tem = valor > 0;
 
@@ -445,6 +471,7 @@
       const tag = (k, b) => k === b ? '<span class="cg-tag">melhor</span>' : "";
       tc.innerHTML = res.map(({k, r}) => `<tr class="${k === estrat ? "cg-hl" : ""}" style="cursor:pointer" data-k="${k}">
         <td><b>${ROTULO[k]}</b>${k === estrat ? ' <span class="text-faint text-small">(escolhido)</span>' : ""}
+          ${k === "escolher" ? `<br><span class="text-faint text-small">${esc(document.getElementById("s-alvo").selectedOptions[0]?.textContent || "")}</span>` : ""}
           ${k === "quitar" && !r.nQuitados && r.quitarInfo ? `<br><span class="text-faint text-small">nenhum coube: quitar ${esc(r.quitarInfo.nome)} custa ${brl(r.quitarInfo.custo)}</span>` : ""}</td>
         <td class="num cg-ok">${brl(r.econ)}${tag(k, bE)}</td>
         <td class="num">${r.fimSim ? mesBr(r.fimSim) : "quitado"}${tag(k, bT)}</td>
