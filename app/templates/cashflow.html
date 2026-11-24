@@ -6,7 +6,7 @@
 <div class="page-header">
   <div class="page-title-wrap">
     <h1>Fluxo de Caixa</h1>
-    <p>Visão mês a mês de <strong>{{ year }}</strong></p>
+    <p>Visão mês a mês de <strong>{{ year }}</strong> e projeção de {{ year + 1 }}</p>
   </div>
 </div>
 
@@ -59,12 +59,22 @@
 
 <!-- Gráfico de barras -->
 <div class="card mt-2">
-  <div style="display:flex;gap:2px;align-items:flex-end;height:160px;padding:8px 0 0;">
+  {% set n_next = months|selectattr('is_next_year', 'defined')|selectattr('is_next_year')|list|length %}
+  {% if n_next %}
+  <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.72rem;color:var(--text-faint);margin-bottom:4px;">
+    <span><strong style="color:var(--accent);">{{ year }}</strong></span>
+    <span>role a barra → para ver <strong>{{ year + 1 }}</strong></span>
+  </div>
+  {% endif %}
+  <div id="cf-chart-scroll" style="overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-bottom:4px;">
+  <div style="display:flex;gap:2px;align-items:flex-end;height:160px;padding:8px 0 0;width:{{ ((months|length) / 12 * 100)|round(2) if months|length > 12 else 100 }}%;min-width:{{ (months|length) * 34 }}px;">
     {% for m in months %}
+    {% set _yr = year + 1 if m.get('is_next_year') else year %}
     {% set inc_h = ((m.income / max_value * 100)|round)|int if max_value else 0 %}
     {% set exp_h = ((m.total_expense / max_value * 100)|round)|int if max_value else 0 %}
     {% set inc_rec_pct = ((m.income_recurring / m.income * 100)|round)|int if m.income > 0 else 100 %}
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+    <div class="cf-bar-col" data-ym="{{ _yr }}-{{ m.month }}"
+         style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;{% if m.get('is_next_year') %}opacity:0.75;{% endif %}{% if m.get('is_next_year') and m.month == 1 %}border-left:2px dashed var(--border-strong);padding-left:2px;{% endif %}">
       <div style="flex:1;width:100%;display:flex;flex-direction:row;align-items:flex-end;gap:1px;">
         <!-- Barra de renda -->
         <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:130px;">
@@ -84,9 +94,10 @@
           </div>
         </div>
       </div>
-      <div style="font-size:0.6rem;color:var(--text-faint);text-align:center;padding-top:2px;white-space:nowrap;">{{ m.month_name }}</div>
+      <div style="font-size:0.6rem;color:var(--text-faint);text-align:center;padding-top:2px;white-space:nowrap;{% if m.month == current_month_num and _yr == current_month_year %}color:var(--accent);font-weight:700;{% endif %}">{{ m.month_name }}{% if m.month == 1 %}/{{ _yr % 100 }}{% endif %}</div>
     </div>
     {% endfor %}
+  </div>
   </div>
   <div style="display:flex;gap:16px;margin-top:6px;font-size:0.72rem;color:var(--text-faint);">
     <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);display:inline-block;border-radius:2px;"></span>Renda fixa</span>
@@ -97,6 +108,18 @@
 </div>
 
 {% include 'cashflow/_tabela.html' %}
+
+<script>
+// Gráfico: começa mostrando o ano escolhido (ou o mês atual, se estiver no ano seguinte)
+(function () {
+  var sc = document.getElementById('cf-chart-scroll');
+  if (!sc || sc.scrollWidth <= sc.clientWidth) return;
+  var alvo = sc.querySelector('.cf-bar-col[data-ym="{{ current_month_year }}-{{ current_month_num }}"]');
+  if (alvo && alvo.offsetLeft + alvo.offsetWidth > sc.clientWidth) {
+    sc.scrollLeft = alvo.offsetLeft - sc.clientWidth / 2;
+  }
+})();
+</script>
 
 
 {% endblock %}

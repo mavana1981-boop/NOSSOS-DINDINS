@@ -54,15 +54,9 @@ def index():
     _limpar_excedentes_invalidos()
     months = get_yearly_cashflow(current_user.id, year)
 
-    jan_next = get_yearly_cashflow(current_user.id, year + 1)
-    if jan_next:
-        jan = dict(jan_next[0])
-        jan["is_next_year"] = True
-        if "eventual_items" not in jan:
-            jan["eventual_items"] = []
-        dec_cumulative = months[-1]["cumulative"] if months else 0.0
-        jan["cumulative"] = dec_cumulative + jan["net"]
-        months = months + [jan]
+    # Ano seguinte inteiro (jan–dez de year+1), visível rolando o gráfico/tabela
+    from app.utils import anexar_ano_seguinte
+    months = anexar_ano_seguinte(current_user.id, year, months)
 
     # Saldo = Saldo Proj. do Relatório (Projeção de Saldo); acumulado recalculado
     from app.utils import aplicar_saldo_projetado
