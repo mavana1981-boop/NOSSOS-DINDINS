@@ -76,13 +76,16 @@
         {% for m in months %}
         {% set yr = year + 1 if m.get('is_next_year') else year %}
         {% set n_excl = (m.excluded_items or [])|length %}
-        {% set is_current_mo = (m.month == current_month_num and year == current_month_year and not m.get('is_next_year')) %}
-        {% if m.is_next_year is defined and m.is_next_year %}
-        <tr class="cf-row" data-idx="{{ loop.index0 }}" style="border-top:2px dashed var(--border-strong);opacity:0.8;">
+        {% set is_current_mo = (m.month == current_month_num and yr == current_month_year) %}
+        {% if m.get('is_next_year') and m.month == 1 %}
+        <tr class="cf-year-sep"><td colspan="9" style="border-top:2px dashed var(--border-strong);padding:6px 8px;font-size:0.75rem;font-weight:700;color:var(--text-dim);letter-spacing:.04em;">{{ year + 1 }} — projeção</td></tr>
+        {% endif %}
+        {% if m.is_next_year is defined and m.is_next_year and not is_current_mo %}
+        <tr class="cf-row" data-idx="{{ loop.index0 }}" style="opacity:0.8;">
           <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong>{{ m.month_name }}/{{ year + 1 }}</strong>{% if n_excl %}<span class="cf-badge-excl" title="Itens excluídos deste mês">{{ n_excl }} excl.</span>{% endif %} <span class="badge badge-solo" style="font-size:0.65rem;">próx.</span></td>
         {% elif is_current_mo %}
         <tr class="cf-row" data-idx="{{ loop.index0 }}" style="background:rgba(107,141,181,0.12);border-left:3px solid var(--accent);position:relative;">
-          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong style="color:var(--accent);">{{ m.month_name }}/{{ year }}</strong>{% if n_excl %}<span class="cf-badge-excl" title="Itens excluídos deste mês">{{ n_excl }} excl.</span>{% endif %}
+          <td style="white-space:nowrap;"><button type="button" class="cf-toggle" data-idx="{{ loop.index0 }}" aria-expanded="false" title="Mostrar itens">▸&#xFE0E;</button><strong style="color:var(--accent);">{{ m.month_name }}/{{ yr }}</strong>{% if n_excl %}<span class="cf-badge-excl" title="Itens excluídos deste mês">{{ n_excl }} excl.</span>{% endif %}
             <span style="font-size:0.6rem;background:var(--accent);color:white;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;">ATUAL</span>
           </td>
         {% else %}

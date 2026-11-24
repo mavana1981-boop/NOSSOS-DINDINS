@@ -700,6 +700,35 @@ def saldo_projetado_meses(user_id, meses, cf_cache=None):
     return out
 
 
+def anexar_ano_seguinte(user_id, year, months):
+    """Acrescenta os 12 meses de (year + 1) ao fluxo de `year`, marcados com
+    is_next_year. O acumulado continua a partir de dez/year; se algum mês do
+    ano seguinte tiver acumulado fixado à mão, dali em diante vale o valor
+    fixado (sem somar o saldo de dezembro)."""
+    from app.models import CashflowOverride
+    try:
+        prox = get_yearly_cashflow(user_id, year + 1)
+    except Exception:
+        prox = []
+    if not prox:
+        return months
+    fixados = {o.month for o in CashflowOverride.query.filter_by(
+        user_id=user_id, year=year + 1).all() if o.cumulative_override is not None}
+    if year + 1 == 2026:
+        fixados.add(5)
+    base = months[-1]["cumulative"] if months else 0.0
+    extra = []
+    for m in prox:
+        m = dict(m)
+        m["is_next_year"] = True
+        m.setdefault("eventual_items", [])
+        if m["month"] in fixados:
+            base = 0.0
+        m["cumulative"] = round(base + m["cumulative"], 2)
+        extra.append(m)
+    return months + extra
+
+
 def aplicar_saldo_projetado(user_id, meses_cf):
     """meses_cf: lista de (ano, dict do mês do get_yearly_cashflow), em ordem.
     Troca 'net' pelo saldo projetado (mantém ajuste manual de saldo, se houver)
