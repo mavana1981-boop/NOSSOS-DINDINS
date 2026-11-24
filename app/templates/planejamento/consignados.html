@@ -34,7 +34,8 @@
   .cg-estrat span { display:block; font-size:.76rem; color:var(--text-faint); margin-top:4px; line-height:1.35; }
   .cg-estrat:has(input:checked) { border-color:var(--accent); background:var(--accent-glow); }
   .cg-chip input { display:none; }
-  #tbl-comp td:first-child { min-width:210px; white-space:nowrap; }
+  #tbl-comp th { white-space:normal; }
+  #tbl-comp td:first-child { min-width:200px; }
   #tbl-comp td .cg-tag { margin-left:4px; }
   .cg-ok { color:var(--green); } .cg-warn { color:var(--gold); }
 </style>
@@ -170,14 +171,15 @@
   </table></div>
 </div>
 
-<!-- Simulador mês a mês -->
+<!-- Simulador: liquidação com um valor disponível hoje -->
 <div class="card mb-3">
-  <h3 style="margin-top:0;">Simulação de liquidação mês a mês</h3>
-  <p class="text-dim text-small">Diga quanto pode colocar por mês e escolha o objetivo. O app decide, mês a mês, quais parcelas antecipar.</p>
+  <h3 style="margin-top:0;">Simular liquidação com um valor disponível hoje</h3>
+  <p class="text-dim text-small">Informe quanto você tem agora e o objetivo. O app diz quais parcelas liquidar hoje, quanto paga, o desconto
+    e como ficam as parcelas dos próximos meses.</p>
   <div class="cg-sim-in">
     <div class="form-group mb-0">
-      <label class="form-label">Valor extra por mês (R$)</label>
-      <input class="form-control" id="s-extra" inputmode="decimal" value="{{ ('%.2f'|format(perfil.pagamento_extra or 0))|replace('.', ',') }}">
+      <label class="form-label">Valor disponível hoje (R$)</label>
+      <input class="form-control" id="s-valor" inputmode="decimal" placeholder="Ex.: 5.000,00">
     </div>
     <div class="form-group mb-0">
       <label class="form-label">Quais empréstimos</label>
@@ -186,60 +188,51 @@
         <option value="consig">Só consignados</option>
       </select>
     </div>
-    <div class="form-group mb-0">
-      <label class="form-label">Parcelas que forem liberadas</label>
-      <select class="form-control" id="s-reap">
-        <option value="1">Reaplicar 100% em antecipações (bola de neve)</option>
-        <option value="0.5">Reaplicar 50%, o resto fica no caixa</option>
-        <option value="0">Ficam no caixa (não reaplicar)</option>
-      </select>
-    </div>
   </div>
 
   <div class="mt-3">
     <label class="form-label">Objetivo</label>
     <div class="cg-estrats" id="s-estrat">
       <label class="cg-estrat"><input type="radio" name="estrat" value="desconto" checked>
-        <b>Maior desconto</b><span>Antecipa as parcelas mais distantes e de juros mais altos: cada real abate mais juros. O empréstimo termina antes, mas a parcela do mês não cai.</span></label>
+        <b>Maior desconto</b><span>Liquida as parcelas mais distantes e de juros mais altos: cada real abate mais juros. O empréstimo termina antes, mas a parcela dos próximos meses não muda.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="fluxo">
-        <b>Maior fluxo de caixa</b><span>Antecipa as parcelas dos próximos meses: o dinheiro que sai em folha/conta cai logo. Desconto menor.</span></label>
+        <b>Maior fluxo de caixa</b><span>Liquida as parcelas dos próximos meses: some o desconto em folha/conta logo. Desconto menor.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="equilibrado">
-        <b>Equilibrado</b><span>Metade do dinheiro de cada mês vai para o maior desconto e metade para liberar as próximas parcelas.</span></label>
+        <b>Equilibrado</b><span>Metade do valor vai para o maior desconto e metade para liberar as próximas parcelas.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="quitar">
-        <b>Quitar inteiros</b><span>Junta dinheiro e quita o empréstimo de maior taxa de uma vez, liberando a parcela toda.</span></label>
+        <b>Quitar inteiros</b><span>Quita de uma vez o(s) empréstimo(s) de maior taxa que couberem no valor; o que sobrar vai para o maior desconto.</span></label>
     </div>
   </div>
 
   <div class="mt-3">
     <label class="form-label">Permitem liquidar só parte de uma parcela</label>
     <div class="cg-chips" id="s-parcial"></div>
-    <p class="text-faint text-small mb-0 mt-1">Nesses empréstimos a sobra do mês abate parte de uma parcela (em vez de ficar parada esperando juntar uma parcela inteira).</p>
-  </div>
-
-  <div class="mt-3">
-    <label class="form-label">Aportes pontuais (13º, férias, restituição…)</label>
-    <div id="aportes"></div>
-    <button type="button" class="btn btn-ghost btn-sm" id="add-ap">+ Aporte</button>
-    {% if d.eventuais %}<button type="button" class="btn btn-ghost btn-sm" id="usar-ev">Usar as verbas eventuais cadastradas</button>{% endif %}
+    <p class="text-faint text-small mb-0 mt-1">Nesses empréstimos o que sobrar do valor abate parte de uma parcela, em vez de ficar sem uso.</p>
   </div>
 
   <div class="grid grid-4 mt-3" id="s-kpis"></div>
 
   <div class="table-wrap mt-3"><table class="tbl" id="tbl-comp">
-    <thead><tr><th>Comparar objetivos</th><th class="num">Juros economizados</th><th class="num">Fim das parcelas</th>
-      <th class="num">Parcelas/mês (média 12m)</th><th class="num">Sai do bolso/mês (média 12m)</th><th class="num">Fica no caixa em 12 meses</th></tr></thead>
+    <thead><tr><th>Objetivo (mesmo valor)</th><th class="num">Desconto</th><th class="num">Fim</th>
+      <th class="num">Parcelas mês que vem</th><th class="num">Caixa em 12 meses</th><th class="num">Sem uso</th></tr></thead>
     <tbody></tbody>
   </table></div>
 
-  <div class="table-wrap mt-3"><table class="tbl" id="tbl-sim">
-    <thead><tr><th>Mês</th><th class="num">Parcelas (sem → com)</th><th class="num">Dinheiro p/ antecipar</th>
-      <th>O que fazer</th><th class="num">Paga</th><th class="num">Economia</th><th class="num">Sobra p/ próximo</th></tr></thead>
+  <h4 class="mt-3 mb-1">O que liquidar hoje</h4>
+  <div class="table-wrap"><table class="tbl" id="tbl-acoes">
+    <thead><tr><th>Empréstimo</th><th>Parcelas</th><th class="num">Soma das parcelas</th><th class="num">Paga hoje</th><th class="num">Desconto</th></tr></thead>
     <tbody></tbody>
   </table></div>
-  <p class="text-faint text-small mt-2 mb-0">Valor para antecipar = valor presente da parcela pela taxa do contrato (desconto proporcional obrigatório).
-    “Sai do bolso” = parcelas + antecipações do mês. “Fica no caixa” = parcelas liberadas nos próximos 12 meses que não foram reaplicadas.
-    Clique numa linha do comparativo para ver o mês a mês daquele objetivo. Empréstimos sem taxa ficam de fora (sem juros não há desconto).
-    Confira no app do banco se ele permite escolher quais parcelas antecipar — alguns só abatem das últimas para as primeiras.</p>
+
+  <h4 class="mt-3 mb-1">Como ficam as parcelas</h4>
+  <div class="table-wrap"><table class="tbl" id="tbl-sim">
+    <thead><tr><th>Mês</th><th class="num">Sem liquidar</th><th class="num">Depois de liquidar</th><th class="num">Fica no caixa</th><th>Empréstimos que somem no mês</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <p class="text-faint text-small mt-2 mb-0">Valor para liquidar = valor presente da parcela pela taxa do contrato (desconto proporcional obrigatório);
+    a parcela deste mês já conta como paga. O boleto do banco pode variar alguns reais por IOF/dias corridos.
+    Empréstimos sem taxa ficam de fora (sem juros não há desconto). Para o objetivo “fluxo de caixa”, confira se o banco deixa escolher
+    quais parcelas liquidar — alguns só abatem das últimas para as primeiras.</p>
 </div>
 {% endif %}
 
@@ -323,26 +316,9 @@
     b.textContent = abertos[id] ? "Mostrar menos" : `Mostrar mais ${extras.length} meses`;
   }
 
-  // ── Simulador
-  const apBox = document.getElementById("aportes");
-  function addAporte(mes, valor) {
-    const div = document.createElement("div");
-    div.className = "cg-ap-row";
-    div.innerHTML = `<input type="month" class="form-control" style="max-width:170px" value="${mes || addMes(D.hoje, 1)}">
-      <input class="form-control" style="max-width:150px" inputmode="decimal" placeholder="Valor R$" value="${valor ? String(valor.toFixed(2)).replace(".", ",") : ""}">
-      <button type="button" class="btn btn-ghost btn-sm">✕</button>`;
-    div.querySelector("button").onclick = () => { div.remove(); simular(); };
-    div.querySelectorAll("input").forEach(i => i.oninput = simular);
-    apBox.appendChild(div);
-  }
-  document.getElementById("add-ap").onclick = () => addAporte();
-  const usarEv = document.getElementById("usar-ev");
-  if (usarEv) usarEv.onclick = () => { Object.entries(D.eventuais).forEach(([m, v]) => addAporte(m, v)); simular(); };
-  ["s-extra", "s-filtro", "s-reap"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
-  const REAP_PADRAO = {desconto: 1, fluxo: 0, equilibrado: 0.5, quitar: 1};
-  document.querySelectorAll("input[name=estrat]").forEach(r => r.addEventListener("change", () => {
-    document.getElementById("s-reap").value = String(REAP_PADRAO[r.value]); simular();
-  }));
+  // ── Simulador: valor único disponível hoje
+  ["s-valor", "s-filtro"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
+  document.querySelectorAll("input[name=estrat]").forEach(r => r.addEventListener("change", simular));
 
   // Liquidação parcial: BB por padrão (lembra a escolha neste navegador)
   const LS = "cg-parcial-v1";
@@ -360,17 +336,18 @@
 
   const ROTULO = {desconto: "Maior desconto", fluxo: "Maior fluxo de caixa", equilibrado: "Equilibrado", quitar: "Quitar inteiros"};
   const ORDEM = {
-    desconto: (a, b) => b.fator - a.fator || b.d - a.d,          // mais juros abatidos por real
-    fluxo: (a, b) => a.d - b.d || b.e.i - a.e.i,                 // parcelas mais próximas primeiro
+    desconto: (a, b) => b.fator - a.fator || b.d - a.d,   // mais juros abatidos por real
+    fluxo: (a, b) => a.d - b.d || b.e.i - a.e.i,          // parcelas mais próximas primeiro
   };
 
-  // Antecipa parcelas na ordem do objetivo; nos empréstimos com liquidação parcial, a sobra abate parte da parcela
-  function anteciparParcelas(lista, t, disp, ordem, reg) {
+  // Liquida parcelas hoje na ordem do objetivo; nos empréstimos com liquidação parcial, a sobra abate parte de uma parcela
+  function liquidar(lista, disp, ordem, reg) {
     const cands = [];
-    lista.forEach(e => { if (e.i > 0) e.rest.forEach(p => { if (p.d > t && p.v > 0.005) cands.push({e, p, d: p.d, fator: Math.pow(1 + e.i, p.d - t)}); }); });
+    lista.forEach(e => { if (e.i > 0) e.rest.forEach(p => { if (p.v > 0.005) cands.push({e, p, d: p.d, fator: Math.pow(1 + e.i, p.d)}); }); });
     cands.sort(ORDEM[ordem]);
     for (const c of cands) {
       if (disp < 0.01) break;
+      if (c.p.v < 0.005) continue;
       const custo = c.p.v / c.fator;
       if (custo <= disp + 0.005) {
         disp -= custo; reg(c.e, custo, c.p.v, c.p, true); c.p.v = 0;
@@ -379,152 +356,132 @@
         reg(c.e, disp, abate, c.p, false); c.p.v -= abate; disp = 0;
       }
     }
-    lista.forEach(e => e.rest = e.rest.filter(p => p.v > 0.005));
-    return disp;
+    return Math.max(disp, 0);
   }
 
-  function rodar(estrat, cfg) {
-    const lista = EMP.filter(e => cfg.filtro === "todos" || e.consignado)
-      .map(e => ({...e, parcial: PARCIAL.has(e.id), rest: e.futuras.map(f => ({d: f.d, v: e.parcela})),
-                  ultimo: Math.max(...e.futuras.map(f => f.d))}));
-    let sobra = 0, econTot = 0, pagoTot = 0, caixa12 = 0;
-    const linhas = [], comprom = [];
-    for (let t = 1; t <= maxD; t++) {
-      const mes = MESES[t - 1];
-      const base = lista.reduce((s, e) => s + (e.futuras.some(f => f.d === t) ? e.parcela : 0), 0);
-      let devidas = 0;
-      lista.forEach(e => { e.rest.forEach(p => { if (p.d === t) devidas += p.v; }); e.rest = e.rest.filter(p => p.d !== t); });
-      const liberado = (base - devidas) * cfg.reap;
-      if (t <= 12) caixa12 += (base - devidas) * (1 - cfg.reap);
-      const ap = cfg.pontuais[mes] || 0;
-      let disp = sobra + cfg.extra + ap + liberado;
-      const entrada = disp;
-      let pago = 0, econ = 0;
-      const porEmp = {}, acoesQ = [];
-      const reg = (e, custo, nominal, p, inteira) => {
-        pago += custo; econ += nominal - custo;
-        const a = porEmp[e.id] || (porEmp[e.id] = {nome: e.nome, meses: [], parciais: [], custo: 0});
-        a.custo += custo;
-        (inteira ? a.meses : a.parciais).push(inteira ? MESES[p.d - 1] : {mes: MESES[p.d - 1], abate: nominal});
-      };
-      if (estrat === "quitar") {
-        while (true) {
-          const cands = lista.filter(e => e.i > 0 && e.rest.length)
-            .map(e => ({e, custo: e.rest.reduce((s, p) => s + p.v / Math.pow(1 + e.i, p.d - t), 0), nominal: e.rest.reduce((s, p) => s + p.v, 0)}))
-            .sort((a, b) => b.e.i - a.e.i || a.custo - b.custo);
-          const c = cands.find(c => c.custo <= disp + 0.005);
-          if (!c) break;
-          acoesQ.push(`<b>${esc(c.e.nome)}</b>: quitar (${c.e.rest.length} parcelas) por ${brl(c.custo)} — libera ${brl(c.e.parcela)}/mês`);
-          disp -= c.custo; pago += c.custo; econ += c.nominal - c.custo; c.e.rest = [];
-        }
-        // sem dinheiro para quitar inteiro: abate parcial no de maior taxa que aceita
-        const alvo = lista.filter(e => e.i > 0 && e.rest.length && e.parcial).sort((a, b) => b.i - a.i)[0];
-        if (alvo && disp > 0.01) disp = anteciparParcelas([alvo], t, disp, "desconto", reg);
-      } else if (estrat === "equilibrado") {
-        const metade = disp / 2;
-        const resto1 = anteciparParcelas(lista, t, metade, "desconto", reg);
-        disp = anteciparParcelas(lista, t, disp - metade + resto1, "fluxo", reg);
-        if (disp > 0.01) disp = anteciparParcelas(lista, t, disp, "desconto", reg);
-      } else {
-        disp = anteciparParcelas(lista, t, disp, estrat, reg);
+  function rodar(estrat, valor, filtro) {
+    const lista = EMP.filter(e => filtro === "todos" || e.consignado)
+      .map(e => ({...e, parcial: PARCIAL.has(e.id), rest: e.futuras.map(f => ({d: f.d, v: e.parcela}))}));
+    const acoes = {};
+    let pago = 0, econ = 0;
+    const reg = (e, custo, nominal, p, inteira) => {
+      pago += custo; econ += nominal - custo;
+      const a = acoes[e.id] || (acoes[e.id] = {e, meses: [], parciais: [], custo: 0, nominal: 0, quitado: false});
+      a.custo += custo; a.nominal += nominal;
+      if (inteira) a.meses.push(MESES[p.d - 1]); else a.parciais.push({mes: MESES[p.d - 1], abate: nominal});
+    };
+    let disp = valor, quitarInfo = null;
+    if (estrat === "quitar") {
+      const alvo = lista.filter(e => e.i > 0).sort((a, b) => b.i - a.i)[0];
+      if (alvo) quitarInfo = {nome: alvo.nome, custo: alvo.rest.reduce((s, p) => s + p.v / Math.pow(1 + alvo.i, p.d), 0)};
+      const ordem = lista.filter(e => e.i > 0).sort((a, b) => b.i - a.i);
+      for (const e of ordem) {
+        const custo = e.rest.reduce((s, p) => s + p.v / Math.pow(1 + e.i, p.d), 0);
+        if (custo <= disp + 0.005) { e.rest.forEach(p => { reg(e, p.v / Math.pow(1 + e.i, p.d), p.v, p, true); p.v = 0; }); disp -= custo; }
       }
-      const acoes = acoesQ.concat(Object.values(porEmp).map(a => {
-        const partes = [];
-        if (a.meses.length) {
-          const ms = a.meses.sort(), faixas = [];
-          ms.forEach(m => { const f = faixas[faixas.length - 1]; if (f && addMes(f[1], 1) === m) f[1] = m; else faixas.push([m, m]); });
-          const txt = faixas.map(f => f[0] === f[1] ? mesBr(f[0]) : `${mesBr(f[0])} a ${mesBr(f[1])}`).join("; ");
-          partes.push(`${ms.length} parcela${ms.length > 1 ? "s" : ""} (${txt})`);
-        }
-        a.parciais.forEach(p => partes.push(`parte da de ${mesBr(p.mes)} (−${brl(p.abate)})`));
-        return `<b>${esc(a.nome)}</b>: antecipar ${partes.join(" + ")} — ${brl(a.custo)}`;
-      }));
-      sobra = disp; econTot += econ; pagoTot += pago;
-      comprom.push({mes, base, com: devidas});
-      const restantes = lista.some(e => e.rest.length);
-      linhas.push({mes, base, devidas, entrada, ap, acoes, pago, econ, sobra, restantes});
-      if (!restantes) {
-        for (let u = t + 1; u <= maxD; u++) {
-          comprom.push({mes: MESES[u - 1], base: lista.reduce((s, e) => s + (e.futuras.some(f => f.d === u) ? e.parcela : 0), 0), com: 0});
-        }
-        break;
-      }
+      disp = liquidar(lista, disp, "desconto", reg);
+    } else if (estrat === "equilibrado") {
+      const metade = disp / 2;
+      const sobra1 = liquidar(lista, metade, "desconto", reg);
+      disp = liquidar(lista, disp - metade + sobra1, "fluxo", reg);
+      if (disp > 0.01) disp = liquidar(lista, disp, "desconto", reg);
+    } else {
+      disp = liquidar(lista, disp, estrat, reg);
     }
-    const fimBase = lista.length ? MESES[Math.max(...lista.map(e => e.ultimo)) - 1] : null;
-    const ult = [...linhas].reverse().find(l => l.devidas > 0.005 || l.pago > 0.005);
-    const fimSim = ult ? ult.mes : null;
+    Object.values(acoes).forEach(a => a.quitado = a.e.rest.every(p => p.v < 0.005));
+    // cronograma depois de liquidar
+    const linhas = MESES.map((mes, k) => {
+      const d = k + 1;
+      const base = lista.reduce((s, e) => s + (e.futuras.some(f => f.d === d) ? e.parcela : 0), 0);
+      const com = lista.reduce((s, e) => s + e.rest.reduce((x, p) => x + (p.d === d ? p.v : 0), 0), 0);
+      const somem = lista.filter(e => e.futuras.some(f => f.d === d) && !e.rest.some(p => p.d === d && p.v > 0.005)).map(e => e.nome);
+      return {mes, base, com, somem};
+    });
+    const ultBase = [...linhas].reverse().find(l => l.base > 0.005);
+    const ultCom = [...linhas].reverse().find(l => l.com > 0.005);
     const idx = ym => +ym.slice(0, 4) * 12 + +ym.slice(5, 7);
-    const doze = comprom.slice(0, 12);
-    return {linhas, comprom, econTot, pagoTot, fimBase, fimSim,
-            mesesAntes: fimBase && fimSim ? idx(fimBase) - idx(fimSim) : (fimBase ? idx(fimBase) - idx(D.hoje) : 0),
-            prox: comprom[1] || comprom[0] || {base: 0, com: 0}, proxMes: MESES[1] || MESES[0],
-            saida12: linhas.slice(0, 12).reduce((s, l) => s + l.devidas + l.pago, 0) / Math.max(Math.min(linhas.length, 12), 1),
-            caixa12,
-            media12: doze.reduce((s, c) => s + c.com, 0) / Math.max(doze.length, 1),
-            media12base: doze.reduce((s, c) => s + c.base, 0) / Math.max(doze.length, 1),
-            folga12: caixa12};
+    return {acoes: Object.values(acoes), pago, econ, sobra: disp, linhas, quitarInfo,
+            nQuitados: Object.values(acoes).filter(a => a.quitado).length,
+            fimBase: ultBase ? ultBase.mes : null, fimSim: ultCom ? ultCom.mes : null,
+            mesesAntes: ultBase ? (ultCom ? idx(ultBase.mes) - idx(ultCom.mes) : idx(ultBase.mes) - idx(D.hoje)) : 0,
+            prox: linhas[0] || {base: 0, com: 0},
+            caixa12: linhas.slice(0, 12).reduce((s, l) => s + l.base - l.com, 0)};
   }
+
+  const faixasTxt = ms => {
+    const f = [];
+    ms.sort().forEach(m => { const u = f[f.length - 1]; if (u && addMes(u[1], 1) === m) u[1] = m; else f.push([m, m]); });
+    return f.map(x => x[0] === x[1] ? mesBr(x[0]) : `${mesBr(x[0])} a ${mesBr(x[1])}`).join("; ");
+  };
 
   let ultimaSim = null;
   function simular() {
-    const cfg = {
-      extra: num(document.getElementById("s-extra").value),
-      filtro: document.getElementById("s-filtro").value,
-      reap: +document.getElementById("s-reap").value,
-      pontuais: {},
-    };
-    apBox.querySelectorAll(".cg-ap-row").forEach(r => {
-      const [m, v] = r.querySelectorAll("input");
-      if (m.value && num(v.value) > 0) cfg.pontuais[m.value] = (cfg.pontuais[m.value] || 0) + num(v.value);
-    });
+    const valor = num(document.getElementById("s-valor").value);
+    const filtro = document.getElementById("s-filtro").value;
     const estrat = document.querySelector("input[name=estrat]:checked").value;
-    const temExtra = cfg.extra > 0 || Object.keys(cfg.pontuais).length;
-    const R = rodar(estrat, cfg);
+    const R = rodar(estrat, valor, filtro);
+    const tem = valor > 0;
 
     document.getElementById("s-kpis").innerHTML = `
-      <div class="stat"><div class="stat-label">Juros economizados</div><div class="stat-value positive">${brl(R.econTot)}</div>
-        <div class="stat-foot">antecipando ${brl(R.pagoTot)}</div></div>
-      <div class="stat"><div class="stat-label">Fim das parcelas</div><div class="stat-value">${R.fimSim ? mesBr(R.fimSim) : (temExtra ? "—" : "—")}</div>
-        <div class="stat-foot">sem antecipar: ${R.fimBase ? mesBr(R.fimBase) : "—"}${temExtra && R.mesesAntes > 0 ? ` · <b class="cg-ok">${R.mesesAntes} meses antes</b>` : ""}</div></div>
-      <div class="stat"><div class="stat-label">Parcelas em ${R.proxMes ? mesBr(R.proxMes) : "—"}</div><div class="stat-value">${brl(R.prox.com)}</div>
-        <div class="stat-foot">sem antecipar: ${brl(R.prox.base)}</div></div>
-      <div class="stat"><div class="stat-label">Fica no caixa em 12 meses</div><div class="stat-value ${R.folga12 > 0 ? "positive" : ""}">${brl(R.folga12)}</div>
-        <div class="stat-foot">parcelas liberadas que você não reaplica · parcelas em média ${brl(R.media12)}/mês (era ${brl(R.media12base)})</div></div>`;
+      <div class="stat"><div class="stat-label">Desconto (juros economizados)</div><div class="stat-value positive">${brl(R.econ)}</div>
+        <div class="stat-foot">paga ${brl(R.pago)} por ${brl(R.pago + R.econ)} em parcelas</div></div>
+      <div class="stat"><div class="stat-label">Fim das parcelas</div><div class="stat-value">${R.fimSim ? mesBr(R.fimSim) : (tem ? "quitado" : "—")}</div>
+        <div class="stat-foot">sem liquidar: ${R.fimBase ? mesBr(R.fimBase) : "—"}${tem && R.mesesAntes > 0 ? ` · <b class="cg-ok">${R.mesesAntes} meses antes</b>` : ""}</div></div>
+      <div class="stat"><div class="stat-label">Parcelas em ${MESES[0] ? mesBr(MESES[0]) : "—"}</div><div class="stat-value">${brl(R.prox.com)}</div>
+        <div class="stat-foot">sem liquidar: ${brl(R.prox.base)}</div></div>
+      <div class="stat"><div class="stat-label">Fica no caixa em 12 meses</div><div class="stat-value ${R.caixa12 > 0 ? "positive" : ""}">${brl(R.caixa12)}</div>
+        <div class="stat-foot">parcelas que deixam de sair até ${MESES[11] ? mesBr(MESES[11]) : "—"}${R.sobra > 0.01 ? ` · sem uso: ${brl(R.sobra)}` : ""}</div></div>`;
 
-    // comparativo dos objetivos
+    const vazio = (n, txt) => `<tr><td colspan="${n}" class="text-faint">${txt}</td></tr>`;
+    // comparativo
     const tc = document.querySelector("#tbl-comp tbody");
-    if (!temExtra) tc.innerHTML = `<tr><td colspan="6" class="text-faint">Informe um valor extra por mês ou um aporte pontual para comparar.</td></tr>`;
+    if (!tem) tc.innerHTML = vazio(6, "Informe o valor disponível hoje para comparar os objetivos.");
     else {
-      const res = Object.keys(ROTULO).map(k => ({k, r: k === estrat ? R : rodar(k, {...cfg, reap: REAP_PADRAO[k]}), reap: k === estrat ? cfg.reap : REAP_PADRAO[k]}));
-      const melhor = (f, maior) => res.reduce((m, x) => (maior ? f(x.r) > f(m.r) : f(x.r) < f(m.r)) ? x : m).k;
-      const bE = melhor(r => r.econTot, true), bF = melhor(r => r.folga12, true), bP = melhor(r => r.media12, false);
-      const idx = ym => ym ? +ym.slice(0, 4) * 12 + +ym.slice(5, 7) : 1e9;
-      const bT = melhor(r => idx(r.fimSim), false);
-      const tag = (k, b) => k === b ? ' <span class="cg-tag">melhor</span>' : "";
-      tc.innerHTML = res.map(({k, r, reap}) => `<tr class="${k === estrat ? "cg-hl" : ""}" style="cursor:pointer" data-k="${k}">
+      const res = Object.keys(ROTULO).map(k => ({k, r: k === estrat ? R : rodar(k, valor, filtro)}));
+      const idx = ym => ym ? +ym.slice(0, 4) * 12 + +ym.slice(5, 7) : 0;
+      const melhor = (f, maior) => res.reduce((m, x) => (maior ? f(x.r) > f(m.r) + 0.005 : f(x.r) < f(m.r) - 0.005) ? x : m).k;
+      const bE = melhor(r => r.econ, true), bT = melhor(r => idx(r.fimSim), false),
+            bP = melhor(r => r.prox.com, false), bC = melhor(r => r.caixa12, true);
+      const tag = (k, b) => k === b ? '<span class="cg-tag">melhor</span>' : "";
+      tc.innerHTML = res.map(({k, r}) => `<tr class="${k === estrat ? "cg-hl" : ""}" style="cursor:pointer" data-k="${k}">
         <td><b>${ROTULO[k]}</b>${k === estrat ? ' <span class="text-faint text-small">(escolhido)</span>' : ""}
-          <br><span class="text-faint text-small">reaplica ${Math.round(reap * 100)}% do que libera</span></td>
-        <td class="num cg-ok">${brl(r.econTot)}${tag(k, bE)}</td>
-        <td class="num">${r.fimSim ? mesBr(r.fimSim) : "—"}${tag(k, bT)}</td>
-        <td class="num">${brl(r.media12)}${tag(k, bP)}</td>
-        <td class="num">${brl(r.saida12)}</td>
-        <td class="num">${brl(r.folga12)}${tag(k, bF)}</td></tr>`).join("");
+          ${k === "quitar" && !r.nQuitados && r.quitarInfo ? `<br><span class="text-faint text-small">nenhum coube: quitar ${esc(r.quitarInfo.nome)} custa ${brl(r.quitarInfo.custo)}</span>` : ""}</td>
+        <td class="num cg-ok">${brl(r.econ)}${tag(k, bE)}</td>
+        <td class="num">${r.fimSim ? mesBr(r.fimSim) : "quitado"}${tag(k, bT)}</td>
+        <td class="num">${brl(r.prox.com)}${tag(k, bP)}</td>
+        <td class="num">${brl(r.caixa12)}${tag(k, bC)}</td>
+        <td class="num ${r.sobra > 0.01 ? "cg-warn" : "text-faint"}">${brl(r.sobra)}</td></tr>`).join("");
       tc.querySelectorAll("tr[data-k]").forEach(tr => tr.onclick = () => {
         document.querySelector(`input[name=estrat][value=${tr.dataset.k}]`).checked = true; simular();
       });
     }
 
+    // o que liquidar hoje
+    const ta = document.querySelector("#tbl-acoes tbody");
+    ta.innerHTML = !tem ? vazio(5, "Informe o valor disponível hoje.")
+      : !R.acoes.length ? vazio(5, "O valor não cobre nenhuma parcela inteira (e nenhum empréstimo marcado aceita liquidação parcial).")
+      : R.acoes.map(a => {
+          const partes = [];
+          if (a.quitado) partes.push(`<b class="cg-ok">quitar o empréstimo</b> (${a.meses.length} parcelas)`);
+          else if (a.meses.length) partes.push(`${a.meses.length} parcela${a.meses.length > 1 ? "s" : ""}: ${faixasTxt(a.meses)}`);
+          a.parciais.forEach(p => partes.push(`parte da parcela de ${mesBr(p.mes)} (abate ${brl(p.abate)} dos ${brl(a.e.parcela)})`));
+          return `<tr><td>${esc(a.e.nome)}${a.e.consignado ? '<span class="cg-tag">consignado</span>' : ""}<br><span class="text-faint text-small">${a.e.taxa.toFixed(2).replace(".", ",")}% a.m.</span></td>
+            <td class="cg-acao">${partes.join("<br>")}</td><td class="num">${brl(a.nominal)}</td>
+            <td class="num"><b>${brl(a.custo)}</b></td><td class="num cg-ok">${brl(a.nominal - a.custo)}</td></tr>`;
+        }).join("") + `<tr><td><b>Total</b></td><td class="text-faint text-small">${R.sobra > 0.01 ? "sem uso: " + brl(R.sobra) : ""}</td>
+            <td class="num">${brl(R.pago + R.econ)}</td><td class="num"><b>${brl(R.pago)}</b></td><td class="num cg-ok"><b>${brl(R.econ)}</b></td></tr>`;
+
+    // como ficam as parcelas
     const tb = document.querySelector("#tbl-sim tbody");
-    tb.innerHTML = !temExtra ? `<tr><td colspan="7" class="text-faint">Informe um valor extra por mês ou um aporte pontual para simular.</td></tr>`
-      : R.linhas.map((l, idx) => `<tr class="${l.acoes.length ? "cg-hl" : ""}${!l.restantes ? " cg-quit" : ""}${idx > 11 && l.restantes ? " cg-mais" : ""}">
-        <td>${mesBr(l.mes)}${l.ap ? `<br><span class="text-faint text-small">+ aporte ${brl(l.ap)}</span>` : ""}</td>
-        <td class="num">${brl(l.base)} → <b>${brl(l.devidas)}</b></td>
-        <td class="num">${brl(l.entrada)}</td>
-        <td class="cg-acao">${l.acoes.join("<br>") || '<span class="text-faint">acumular</span>'}${!l.restantes ? '<br><b class="cg-ok">✓ tudo quitado</b>' : ""}</td>
-        <td class="num">${l.pago ? brl(l.pago) : "—"}</td>
-        <td class="num cg-ok">${l.econ ? brl(l.econ) : "—"}</td>
-        <td class="num">${brl(l.sobra)}</td></tr>`).join("");
-    ultimaSim = temExtra ? R.comprom : null;
+    tb.innerHTML = !tem ? vazio(5, "Informe o valor disponível hoje.")
+      : R.linhas.filter(l => l.base > 0.005).map((l, k) => {
+          const muda = l.base - l.com > 0.005;
+          return `<tr class="${muda ? "cg-hl" : ""}${k > 11 ? " cg-mais" : ""}"><td>${mesBr(l.mes)}</td>
+            <td class="num">${brl(l.base)}</td><td class="num"><b>${brl(l.com)}</b></td>
+            <td class="num ${muda ? "cg-ok" : "text-faint"}">${muda ? brl(l.base - l.com) : "—"}</td>
+            <td class="text-small text-dim">${l.somem.map(esc).join(", ") || ""}</td></tr>`;
+        }).join("");
+    ultimaSim = tem ? R.linhas : null;
     botaoMais("tbl-sim");
     desenharGrafico();
   }
