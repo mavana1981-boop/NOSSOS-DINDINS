@@ -35,6 +35,7 @@
   .cg-estrat:has(input:checked) { border-color:var(--accent); background:var(--accent-glow); }
   .cg-chip input { display:none; }
   #tbl-comp th { white-space:normal; }
+  #tbl-acoes td.cg-acao { min-width:240px; }
   #tbl-comp td:first-child { min-width:200px; }
   #tbl-comp td .cg-tag { margin-left:4px; }
   .cg-ok { color:var(--green); } .cg-warn { color:var(--gold); }
@@ -198,11 +199,16 @@
       <label class="cg-estrat"><input type="radio" name="estrat" value="fluxo">
         <b>Maior fluxo de caixa</b><span>Liquida as parcelas dos próximos meses: some o desconto em folha/conta logo. Desconto menor.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="equilibrado">
-        <b>Equilibrado</b><span>Metade do valor vai para o maior desconto e metade para liberar as próximas parcelas.</span></label>
+        <b>Equilibrado</b><span>Parte do valor busca o maior desconto e parte alivia as parcelas ao longo dos próximos 12 meses, sempre no mês mais pesado (não só nos primeiros).</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="quitar">
         <b>Quitar inteiros</b><span>Quita de uma vez o(s) empréstimo(s) de maior taxa que couberem no valor; o que sobrar vai para o maior desconto.</span></label>
       <label class="cg-estrat"><input type="radio" name="estrat" value="escolher">
         <b>Escolher empréstimo</b><span>Concentra todo o valor no empréstimo que você escolher. Se der para quitá-lo e sobrar, a sobra vai para os outros.</span></label>
+    </div>
+    <div class="mt-2" id="box-equilibrio" style="display:none;">
+      <label class="form-label">Peso: desconto × alívio no ano — <span id="s-peso-txt"></span></label>
+      <input type="range" id="s-peso" min="0" max="100" step="10" value="50" style="width:100%;max-width:420px;accent-color:var(--accent);">
+      <div class="text-faint text-small" style="max-width:420px;display:flex;justify-content:space-between;"><span>só desconto</span><span>só alívio no ano</span></div>
     </div>
     <div class="cg-sim-in mt-2" id="box-escolher" style="display:none;">
       <div class="form-group mb-0">
@@ -237,7 +243,8 @@
 
   <h4 class="mt-3 mb-1">O que liquidar hoje</h4>
   <div class="table-wrap"><table class="tbl" id="tbl-acoes">
-    <thead><tr><th>Empréstimo</th><th>Parcelas</th><th class="num">Soma das parcelas</th><th class="num">Paga hoje</th><th class="num">Desconto</th></tr></thead>
+    <thead><tr><th>Empréstimo</th><th>O que liquidar</th><th class="num">Parcelas restantes</th><th class="num">Saldo devedor</th>
+      <th class="num">Abatimento</th><th class="num">Paga hoje</th><th class="num">Desconto</th></tr></thead>
     <tbody></tbody>
   </table></div>
 
@@ -334,7 +341,7 @@
   }
 
   // ── Simulador: valor único disponível hoje
-  ["s-valor", "s-filtro", "s-alvo", "s-alvo-ordem"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
+  ["s-valor", "s-filtro", "s-alvo", "s-alvo-ordem", "s-peso"].forEach(id => { const x = document.getElementById(id); x.addEventListener("input", simular); x.addEventListener("change", simular); });
   document.querySelectorAll("input[name=estrat]").forEach(r => r.addEventListener("change", simular));
   const boxEscolher = document.getElementById("box-escolher");
 
@@ -377,6 +384,27 @@
     return Math.max(disp, 0);
   }
 
+  // Alívio distribuído no ano: a cada passo reduz o mês (dos próximos 12) com a maior parcela total
+  // e, dentro dele, liquida a parcela de maior desconto (empate: maior juros).
+  function nivelarAno(lista, disp, reg) {
+    const bloqueadas = new Set();
+    while (disp > 0.01) {
+      const carga = {};
+      lista.forEach(e => e.rest.forEach(p => { if (p.d <= 12) carga[p.d] = (carga[p.d] || 0) + p.v; }));
+      const cands = [];
+      lista.forEach(e => { if (e.i > 0) e.rest.forEach(p => {
+        if (p.d <= 12 && p.v > 0.005 && !bloqueadas.has(p)) cands.push({e, p, fator: Math.pow(1 + e.i, p.d)});
+      }); });
+      if (!cands.length) break;
+      cands.sort((a, b) => carga[b.p.d] - carga[a.p.d] || b.fator - a.fator);
+      const c = cands[0], custo = c.p.v / c.fator;
+      if (custo <= disp + 0.005) { disp -= custo; reg(c.e, custo, c.p.v, c.p, true); c.p.v = 0; }
+      else if (c.e.parcial) { const abate = disp * c.fator; reg(c.e, disp, abate, c.p, false); c.p.v -= abate; disp = 0; }
+      else bloqueadas.add(c.p);   // não cabe inteira e o banco não aceita parcial: tenta a próxima
+    }
+    return Math.max(disp, 0);
+  }
+
   function rodar(estrat, valor, filtro) {
     const lista = EMP.filter(e => filtro === "todos" || e.consignado)
       .map(e => ({...e, parcial: PARCIAL.has(e.id), rest: e.futuras.map(f => ({d: f.d, v: e.parcela}))}));
@@ -406,10 +434,11 @@
       const quitou = alvo.length && alvo[0].rest.every(p => p.v < 0.005);
       if (quitou && disp > 0.01) disp = liquidar(lista.filter(e => e.id !== alvoId), disp, ordemAlvo, reg);
     } else if (estrat === "equilibrado") {
-      const metade = disp / 2;
-      const sobra1 = liquidar(lista, metade, "desconto", reg);
-      disp = liquidar(lista, disp - metade + sobra1, "fluxo", reg);
-      if (disp > 0.01) disp = liquidar(lista, disp, "desconto", reg);
+      const peso = +document.getElementById("s-peso").value / 100;   // fração para o alívio no ano
+      const parteFluxo = disp * peso;
+      const sobraF = nivelarAno(lista, parteFluxo, reg);
+      disp = liquidar(lista, disp - parteFluxo + sobraF, "desconto", reg);
+      if (disp > 0.01) disp = nivelarAno(lista, disp, reg);
     } else {
       disp = liquidar(lista, disp, estrat, reg);
     }
@@ -425,7 +454,17 @@
     const ultBase = [...linhas].reverse().find(l => l.base > 0.005);
     const ultCom = [...linhas].reverse().find(l => l.com > 0.005);
     const idx = ym => +ym.slice(0, 4) * 12 + +ym.slice(5, 7);
-    return {acoes: Object.values(acoes), pago, econ, sobra: disp, linhas, quitarInfo,
+    // situação de cada empréstimo antes × depois
+    const situacao = lista.map(e => {
+      const pvp = (v, d) => e.i > 0 ? v / Math.pow(1 + e.i, d) : v;
+      const vivas = e.rest.filter(p => p.v > 0.005);
+      return {e, acao: acoes[e.id] || null,
+              nAntes: e.futuras.length, nDepois: vivas.length,
+              parcialRest: vivas.filter(p => p.v < e.parcela - 0.005).length,
+              saldoAntes: e.futuras.reduce((s, f) => s + pvp(e.parcela, f.d), 0),
+              saldoDepois: vivas.reduce((s, p) => s + pvp(p.v, p.d), 0)};
+    });
+    return {acoes: Object.values(acoes), situacao, pago, econ, sobra: disp, linhas, quitarInfo,
             nQuitados: Object.values(acoes).filter(a => a.quitado).length,
             fimBase: ultBase ? ultBase.mes : null, fimSim: ultCom ? ultCom.mes : null,
             mesesAntes: ultBase ? (ultCom ? idx(ultBase.mes) - idx(ultCom.mes) : idx(ultBase.mes) - idx(D.hoje)) : 0,
@@ -445,6 +484,9 @@
     const filtro = document.getElementById("s-filtro").value;
     const estrat = document.querySelector("input[name=estrat]:checked").value;
     boxEscolher.style.display = estrat === "escolher" ? "" : "none";
+    document.getElementById("box-equilibrio").style.display = estrat === "equilibrado" ? "" : "none";
+    const pesoV = +document.getElementById("s-peso").value;
+    document.getElementById("s-peso-txt").textContent = `${100 - pesoV}% desconto · ${pesoV}% alívio no ano`;
     const R = rodar(estrat, valor, filtro);
     const tem = valor > 0;
 
@@ -485,18 +527,31 @@
 
     // o que liquidar hoje
     const ta = document.querySelector("#tbl-acoes tbody");
-    ta.innerHTML = !tem ? vazio(5, "Informe o valor disponível hoje.")
-      : !R.acoes.length ? vazio(5, "O valor não cobre nenhuma parcela inteira (e nenhum empréstimo marcado aceita liquidação parcial).")
-      : R.acoes.map(a => {
-          const partes = [];
-          if (a.quitado) partes.push(`<b class="cg-ok">quitar o empréstimo</b> (${a.meses.length} parcelas)`);
-          else if (a.meses.length) partes.push(`${a.meses.length} parcela${a.meses.length > 1 ? "s" : ""}: ${faixasTxt(a.meses)}`);
-          a.parciais.forEach(p => partes.push(`parte da parcela de ${mesBr(p.mes)} (abate ${brl(p.abate)} dos ${brl(a.e.parcela)})`));
-          return `<tr><td>${esc(a.e.nome)}${a.e.consignado ? '<span class="cg-tag">consignado</span>' : ""}<br><span class="text-faint text-small">${a.e.taxa.toFixed(2).replace(".", ",")}% a.m.</span></td>
-            <td class="cg-acao">${partes.join("<br>")}</td><td class="num">${brl(a.nominal)}</td>
-            <td class="num"><b>${brl(a.custo)}</b></td><td class="num cg-ok">${brl(a.nominal - a.custo)}</td></tr>`;
-        }).join("") + `<tr><td><b>Total</b></td><td class="text-faint text-small">${R.sobra > 0.01 ? "sem uso: " + brl(R.sobra) : ""}</td>
-            <td class="num">${brl(R.pago + R.econ)}</td><td class="num"><b>${brl(R.pago)}</b></td><td class="num cg-ok"><b>${brl(R.econ)}</b></td></tr>`;
+    const pct = (x, y) => y > 0 ? (x / y * 100).toFixed(1).replace(".", ",") + "%" : "—";
+    const tot = R.situacao.reduce((t, x) => ({nA: t.nA + x.nAntes, nD: t.nD + x.nDepois, sA: t.sA + x.saldoAntes, sD: t.sD + x.saldoDepois}),
+                                   {nA: 0, nD: 0, sA: 0, sD: 0});
+    ta.innerHTML = !tem ? vazio(7, "Informe o valor disponível hoje.")
+      : (!R.acoes.length ? vazio(7, "O valor não cobre nenhuma parcela inteira (e nenhum empréstimo marcado aceita liquidação parcial).") : "")
+      + R.situacao.map(x => {
+          const a = x.acao, partes = [];
+          if (a) {
+            if (a.quitado) partes.push(`<b class="cg-ok">quitar o empréstimo</b> (${a.meses.length} parcelas)`);
+            else if (a.meses.length) partes.push(`${a.meses.length} parcela${a.meses.length > 1 ? "s" : ""}: ${faixasTxt(a.meses)}`);
+            a.parciais.forEach(p => partes.push(`parte da parcela de ${mesBr(p.mes)} (abate ${brl(p.abate)} dos ${brl(x.e.parcela)})`));
+          }
+          const abat = x.saldoAntes - x.saldoDepois;
+          return `<tr class="${a ? "" : "text-faint"}"><td>${esc(x.e.nome)}${x.e.consignado ? '<span class="cg-tag">consignado</span>' : ""}<br><span class="text-faint text-small">${x.e.taxa.toFixed(2).replace(".", ",")}% a.m.</span></td>
+            <td class="cg-acao">${partes.join("<br>") || '<span class="text-faint">não mexe</span>'}</td>
+            <td class="num">${x.nAntes} → <b>${x.nDepois}</b>${x.parcialRest ? `<br><span class="text-faint text-small">${x.parcialRest} com valor reduzido</span>` : ""}</td>
+            <td class="num">${brl(x.saldoAntes)} → <b>${brl(x.saldoDepois)}</b></td>
+            <td class="num ${abat > 0.005 ? "cg-ok" : ""}"><b>${a ? pct(abat, x.saldoAntes) : "0%"}</b></td>
+            <td class="num">${a ? "<b>" + brl(a.custo) + "</b>" : "—"}</td>
+            <td class="num cg-ok">${a ? brl(a.nominal - a.custo) : "—"}</td></tr>`;
+        }).join("")
+      + `<tr><td><b>Total</b>${R.sobra > 0.01 ? `<br><span class="text-faint text-small">sem uso: ${brl(R.sobra)}</span>` : ""}</td><td></td>
+            <td class="num">${tot.nA} → <b>${tot.nD}</b></td><td class="num">${brl(tot.sA)} → <b>${brl(tot.sD)}</b></td>
+            <td class="num cg-ok"><b>${pct(tot.sA - tot.sD, tot.sA)}</b></td>
+            <td class="num"><b>${brl(R.pago)}</b></td><td class="num cg-ok"><b>${brl(R.econ)}</b></td></tr>`;
 
     // como ficam as parcelas
     const tb = document.querySelector("#tbl-sim tbody");
