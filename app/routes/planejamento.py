@@ -257,3 +257,38 @@ def importar_gastos():
     flash(f"{n} empréstimo(s) importado(s) de Gastos." if n else "Nenhum gasto selecionado.",
           "success" if n else "warning")
     return redirect(url_for("planejamento.dividas"))
+
+
+# ── Consignados / empréstimos: painel + simulação de liquidação ─────
+@planejamento_bp.route("/consignados")
+@login_required
+def consignados():
+    from app import consignados as cg
+    p = _perfil()
+    dados = cg.dados_painel(current_user.id)
+    return render_template("planejamento/consignados.html", d=dados, perfil=p,
+                           mes_br=pia._mes_br)
+
+
+@planejamento_bp.route("/consignados/taxa", methods=["POST"])
+@login_required
+def consignados_taxa():
+    """Guarda a taxa (% a.m.) do empréstimo na Dívida ligada ao gasto (cria se não existir)."""
+    from app.models import Expense
+    e = db.session.get(Expense, _int(request.form.get("expense_id")))
+    if not e or e.payer_id != current_user.id:
+        abort(404)
+    taxa = _dec(request.form.get("taxa"))
+    if taxa is None or taxa < 0 or taxa > 30:
+        flash("Informe a taxa em % ao mês (ex.: 1,85).", "warning")
+        return redirect(url_for("planejamento.consignados"))
+    d = Divida.query.filter_by(user_id=current_user.id, expense_id=e.id).first()
+    if not d:
+        d = Divida(user_id=current_user.id, nome=e.description[:120], expense_id=e.id,
+                   saldo=0, pagamento_minimo=0, saldo_manual=e.recurrence_months is None)
+        db.session.add(d)
+    d.taxa_mensal = taxa
+    db.session.commit()
+    pia.sincronizar_dividas_de_gastos(current_user.id)
+    flash(f"Taxa de {e.description} salva: {str(taxa).replace('.', ',')}% a.m.", "success")
+    return redirect(url_for("planejamento.consignados") + f"#emp-{e.id}")

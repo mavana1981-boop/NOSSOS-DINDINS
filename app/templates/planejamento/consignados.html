@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+{% block title %}Consignados{% endblock %}
+{% block content %}
+{% include "planejamento/_estilo.html" %}
+<style>
+  .cg-chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .cg-chip { border:1px solid var(--border-strong); background:transparent; color:var(--text-dim); border-radius:999px;
+             padding:4px 12px; font-size:.8rem; cursor:pointer; }
+  .cg-chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .cg-tag { display:inline-block; font-size:.68rem; padding:1px 7px; border-radius:999px; background:rgba(201,168,104,.18);
+            color:var(--gold); margin-left:6px; vertical-align:middle; text-transform:uppercase; letter-spacing:.05em; }
+  .cg-bar { height:6px; background:var(--bg-elev); border-radius:4px; overflow:hidden; margin-top:5px; min-width:90px; }
+  .cg-bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--accent),var(--gold)); }
+  .cg-taxa { display:flex; gap:6px; align-items:center; }
+  .cg-taxa input { max-width:86px; padding:4px 8px; }
+  .cg-calc { font-size:.75rem; color:var(--text-faint); cursor:pointer; text-decoration:underline dotted; background:none; border:0; padding:0; }
+  .cg-calc-box { display:none; margin-top:6px; gap:6px; align-items:center; flex-wrap:wrap; font-size:.78rem; }
+  .cg-calc-box.on { display:flex; }
+  .cg-calc-box input { max-width:120px; padding:4px 8px; }
+  .cg-chart { width:100%; overflow-x:auto; }
+  .cg-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.78rem; color:var(--text-dim); margin-top:8px; }
+  .cg-legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px;
+                            background:var(--c); vertical-align:-1px; }
+  .cg-sim-in { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; align-items:end; }
+  .cg-ap-row { display:flex; gap:6px; margin-bottom:6px; }
+  .cg-ap-row input { padding:4px 8px; }
+  .cg-acao { font-size:.78rem; line-height:1.35; color:var(--text-dim); }
+  .cg-acao b { color:var(--text); font-weight:600; }
+  .tbl tr.cg-quit td { background:rgba(126,166,107,.08); }
+  .tbl tr.cg-hl td { background:rgba(217,119,87,.08); }
+  .cg-ok { color:var(--green); } .cg-warn { color:var(--gold); }
+</style>
+
+<div class="page-header">
+  <div class="page-title-wrap">
+    <h1>🏦 Consignados e empréstimos</h1>
+    <p>Todos os empréstimos lançados em <strong>Gastos</strong>: parcelas que faltam, saldo devedor pela taxa de cada um e
+      simulação de liquidação/antecipação mês a mês.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('planejamento.dividas') }}">Dívidas →</a>
+</div>
+
+{% set k = d.kpi %}
+{% if not d.lista %}
+<div class="card empty-state">
+  <p>Nenhum empréstimo encontrado. Lance o empréstimo em <a href="{{ url_for('expenses.list_expenses') }}">Gastos</a>
+    como <strong>recorrente com número de parcelas</strong> e com “consignado” ou “empréstimo” na descrição.</p>
+</div>
+{% else %}
+
+<div class="grid grid-4 mb-3">
+  <div class="stat">
+    <div class="stat-label">Parcelas deste mês</div>
+    <div class="stat-value">{{ k.mensal|brl }}</div>
+    <div class="stat-foot">{{ k.mensal_consig|brl }} em consignados · {{ k.n }} empréstimo(s)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Falta pagar (soma das parcelas)</div>
+    <div class="stat-value">{{ k.nominal|brl }}</div>
+    <div class="stat-foot">do mês que vem em diante</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Para quitar tudo hoje</div>
+    <div class="stat-value">{{ k.saldo|brl }}</div>
+    <div class="stat-foot">desconto dos juros: <strong class="cg-ok">{{ k.juros_a_vencer|brl }}</strong></div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Última parcela</div>
+    <div class="stat-value">{{ mes_br(k.fim) if k.fim else '—' }}</div>
+    <div class="stat-foot">sem antecipar nada</div>
+  </div>
+</div>
+
+{% if k.sem_taxa %}
+<div class="alert alert-warning mb-3">
+  {{ k.sem_taxa }} empréstimo(s) sem taxa de juros. Sem a taxa o app não calcula desconto de quitação nem antecipação.
+  Informe a <strong>taxa de juros mensal do contrato</strong> (está no contrato/extrato do consignado), ou use
+  “calcular pelo valor liberado”.
+</div>
+{% endif %}
+
+<!-- Gráfico: comprometimento mensal -->
+<div class="card mb-3">
+  <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+    <h3 style="margin:0;">Parcelas por mês até o fim</h3>
+    <div class="cg-chips" id="filtro-chart">
+      <button class="cg-chip on" data-f="todos">Todos</button>
+      <button class="cg-chip" data-f="consig">Só consignados</button>
+    </div>
+  </div>
+  <p class="text-dim text-small mb-1">Quanto sai por mês em empréstimos e quando cada um termina. A linha tracejada mostra o resultado da simulação abaixo.</p>
+  <div class="cg-chart" id="chart"></div>
+  <div class="cg-legend" id="legend"></div>
+</div>
+
+<!-- Tabela de empréstimos -->
+<div class="card mb-3">
+  <h3 style="margin-top:0;">Empréstimos</h3>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr>
+      <th>Empréstimo</th><th class="num">Parcela</th><th>Pagas</th><th class="num">Faltam</th><th>Termina</th>
+      <th>Juros % a.m.</th><th class="num">Quitar hoje</th><th class="num">Desconto</th>
+    </tr></thead>
+    <tbody>
+    {% for x in d.lista %}
+      <tr id="emp-{{ x.id }}" class="linha-emp" data-consig="{{ 1 if x.consignado else 0 }}">
+        <td>{{ x.nome }}{% if x.consignado %}<span class="cg-tag">consignado</span>{% endif %}
+          <br><span class="text-faint text-small">{{ x.categoria }}{% if x.total %} · {{ x.total }}x desde {{ mes_br(x.inicio) }}{% endif %}</span></td>
+        <td class="num">{{ x.parcela|brl }}</td>
+        <td>
+          {% if x.sem_prazo %}<span class="text-faint text-small">sem prazo</span>
+          {% else %}
+            <span class="text-small">{{ x.atual or x.pagas }}/{{ x.total }}{% if x.atual %} <span class="text-faint">(esta: {{ x.atual }}ª)</span>{% endif %}</span>
+            <div class="cg-bar"><i style="width:{{ ((x.atual or x.pagas) / x.total * 100)|round(0) }}%"></i></div>
+          {% endif %}
+        </td>
+        <td class="num">{{ x.futuras|length if not x.sem_prazo else '—' }}</td>
+        <td>{{ mes_br(x.fim) if x.fim else '—' }}</td>
+        <td>
+          <form class="cg-taxa" method="POST" action="{{ url_for('planejamento.consignados_taxa') }}">
+            <input type="hidden" name="expense_id" value="{{ x.id }}">
+            <input class="form-control" name="taxa" inputmode="decimal" placeholder="Ex.: 1,85"
+                   value="{{ ('%.2f'|format(x.taxa))|replace('.', ',') if x.taxa else '' }}">
+            <button class="btn btn-ghost btn-sm" type="submit">Salvar</button>
+          </form>
+          {% if not x.sem_prazo and x.total %}
+          <button type="button" class="cg-calc" data-calc="{{ x.id }}">calcular pelo valor liberado</button>
+          <div class="cg-calc-box" id="calc-{{ x.id }}" data-parcela="{{ x.parcela }}" data-n="{{ x.total }}">
+            <input class="form-control" placeholder="Valor liberado R$" inputmode="decimal">
+            <button type="button" class="btn btn-ghost btn-sm">Calcular</button>
+            <span class="text-faint"></span>
+          </div>
+          {% endif %}
+        </td>
+        <td class="num">{{ x.saldo_hoje|brl if x.saldo_hoje is not none else '—' }}</td>
+        <td class="num {{ 'cg-ok' if x.taxa else 'text-faint' }}">
+          {% if x.nominal_restante is not none %}{{ (x.nominal_restante - x.saldo_hoje)|brl }}{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="text-faint text-small mt-2 mb-0">“Quitar hoje” = valor presente das parcelas que faltam (a deste mês já conta como paga),
+    descontados os juros pela taxa do contrato — é o desconto proporcional que o banco é obrigado a dar na quitação/antecipação.
+    O valor do boleto pode variar alguns reais por IOF/dias corridos. A taxa salva aqui também vale na tela Dívidas.</p>
+</div>
+
+<!-- Quitar em cada mês -->
+<div class="card mb-3">
+  <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+    <h3 style="margin:0;">Quanto custa quitar em cada mês</h3>
+    <select class="form-control" id="sel-quit" style="max-width:320px;">
+      <option value="todos">Todos os empréstimos (somados)</option>
+      <option value="consig">Só consignados (somados)</option>
+      {% for x in d.lista if not x.sem_prazo %}<option value="{{ x.id }}">{{ x.nome }}</option>{% endfor %}
+    </select>
+  </div>
+  <p class="text-dim text-small">Se você quitar no mês indicado (depois de pagar a parcela daquele mês), quanto precisa e quanto economiza em relação a pagar até o fim.</p>
+  <div class="table-wrap"><table class="tbl" id="tbl-quit">
+    <thead><tr><th>Quitar em</th><th class="num">Parcelas que somem</th><th class="num">Soma dessas parcelas</th>
+      <th class="num">Valor para quitar</th><th class="num">Economia</th><th class="num">Desconto</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</div>
+
+<!-- Simulador mês a mês -->
+<div class="card mb-3">
+  <h3 style="margin-top:0;">Simulação de liquidação mês a mês</h3>
+  <p class="text-dim text-small">Diga quanto pode colocar e o app decide, mês a mês, o que antecipar para economizar mais juros.</p>
+  <div class="cg-sim-in">
+    <div class="form-group mb-0">
+      <label class="form-label">Valor extra por mês (R$)</label>
+      <input class="form-control" id="s-extra" inputmode="decimal" value="{{ ('%.2f'|format(perfil.pagamento_extra or 0))|replace('.', ',') }}">
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Como usar o dinheiro</label>
+      <select class="form-control" id="s-modo">
+        <option value="parcelas">Antecipar parcelas do fim (maior juros primeiro)</option>
+        <option value="quitar">Quitar empréstimos inteiros (maior taxa primeiro)</option>
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-label">Quais empréstimos</label>
+      <select class="form-control" id="s-filtro">
+        <option value="todos">Todos</option>
+        <option value="consig">Só consignados</option>
+      </select>
+    </div>
+    <div class="form-group mb-0">
+      <label class="form-check"><input type="checkbox" id="s-bola" checked> Reaplicar as parcelas que forem sumindo (bola de neve)</label>
+    </div>
+  </div>
+  <div class="mt-3">
+    <label class="form-label">Aportes pontuais (13º, férias, restituição…)</label>
+    <div id="aportes"></div>
+    <button type="button" class="btn btn-ghost btn-sm" id="add-ap">+ Aporte</button>
+    {% if d.eventuais %}<button type="button" class="btn btn-ghost btn-sm" id="usar-ev">Usar as verbas eventuais cadastradas</button>{% endif %}
+  </div>
+
+  <div class="grid grid-4 mt-3" id="s-kpis"></div>
+  <div class="table-wrap mt-3"><table class="tbl" id="tbl-sim">
+    <thead><tr><th>Mês</th><th class="num">Parcelas (sem → com)</th><th class="num">Dinheiro p/ antecipar</th>
+      <th>O que fazer</th><th class="num">Paga</th><th class="num">Economia</th><th class="num">Sobra p/ próximo</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <p class="text-faint text-small mt-2 mb-0">Na antecipação de parcelas o banco abate sempre das últimas para as primeiras — por isso a parcela mensal
+    não cai na hora: o empréstimo termina antes. Para reduzir o desconto em folha já no mês seguinte, use “Quitar empréstimos inteiros”.
+    Empréstimos sem taxa ficam de fora (sem juros não há desconto).</p>
+</div>
+{% endif %}
+
+<script id="cg-dados" type="application/json">{{ d.json|safe }}</script>
+<script>
+(function () {
+  const el = document.getElementById("cg-dados");
+  if (!el) return;
+  const D = JSON.parse(el.textContent);
+  const EMP = D.emprestimos.map(e => ({...e, i: (e.taxa || 0) / 100}));
+  const NOMES = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+  const mesBr = ym => NOMES[+ym.slice(5, 7) - 1] + "/" + ym.slice(0, 4);
+  const addMes = (ym, n) => { let t = +ym.slice(0,4) * 12 + (+ym.slice(5,7) - 1) + n; return `${Math.floor(t/12)}-${String(t%12+1).padStart(2,"0")}`; };
+  const brl = v => (v || 0).toLocaleString("pt-BR", {style: "currency", currency: "BRL"});
+  const num = s => { s = String(s || "").replace(/[R$\s]/g, ""); if (s.includes(",")) s = s.replace(/\./g, "").replace(",", "."); const v = parseFloat(s); return isNaN(v) ? 0 : v; };
+  const pv = (P, i, n) => i > 0 ? P / Math.pow(1 + i, n) : P;
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const CORES = ["#d97757","#c9a868","#7ea66b","#6b8db5","#b07aa1","#5fa8a0","#c4654a","#9c8d6e","#8aa1c4","#a3b86b"];
+  EMP.forEach((e, k) => e.cor = CORES[k % CORES.length]);
+  const maxD = Math.max(0, ...EMP.flatMap(e => e.futuras.map(f => f.d)));
+  const MESES = Array.from({length: maxD}, (_, k) => addMes(D.hoje, k + 1));   // d = 1..maxD
+
+  // ── Filtro da tabela / gráfico
+  let filtroChart = "todos";
+  document.querySelectorAll("#filtro-chart .cg-chip").forEach(b => b.onclick = () => {
+    document.querySelectorAll("#filtro-chart .cg-chip").forEach(x => x.classList.toggle("on", x === b));
+    filtroChart = b.dataset.f;
+    document.querySelectorAll(".linha-emp").forEach(tr => tr.style.display = (filtroChart === "consig" && tr.dataset.consig !== "1") ? "none" : "");
+    desenharGrafico(); simular();
+  });
+
+  // ── Calcular taxa a partir do valor liberado (Tabela Price)
+  document.querySelectorAll(".cg-calc").forEach(b => b.onclick = () => document.getElementById("calc-" + b.dataset.calc).classList.toggle("on"));
+  document.querySelectorAll(".cg-calc-box").forEach(box => {
+    box.querySelector("button").onclick = () => {
+      const V = num(box.querySelector("input").value), P = +box.dataset.parcela, n = +box.dataset.n;
+      const out = box.querySelector("span");
+      if (!V || P * n <= V) { out.textContent = "valor deve ser menor que a soma das parcelas"; return; }
+      let lo = 0, hi = 0.3;
+      for (let k = 0; k < 100; k++) { const m = (lo + hi) / 2; (P * (1 - Math.pow(1 + m, -n)) / m > V) ? lo = m : hi = m; }
+      const taxa = ((lo + hi) / 2 * 100).toFixed(2).replace(".", ",");
+      box.closest("td").querySelector("input[name=taxa]").value = taxa;
+      out.textContent = `≈ ${taxa}% a.m. — clique em Salvar`;
+    };
+  });
+
+  // ── Quitar em cada mês
+  function linhasQuitacao(lista) {
+    const rows = [];
+    for (let t = 0; t <= maxD; t++) {
+      let soma = 0, custo = 0, qtd = 0;
+      lista.forEach(e => e.futuras.forEach(f => { if (f.d > t) { soma += e.parcela; custo += pv(e.parcela, e.i, f.d - t); qtd++; } }));
+      if (!qtd) break;
+      rows.push({mes: t === 0 ? D.hoje : MESES[t - 1], t, qtd, soma, custo});
+    }
+    return rows;
+  }
+  const selQ = document.getElementById("sel-quit");
+  function tabelaQuitacao() {
+    const v = selQ.value;
+    const lista = v === "todos" ? EMP : v === "consig" ? EMP.filter(e => e.consignado) : EMP.filter(e => String(e.id) === v);
+    const semTaxa = lista.some(e => !e.i);
+    const tb = document.querySelector("#tbl-quit tbody");
+    const rows = linhasQuitacao(lista);
+    tb.innerHTML = rows.map((r, idx) => `<tr class="${r.t === 0 ? "cg-hl" : ""} ${idx > 12 ? "cg-mais" : ""}"><td>${r.t === 0 ? "Agora (" + mesBr(r.mes) + ")" : mesBr(r.mes)}</td>
+      <td class="num">${r.qtd}</td><td class="num">${brl(r.soma)}</td><td class="num"><b>${brl(r.custo)}</b></td>
+      <td class="num cg-ok">${brl(r.soma - r.custo)}</td><td class="num">${(r.soma ? (1 - r.custo / r.soma) * 100 : 0).toFixed(1).replace(".", ",")}%</td></tr>`).join("")
+      + (semTaxa ? `<tr><td colspan="6" class="text-faint text-small">⚠ Há empréstimo sem taxa nesta seleção — ele entra sem desconto.</td></tr>` : "")
+      || `<tr><td colspan="6" class="text-faint">Nada a quitar.</td></tr>`;
+    botaoMais("tbl-quit");
+  }
+  selQ.onchange = tabelaQuitacao;
+  const abertos = {};
+  function botaoMais(id) {
+    const tbl = document.getElementById(id), extras = tbl.querySelectorAll("tr.cg-mais");
+    extras.forEach(tr => tr.style.display = abertos[id] ? "" : "none");
+    let b = document.getElementById(id + "-mais");
+    if (!b) { b = document.createElement("button"); b.type = "button"; b.id = id + "-mais"; b.className = "btn btn-ghost btn-sm mt-2";
+      tbl.parentNode.after(b); b.onclick = () => { abertos[id] = !abertos[id]; botaoMais(id); }; }
+    b.style.display = extras.length ? "" : "none";
+    b.textContent = abertos[id] ? "Mostrar menos" : `Mostrar mais ${extras.length} meses`;
+  }
+
+  // ── Simulador
+  const apBox = document.getElementById("aportes");
+  function addAporte(mes, valor) {
+    const div = document.createElement("div");
+    div.className = "cg-ap-row";
+    div.innerHTML = `<input type="month" class="form-control" style="max-width:170px" value="${mes || addMes(D.hoje, 1)}">
+      <input class="form-control" style="max-width:150px" inputmode="decimal" placeholder="Valor R$" value="${valor ? String(valor.toFixed(2)).replace(".", ",") : ""}">
+      <button type="button" class="btn btn-ghost btn-sm">✕</button>`;
+    div.querySelector("button").onclick = () => { div.remove(); simular(); };
+    div.querySelectorAll("input").forEach(i => i.oninput = simular);
+    apBox.appendChild(div);
+  }
+  document.getElementById("add-ap").onclick = () => addAporte();
+  const usarEv = document.getElementById("usar-ev");
+  if (usarEv) usarEv.onclick = () => { Object.entries(D.eventuais).forEach(([m, v]) => addAporte(m, v)); simular(); };
+  ["s-extra", "s-modo", "s-filtro", "s-bola"].forEach(id => document.getElementById(id).addEventListener("input", simular));
+  ["s-modo", "s-filtro", "s-bola"].forEach(id => document.getElementById(id).addEventListener("change", simular));
+
+  let ultimaSim = null;
+  function simular() {
+    const extra = num(document.getElementById("s-extra").value);
+    const modo = document.getElementById("s-modo").value;
+    const filtro = document.getElementById("s-filtro").value;
+    const bola = document.getElementById("s-bola").checked;
+    const pontuais = {};
+    apBox.querySelectorAll(".cg-ap-row").forEach(r => {
+      const [m, v] = r.querySelectorAll("input");
+      if (m.value && num(v.value) > 0) pontuais[m.value] = (pontuais[m.value] || 0) + num(v.value);
+    });
+    const lista = EMP.filter(e => filtro === "todos" || e.consignado)
+      .map(e => ({...e, rest: e.futuras.map(f => f.d), quitadoEm: null, ultimo: Math.max(...e.futuras.map(f => f.d))}));
+    let sobra = 0, econTot = 0, pagoExtra = 0;
+    const linhas = [], comprom = [];
+    for (let t = 1; t <= maxD; t++) {
+      const mes = MESES[t - 1];
+      const base = lista.reduce((s, e) => s + (e.futuras.some(f => f.d === t) ? e.parcela : 0), 0);
+      // paga as parcelas normais do mês
+      let devidas = 0;
+      lista.forEach(e => { const k = e.rest.indexOf(t); if (k >= 0) { devidas += e.parcela; e.rest.splice(k, 1); } });
+      const liberado = bola ? base - devidas : 0;
+      const ap = pontuais[mes] || 0;
+      let disp = sobra + extra + ap + liberado;
+      const entrada = disp;
+      const acoes = []; let pago = 0, econ = 0;
+      if (modo === "parcelas") {
+        const porEmp = {};
+        while (true) {
+          const cands = lista.filter(e => e.i > 0 && e.rest.length).map(e => {
+            const d = Math.max(...e.rest); return {e, d, custo: pv(e.parcela, e.i, d - t), fator: Math.pow(1 + e.i, d - t)};
+          }).filter(c => c.d > t && c.custo <= disp + 0.005).sort((a, b) => b.e.i - a.e.i || b.d - a.d);
+          if (!cands.length) break;
+          const c = cands[0];
+          c.e.rest.splice(c.e.rest.indexOf(c.d), 1);
+          disp -= c.custo; pago += c.custo; econ += c.e.parcela - c.custo;
+          const a = porEmp[c.e.id] || (porEmp[c.e.id] = {nome: c.e.nome, n: 0, custo: 0});
+          a.n++; a.custo += c.custo;
+          if (!c.e.rest.length) c.e.quitadoEm = mes;
+        }
+        Object.values(porEmp).forEach(a => acoes.push(`<b>${esc(a.nome)}</b>: antecipar ${a.n} parcela${a.n > 1 ? "s" : ""} do fim (${brl(a.custo)})`));
+      } else {
+        while (true) {
+          const cands = lista.filter(e => e.i > 0 && e.rest.length).map(e => ({e, custo: e.rest.reduce((s, d) => s + pv(e.parcela, e.i, d - t), 0)}))
+            .sort((a, b) => b.e.i - a.e.i || a.custo - b.custo);
+          const c = cands.find(c => c.custo <= disp + 0.005);
+          if (!c) break;
+          const nominal = c.e.parcela * c.e.rest.length;
+          acoes.push(`<b>${esc(c.e.nome)}</b>: quitar (${c.e.rest.length} parcelas) por ${brl(c.custo)} — libera ${brl(c.e.parcela)}/mês`);
+          disp -= c.custo; pago += c.custo; econ += nominal - c.custo;
+          c.e.rest = []; c.e.quitadoEm = mes;
+        }
+      }
+      sobra = disp; econTot += econ; pagoExtra += pago;
+      comprom.push({mes, base, com: devidas});
+      const restantes = lista.some(e => e.rest.length);
+      linhas.push({mes, base, devidas, entrada, ap, acoes, pago, econ, sobra, restantes});
+      if (!restantes && t < maxD) {
+        for (let u = t + 1; u <= maxD; u++) {
+          const b = lista.reduce((s, e) => s + (e.futuras.some(f => f.d === u) ? e.parcela : 0), 0);
+          comprom.push({mes: MESES[u - 1], base: b, com: 0});
+        }
+        break;
+      }
+    }
+    const fimBase = lista.length ? MESES[Math.max(...lista.map(e => e.ultimo)) - 1] : null;
+    const ultimoCom = [...comprom].reverse().find(c => c.com > 0);
+    const fimSim = ultimoCom ? ultimoCom.mes : (linhas.find(l => !l.restantes) || {}).mes;
+    const mesesAntes = fimBase && fimSim ? (+fimBase.slice(0,4)*12 + +fimBase.slice(5,7)) - (+fimSim.slice(0,4)*12 + +fimSim.slice(5,7)) : 0;
+
+    document.getElementById("s-kpis").innerHTML = `
+      <div class="stat"><div class="stat-label">Juros economizados</div><div class="stat-value positive">${brl(econTot)}</div>
+        <div class="stat-foot">antecipando ${brl(pagoExtra)}</div></div>
+      <div class="stat"><div class="stat-label">Fim das parcelas</div><div class="stat-value">${fimSim ? mesBr(fimSim) : "—"}</div>
+        <div class="stat-foot">sem antecipar: ${fimBase ? mesBr(fimBase) : "—"}${mesesAntes > 0 ? ` · <b class="cg-ok">${mesesAntes} meses antes</b>` : ""}</div></div>
+      <div class="stat"><div class="stat-label">Parcelas daqui a 6 meses</div>
+        <div class="stat-value">${brl((comprom[5] || {com: 0}).com)}</div><div class="stat-foot">sem antecipar: ${brl((comprom[5] || {base: 0}).base)}</div></div>
+      <div class="stat"><div class="stat-label">Parcelas daqui a 12 meses</div>
+        <div class="stat-value">${brl((comprom[11] || {com: 0}).com)}</div><div class="stat-foot">sem antecipar: ${brl((comprom[11] || {base: 0}).base)}</div></div>`;
+
+    const tb = document.querySelector("#tbl-sim tbody");
+    const temExtra = extra > 0 || Object.keys(pontuais).length;
+    tb.innerHTML = !temExtra ? `<tr><td colspan="7" class="text-faint">Informe um valor extra por mês ou um aporte pontual para simular.</td></tr>`
+      : linhas.map((l, idx) => `<tr class="${l.acoes.length ? "cg-hl" : ""}${!l.restantes ? " cg-quit" : ""}${idx > 11 && l.restantes ? " cg-mais" : ""}">
+        <td>${mesBr(l.mes)}${l.ap ? `<br><span class="text-faint text-small">+ aporte ${brl(l.ap)}</span>` : ""}</td>
+        <td class="num">${brl(l.base)} → <b>${brl(l.devidas)}</b></td>
+        <td class="num">${brl(l.entrada)}</td>
+        <td class="cg-acao">${l.acoes.join("<br>") || '<span class="text-faint">acumular</span>'}${!l.restantes ? '<br><b class="cg-ok">✓ tudo quitado</b>' : ""}</td>
+        <td class="num">${l.pago ? brl(l.pago) : "—"}</td>
+        <td class="num cg-ok">${l.econ ? brl(l.econ) : "—"}</td>
+        <td class="num">${brl(l.sobra)}</td></tr>`).join("");
+    ultimaSim = temExtra ? comprom : null;
+    botaoMais("tbl-sim");
+    desenharGrafico();
+  }
+
+  // ── Gráfico (SVG) de barras empilhadas + linha da simulação
+  function desenharGrafico() {
+    const lista = EMP.filter(e => filtroChart === "todos" || e.consignado);
+    const box = document.getElementById("chart");
+    if (!lista.length || !MESES.length) { box.innerHTML = '<p class="text-faint">Sem parcelas futuras.</p>'; return; }
+    const W = Math.max(640, MESES.length * 18), H = 240, pl = 64, pb = 28, pt = 10;
+    const bw = (W - pl - 10) / MESES.length;
+    const tot = MESES.map((_, k) => lista.reduce((s, e) => s + (e.futuras.some(f => f.d === k + 1) ? e.parcela : 0), 0));
+    const mx = Math.max(...tot, 1) * 1.08;
+    const y = v => pt + (H - pt - pb) * (1 - v / mx);
+    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="font:11px system-ui;fill:var(--text-faint)">`;
+    for (let g = 0; g <= 4; g++) {
+      const v = mx * g / 4;
+      s += `<line x1="${pl}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)" />
+            <text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end">${(v / 1000).toFixed(1).replace(".", ",")}k</text>`;
+    }
+    MESES.forEach((m, k) => {
+      let acc = 0;
+      lista.forEach(e => {
+        if (!e.futuras.some(f => f.d === k + 1)) return;
+        s += `<rect x="${pl + k * bw + 1}" y="${y(acc + e.parcela)}" width="${Math.max(bw - 2, 1)}" height="${y(acc) - y(acc + e.parcela)}" fill="${e.cor}" opacity=".85"><title>${esc(e.nome)} · ${mesBr(m)}: ${brl(e.parcela)}</title></rect>`;
+        acc += e.parcela;
+      });
+      if ((m.endsWith("-01") && k > 1) || (k === 0 && !MESES.slice(1, 3).some(x => x.endsWith("-01")))) s += `<text x="${pl + k * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${mesBr(m)}</text>`;
+    });
+    if (ultimaSim && filtroChart === document.getElementById("s-filtro").value) {
+      const pts = ultimaSim.map((c, k) => `${pl + k * bw + bw / 2},${y(c.com)}`).join(" ");
+      s += `<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="2" stroke-dasharray="5 4" />`;
+    }
+    box.innerHTML = s + "</svg>";
+    document.getElementById("legend").innerHTML = lista.map(e => `<span style="--c:${e.cor}">${esc(e.nome)}</span>`).join("")
+      + (ultimaSim ? `<span style="--c:transparent;border-bottom:2px dashed var(--text)">com a simulação</span>` : "");
+  }
+
+  tabelaQuitacao();
+  simular();
+})();
+</script>
+{% endblock %}
