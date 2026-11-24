@@ -115,13 +115,17 @@
     </a>
 
     <div class="nav-section">Planejamento</div>
-    <a href="{{ url_for('planejamento.index') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('planejamento.') and request.endpoint not in ('planejamento.dividas', 'planejamento.previa_vazamentos') %}active{% endif %}">
+    <a href="{{ url_for('planejamento.index') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('planejamento.') and request.endpoint not in ('planejamento.dividas', 'planejamento.previa_vazamentos', 'planejamento.consignados') %}active{% endif %}">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
       Visão geral
     </a>
     <a href="{{ url_for('planejamento.dividas') }}" class="nav-link {% if request.endpoint == 'planejamento.dividas' %}active{% endif %}">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M6 15l4-4 3 3 5-6"/></svg>
       Dívidas
+    </a>
+    <a href="{{ url_for('planejamento.consignados') }}" class="nav-link {% if request.endpoint == 'planejamento.consignados' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>
+      Consignados
     </a>
     <a href="{{ url_for('planejamento.previa_vazamentos') }}" class="nav-link {% if request.endpoint == 'planejamento.previa_vazamentos' %}active{% endif %}">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
