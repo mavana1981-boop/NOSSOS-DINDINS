@@ -243,7 +243,7 @@ def sincronizar_link(api_key, link, diag=None):
         _pn = int(meta.get("installmentNumber") or 1)
         if _pn == 1:
             from app.carteira import casar_com_pluggy as _ccp
-            if _ccp(card, valor, entry_date, tx["id"], _tp, _pn):
+            if _ccp(card, valor, entry_date, tx["id"], _tp, _pn, desc=desc):
                 ids_existentes.add(tx["id"])
                 diag["confirmadas_carteira"] = diag.get("confirmadas_carteira", 0) + 1
                 continue
