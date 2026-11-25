@@ -637,7 +637,22 @@ def _fechamento_13_11_2026_denise():
             print(f"[fechamento 13/11 denise] erro: {_e}")
 
 
+def _corrigir_lojas_carteira():
+    """Lançamentos da Carteira que ficaram como 'Compra por aproximação' porque o
+    MacroDroid mandou o JSON inteiro dentro do texto: relê e põe o nome da loja."""
+    with app.app_context():
+        try:
+            from app.carteira import corrigir_lojas
+            n = corrigir_lojas()
+            if n:
+                print(f"[carteira] {n} lançamento(s) com o nome da loja corrigido")
+        except Exception as _e:
+            db.session.rollback()
+            print(f"[carteira] corrigir lojas: {_e}")
+
+
 bootstrap()
+_corrigir_lojas_carteira()
 _fechamento_13_11_2026()
 _fechamento_13_11_2026_denise()
 _limpar_planejados_invalidos()

@@ -60,10 +60,44 @@ def _limpar_loja(s):
     return s[:160]
 
 
-def interpretar(titulo, texto):
-    """Devolve dict(valor, loja, final, motivo_ignorar)."""
+_RX_JSON_CAMPO = r'"{}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+
+
+def desembrulhar(titulo, texto):
+    """O MacroDroid às vezes manda o modelo JSON inteiro dentro de um único campo
+    (ex.: texto = '{"titulo": "A MUNDIAL", "texto": "R$ 24,94 com ...", ...}. Se preferir…').
+    Nesse caso extrai o título e o texto de dentro dele."""
     titulo = (titulo or "").strip()
     texto = (texto or "").strip()
+    for campo in (texto, titulo):
+        if '"titulo"' not in campo and '"texto"' not in campo:
+            continue
+        dados = None
+        ini, fim = campo.find("{"), campo.find("}", campo.find("{") + 1)
+        if ini >= 0 and fim > ini:
+            try:
+                dados = json.loads(campo[ini:fim + 1])
+            except Exception:
+                dados = None
+        if not isinstance(dados, dict):
+            dados = {}
+            for nome in ("titulo", "texto"):
+                m = re.search(_RX_JSON_CAMPO.format(nome), campo)
+                if m:
+                    dados[nome] = m.group(1).replace('\\"', '"')
+        t_in = str(dados.get("titulo") or "").strip()
+        x_in = str(dados.get("texto") or "").strip()
+        if t_in or x_in:
+            # Variável não substituída pelo MacroDroid ("{not_title}") não vale
+            t_in = "" if re.fullmatch(r"\{\w+\}", t_in) else t_in
+            x_in = "" if re.fullmatch(r"\{\w+\}", x_in) else x_in
+            return t_in, x_in
+    return titulo, texto
+
+
+def interpretar(titulo, texto):
+    """Devolve dict(valor, loja, final, motivo_ignorar)."""
+    titulo, texto = desembrulhar(titulo, texto)
     junto = f"{titulo}\n{texto}"
 
     if _RX_NAO_COMPRA.search(junto):
@@ -90,7 +124,7 @@ def interpretar(titulo, texto):
                     loja = cand
                     break
 
-    return {"valor": valor, "loja": loja or "Compra por aproximação", "final": final,
+    return {"valor": valor, "loja": loja or LOJA_PADRAO, "final": final,
             "motivo_ignorar": None if valor else "valor não encontrado no texto"}
 
 
@@ -143,11 +177,64 @@ def _fatura(user_id, card, entry_date):
     return aj if aj < calc else get_open_billing_month(user_id, aj)
 
 
+LOJA_PADRAO = "Compra por aproximação"
+
+
+def _classificar(e):
+    """Mesmas regras da importação: palavra-chave aprendida e regras fixas.
+    Marca como ativo se classificou. Retorna True/False."""
+    from app.models import MerchantRule
+    from app.utils import aplicar_regra_fixa
+    for rule in MerchantRule.query.filter_by(user_id=e.user_id).all():
+        if rule.keyword and rule.keyword.lower() in (e.description or "").lower():
+            e.category = rule.category
+            if rule.expense_id:
+                e.expense_id = rule.expense_id
+                e.subcategoria_id = getattr(rule, "subcategoria_id", None)
+            break
+    aplicar_regra_fixa(e)
+    classificado = bool(e.expense_id) or bool(e.category and e.category != "A classificar")
+    if classificado and e.status == "em_avaliacao":
+        e.status = "ativo"
+    return classificado
+
+
+def renomear_generico(e, nova_desc):
+    """Troca a descrição genérica 'Compra por aproximação' pelo nome da loja e
+    tenta classificar de novo. Retorna True se mudou."""
+    nova_desc = (nova_desc or "").strip()[:160]
+    if not nova_desc or nova_desc == LOJA_PADRAO or (e.description or "") != LOJA_PADRAO:
+        return False
+    e.description = nova_desc
+    if not e.expense_id and (e.category or "A classificar") == "A classificar":
+        _classificar(e)
+    return True
+
+
+def corrigir_lojas(user_id=None):
+    """Relê notificações já lançadas sem o nome da loja e corrige os lançamentos."""
+    from app import db
+    from app.models import CardEntry, CarteiraNotificacao
+    q = CarteiraNotificacao.query.filter(CarteiraNotificacao.loja == LOJA_PADRAO)
+    if user_id:
+        q = q.filter(CarteiraNotificacao.user_id == user_id)
+    n = 0
+    for reg in q.all():
+        info = interpretar(reg.titulo, reg.texto)
+        if not info["loja"] or info["loja"] == LOJA_PADRAO:
+            continue
+        reg.loja = info["loja"]
+        e = CardEntry.query.get(reg.entry_id) if reg.entry_id else None
+        if e and renomear_generico(e, info["loja"]):
+            n += 1
+    db.session.commit()
+    return n
+
+
 def lancar(user_id, card, valor, loja, entry_date=None, avisar=True):
     """Cria o lançamento. Já classificado pelas regras → ativo; senão → revisão."""
     from app import db
-    from app.models import CardEntry, MerchantRule
-    from app.utils import aplicar_regra_fixa
+    from app.models import CardEntry
 
     if entry_date is None:
         from app.agente_andamento import hoje_brasilia
@@ -163,19 +250,7 @@ def lancar(user_id, card, valor, loja, entry_date=None, avisar=True):
     )
     db.session.add(e)
 
-    # Mesmas regras da importação: palavra-chave aprendida e regras fixas
-    for rule in MerchantRule.query.filter_by(user_id=user_id).all():
-        if rule.keyword and rule.keyword.lower() in e.description.lower():
-            e.category = rule.category
-            if rule.expense_id:
-                e.expense_id = rule.expense_id
-                e.subcategoria_id = getattr(rule, "subcategoria_id", None)
-            break
-    aplicar_regra_fixa(e)
-
-    classificado = bool(e.expense_id) or (e.category and e.category != "A classificar")
-    if classificado:
-        e.status = "ativo"
+    classificado = _classificar(e)
     db.session.commit()
 
     if classificado and e.expense_id:
@@ -263,7 +338,7 @@ def receber(user_id, titulo, texto, app_origem=None):
 
 # ── Confirmação pelo Open Finance ────────────────────────────────────────────
 
-def casar_com_pluggy(card, valor, data_tx, tx_id, total_parc=1, parc_no=1):
+def casar_com_pluggy(card, valor, data_tx, tx_id, total_parc=1, parc_no=1, desc=None):
     """Se houver lançamento da Carteira aguardando com o mesmo valor e data
     próxima, grava nele o pluggy_tx_id e devolve-o; senão devolve None."""
     from app.models import CardEntry
@@ -285,6 +360,9 @@ def casar_com_pluggy(card, valor, data_tx, tx_id, total_parc=1, parc_no=1):
     e.notes = (e.notes or "").replace(MARCA_AGUARDANDO, MARCA_CONFIRMADO) or MARCA_CONFIRMADO
     if e.entry_date != data_tx:
         e.entry_date = data_tx
+    # Notificação sem o nome da loja: usa a descrição do banco
+    if desc:
+        renomear_generico(e, desc)
     # A notificação não diz se foi parcelado; o banco diz.
     if total_parc > 1 and (e.installments or 1) <= 1 and parc_no == 1:
         e.kind, e.installments, e.installment_no = "parcelado", total_parc, 1
