@@ -504,9 +504,17 @@ def cartoes_ultimo_lancamento(user_id: int, hoje: date) -> list:
     from app.models import Card, CardEntry
     out = []
     for c in Card.query.filter_by(user_id=user_id, is_active=True).order_by(Card.name).all():
+        # Só compras efetivas: entra o que está ativo ou aguardando avaliação
+        # (Open Finance / Carteira), mas não as parcelas futuras lançadas
+        # automaticamente (data no futuro) nem as parcelas 2+ de compras antigas.
         ult = (CardEntry.query
                .filter(CardEntry.card_id == c.id,
-                       or_(CardEntry.status == "ativo", CardEntry.status.is_(None)))
+                       or_(CardEntry.status.in_(["ativo", "em_avaliacao"]),
+                           CardEntry.status.is_(None)),
+                       CardEntry.entry_date <= hoje,
+                       or_(CardEntry.installment_no.is_(None), CardEntry.installment_no <= 1),
+                       or_(CardEntry.notes.is_(None),
+                           ~CardEntry.notes.contains("[parcela auto")))
                .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).first())
         if ult is None:
             out.append({"card": c.name, "data": None, "dias": None, "desc": None,
@@ -635,7 +643,7 @@ def rodar_para_usuario(user, hoje: date) -> list:
                 titulo = resumo["titulo"]                # 📊 Andamento dd/mm · ideal X% · N fora
                 if avisos:
                     titulo += f" · {len(avisos)} mudou de faixa" if len(avisos) == 1 else f" · {len(avisos)} mudaram de faixa"
-                url = "/notificacoes#evolucao"
+                url = "/dashboard#evolucao"
             else:
                 titulo = avisos[0]["titulo"] if avisos else cartoes["titulo"]
                 url = f"/relatorio?mes={mes}#andamento" if avisos else "/notificacoes#cartoes"
