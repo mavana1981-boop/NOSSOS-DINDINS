@@ -363,6 +363,13 @@ def sincronizar_usuario(user_id, relatorio=None):
                             mensagem = f"Revise e aprove. Andamento:\n{andamento}"
                     except Exception as e:
                         print(f"[pluggy] andamento para o aviso falhou: {e}")
+                    try:
+                        from app.routes.dashboard import resumo_metas_partes
+                        _rm = resumo_metas_partes(user_id)
+                        if _rm:
+                            mensagem += "\n\n🎯 Metas da parte do mês:\n" + _rm
+                    except Exception as e:
+                        print(f"[pluggy] resumo das metas falhou: {e}")
                     notificar(
                         user_id,
                         f"💳 {qtde} compra(s) nova(s) em {link.card.name}",
