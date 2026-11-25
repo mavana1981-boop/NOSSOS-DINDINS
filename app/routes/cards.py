@@ -998,7 +998,10 @@ def _save_entry(entry, card):
             db.session.flush()
 
             # Criar PI para a parcela desta entrada (1, ou k numa série já em andamento)
-            if not _excluido_sv3(entry.billing_month):
+            from app.utils import pi_equivalente as _pi_eq
+            if not _excluido_sv3(entry.billing_month) and not _pi_eq(
+                    entry.user_id, entry.card_id, entry.billing_month, entry.amount,
+                    _k_orig, entry.installments, entry.description):
                 db.session.add(PlannedInstallment(
                     user_id=entry.user_id, card_id=entry.card_id,
                     description=entry.description, amount=entry.amount,
@@ -1048,6 +1051,9 @@ def _save_entry(entry, card):
                 _pi_ex = PlannedInstallment.query.filter_by(
                     user_id=entry.user_id, card_id=entry.card_id,
                     description=entry.description, installment_no=_i).first()
+                if not _pi_ex:
+                    _pi_ex = _pi_eq(entry.user_id, entry.card_id, _proj_bm, entry.amount,
+                                    _i, entry.installments, entry.description)
                 if not _pi_ex:
                     db.session.add(PlannedInstallment(
                         user_id=entry.user_id, card_id=entry.card_id,
@@ -1776,6 +1782,10 @@ def finalizar_lote(card_id, batch_id, user_id):
                     user_id=user_id, card_id=card_id,
                     description=_e.description, installment_no=1).first()
                 if not _ex1:
+                    from app.utils import pi_equivalente as _pi_eq2
+                    _ex1 = _pi_eq2(user_id, card_id, _e.billing_month, _e.amount, 1,
+                                   _e.installments, _e.description)
+                if not _ex1:
                     db.session.add(PlannedInstallment(
                         user_id=user_id, card_id=card_id,
                         description=_e.description, amount=_e.amount,
@@ -1794,6 +1804,10 @@ def finalizar_lote(card_id, batch_id, user_id):
                 _ex_fut = PlannedInstallment.query.filter_by(
                     user_id=user_id, card_id=card_id,
                     description=_e.description, installment_no=_i).first()
+                if not _ex_fut:
+                    from app.utils import pi_equivalente as _pi_eq3
+                    _ex_fut = _pi_eq3(user_id, card_id, _proj_bm, _e.amount, _i,
+                                      _e.installments, _e.description)
                 if not _ex_fut:
                     db.session.add(PlannedInstallment(
                         user_id=user_id, card_id=card_id,
@@ -2170,19 +2184,46 @@ def duplicados():
     from app.models import PlannedInstallment as _PI
     planned = _PI.query.filter_by(user_id=current_user.id).order_by(_PI.id).all()
 
-    # Duplicata: mesmo (card_id, description, installment_no)
+    # Duplicata: mesmo (card_id, description, installment_no) — ou a mesma compra
+    # com descrição diferente (PDF × Open Finance): mesmo cartão, mês, parcela k/N,
+    # valor ±R$ 0,05 e palavra em comum na descrição.
+    from app.utils import mesma_compra as _mc
+    _pai = {p.id: p.id for p in planned}
+    def _raiz(i):
+        while _pai[i] != i:
+            _pai[i] = _pai[_pai[i]]
+            i = _pai[i]
+        return i
+    def _une(a, b):
+        ra, rb = _raiz(a), _raiz(b)
+        if ra != rb:
+            _pai[max(ra, rb)] = min(ra, rb)
+    _exato = defaultdict(list)
+    _balde = defaultdict(list)
+    for p in planned:
+        _exato[(p.card_id, (p.description or "").upper().strip(), p.installment_no or 0)].append(p)
+        _balde[(p.card_id, p.billing_month, p.installment_no or 0, p.installments or 0)].append(p)
+    for itens in _exato.values():
+        for q in itens[1:]:
+            _une(itens[0].id, q.id)
+    for itens in _balde.values():
+        for i in range(len(itens)):
+            for j in range(i + 1, len(itens)):
+                a, b = itens[i], itens[j]
+                if abs(float(a.amount or 0) - float(b.amount or 0)) <= 0.05 and _mc(a.description, b.description):
+                    _une(a.id, b.id)
     plan_grupos = defaultdict(list)
     for p in planned:
-        k = (p.card_id, (p.description or "").upper().strip(), p.installment_no or 0)
-        plan_grupos[k].append(p)
+        plan_grupos[_raiz(p.id)].append(p)
 
     dup_planejados = []
-    for k, itens in plan_grupos.items():
+    for itens in plan_grupos.values():
         if len(itens) > 1:
+            itens = sorted(itens, key=lambda p: p.id)
             dup_planejados.append({
-                "desc": k[1],
-                "installment_no": k[2],
-                "entries": sorted(itens, key=lambda p: p.id),
+                "desc": (itens[0].description or "").upper().strip(),
+                "installment_no": itens[0].installment_no or 0,
+                "entries": itens,
                 "count": len(itens),
             })
     dup_planejados.sort(key=lambda x: x["count"], reverse=True)

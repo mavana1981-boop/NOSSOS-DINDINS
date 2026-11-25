@@ -314,6 +314,53 @@ def get_consolidated_cards(user_id, year=None, month=None):
 #  Parcelados projetados — fonte única (menu Parcelados, Fluxo de
 #  Caixa, Relatório e Saldo Proj. usam exatamente estes números)
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+#  "Mesma compra" com descrição diferente (PDF × Open Finance):
+#  mesmo cartão, mês de fatura, parcela k/N, valor (±R$ 0,05) e ao
+#  menos uma palavra significativa em comum na descrição.
+# ─────────────────────────────────────────────────────────────
+_PALAVRAS_IGNORAR = {"PARC", "PAULO", "BRASILIA", "SAO", "RIO", "JANEIRO", "BELO", "HORIZONTE",
+                     "LTDA", "COMERCIO", "BRASIL", "EMISSAO", "COMPRA", "PAGAMENTO"}
+
+
+def palavras_desc(s):
+    import unicodedata as _ud
+    s = _ud.normalize("NFKD", (s or "").upper()).encode("ascii", "ignore").decode()
+    s = _re_parc.sub(r"PARC\s*\d+\s*/\s*\d+", " ", s)
+    return {w for w in _re_parc.split(r"[^A-Z]+", s) if len(w) >= 4 and w not in _PALAVRAS_IGNORAR}
+
+
+def mesma_compra(desc_a, desc_b):
+    if norm_desc_parcela(desc_a) == norm_desc_parcela(desc_b):
+        return True
+    return bool(palavras_desc(desc_a) & palavras_desc(desc_b))
+
+
+def pi_equivalente(user_id, card_id, billing_month, amount, installment_no, installments,
+                   description, ignorar_ids=()):
+    """Parcela projetada que já representa esta mesma compra (ou None)."""
+    from app.models import PlannedInstallment
+    try:
+        v = float(amount or 0)
+    except (TypeError, ValueError):
+        return None
+    for p in PlannedInstallment.query.filter_by(
+            user_id=user_id, card_id=card_id, billing_month=billing_month,
+            installment_no=installment_no, installments=installments).all():
+        if p.id in ignorar_ids:
+            continue
+        if abs(float(p.amount or 0) - v) <= 0.05 and mesma_compra(p.description, description):
+            return p
+    # também pendente na sessão (ainda não gravado)
+    for obj in list(db.session.new):
+        if (isinstance(obj, PlannedInstallment) and obj.user_id == user_id and obj.card_id == card_id
+                and obj.billing_month == billing_month and obj.installment_no == installment_no
+                and obj.installments == installments
+                and abs(float(obj.amount or 0) - v) <= 0.05 and mesma_compra(obj.description, description)):
+            return obj
+    return None
+
+
 def projetar_series_em_andamento(user_id, dias=60):
     """Lançamentos de cartão k/N (k>1) feitos à mão nos últimos `dias` cuja série
     não tem projeção nem 1/N (ex.: consórcio cadastrado na parcela 15/80): projeta
@@ -348,6 +395,8 @@ def projetar_series_em_andamento(user_id, dias=60):
         for i in range(k, e.installments + 1):
             bm = add_meses_bm(e.billing_month, i - k)
             if bm < mes_atual or (base, bm) in dels:
+                continue
+            if pi_equivalente(user_id, e.card_id, bm, e.amount, i, e.installments, e.description):
                 continue
             db.session.add(PlannedInstallment(
                 user_id=user_id, card_id=e.card_id, description=e.description,
