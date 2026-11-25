@@ -1001,7 +1001,7 @@ def salvar_config_gastos_casa():
 @login_required
 def notificacoes():
     from app.models import Notificacao
-    from app.agente_andamento import email_configurado, TOLERANCIA_PP, ultimo_status_email
+    from app.agente_andamento import TOLERANCIA_PP
     import os as _os
     itens = (Notificacao.query.filter_by(user_id=current_user.id)
              .order_by(Notificacao.created_at.desc()).limit(100).all())
@@ -1018,9 +1018,6 @@ def notificacoes():
                            lista_aparelhos=lista_aparelhos,
                            cartoes=cartoes, cartao_alerta_dias=CARTAO_ALERTA_DIAS,
                            aparelhos=aparelhos,
-                           email_ok=email_configurado(),
-                           email_status=ultimo_status_email(),
-                           email_destino=_os.environ.get("ALERTA_EMAIL_TO") or current_user.email,
                            hora=_os.environ.get("AGENTE_ANDAMENTO_HORA", "21"),
                            minuto=int(_os.environ.get("AGENTE_ANDAMENTO_MINUTO", "0")))
 
