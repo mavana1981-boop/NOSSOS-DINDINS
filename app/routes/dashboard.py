@@ -1006,18 +1006,16 @@ def notificacoes():
     itens = (Notificacao.query.filter_by(user_id=current_user.id)
              .order_by(Notificacao.created_at.desc()).limit(100).all())
 
-    _evo = _dados_evolucao(current_user.id)
-    _hoje_evo = _evo.pop("_hoje_evo")
     from app.models import PushInscricao
-    from app.agente_andamento import cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS
-    cartoes = cartoes_ultimo_lancamento(current_user.id, _hoje_evo)
+    from app.agente_andamento import (cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS,
+                                      hoje_brasilia)
+    cartoes = cartoes_ultimo_lancamento(current_user.id, hoje_brasilia())
     lista_aparelhos = (PushInscricao.query.filter_by(user_id=current_user.id)
                        .order_by(PushInscricao.created_at.desc()).all())
     aparelhos = len(lista_aparelhos)
 
     return render_template("notificacoes.html", itens=itens,
                            lista_aparelhos=lista_aparelhos,
-                           **_evo,
                            cartoes=cartoes, cartao_alerta_dias=CARTAO_ALERTA_DIAS,
                            aparelhos=aparelhos,
                            email_ok=email_configurado(),
