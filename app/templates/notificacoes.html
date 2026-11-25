@@ -37,6 +37,7 @@
         <th style="text-align:left;padding:6px 8px;">Cartão</th>
         <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Último lançamento</th>
         <th style="text-align:right;padding:6px 8px;white-space:nowrap;">Sem atualização</th>
+        <th style="text-align:left;padding:6px 8px;">Origem</th>
         <th style="text-align:left;padding:6px 8px;">Descrição</th>
       </tr>
     </thead>
@@ -49,6 +50,7 @@
         <td style="text-align:right;padding:8px;white-space:nowrap;font-weight:700;color:{{ _cor }};">
           {% if c.dias is none %}sem lançamentos{% elif c.dias == 0 %}hoje{% elif c.dias == 1 %}1 dia{% else %}{{ c.dias }} dias{% endif %}
         </td>
+        <td style="padding:8px;white-space:nowrap;">{{ c.origem or '—' }}</td>
         <td style="padding:8px;color:var(--text-dim);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
           {% if c.desc %}{{ c.desc }} · {{ c.valor|brl }}{% endif %}
         </td>
@@ -59,18 +61,6 @@
   </div>
   {% else %}
   <div style="padding:12px 0;color:var(--text-dim);">Nenhum cartão ativo cadastrado.</div>
-  {% endif %}
-</div>
-
-<div class="alert {{ 'alert-success' if email_ok else 'alert-info' }}">
-  {% if email_ok %}
-    ✉️ Os avisos também são enviados por e-mail para <strong>{{ email_destino }}</strong>.
-  {% else %}
-    ✉️ E-mail ainda não configurado — os avisos aparecem só aqui no app.
-    Para receber por e-mail, crie uma chave em resend.com e defina RESEND_API_KEY no Railway.
-  {% endif %}
-  {% if email_status %}
-    <div style="font-size:12px;margin-top:6px;">Último e-mail ({{ email_status[0]|hora_brt }}): {{ email_status[1] }}</div>
   {% endif %}
 </div>
 

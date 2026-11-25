@@ -518,7 +518,7 @@ def cartoes_ultimo_lancamento(user_id: int, hoje: date) -> list:
                .order_by(CardEntry.entry_date.desc(), CardEntry.id.desc()).first())
         if ult is None:
             out.append({"card": c.name, "data": None, "dias": None, "desc": None,
-                        "valor": None, "atrasado": True})
+                        "valor": None, "origem": None, "atrasado": True})
             continue
         dias = (hoje - ult.entry_date).days
         out.append({
@@ -527,6 +527,8 @@ def cartoes_ultimo_lancamento(user_id: int, hoje: date) -> list:
             "dias": max(dias, 0),
             "desc": ult.description,
             "valor": float(ult.amount),
+            "origem": ("Wallet" if ult.origem == "carteira"
+                       else "Pluggy" if ult.pluggy_tx_id else "Manual"),
             "atrasado": dias > CARTAO_ALERTA_DIAS,
         })
     # mais desatualizados primeiro
