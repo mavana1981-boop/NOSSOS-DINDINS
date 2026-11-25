@@ -39,7 +39,7 @@
   </div>
 </div>
 
-{% set _com_metas = (evolucao or [])|selectattr('partes')|list %}
+{% set _com_metas = (evolucao or [])|selectattr('partes')|sort(attribute='ordem_meta')|list %}
 <!-- Metas por parte do mês -->
 <div class="card mb-3" id="metas-partes">
   <div class="card-title">

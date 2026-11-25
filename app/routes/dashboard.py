@@ -269,6 +269,52 @@ def index():
     )
 
 
+# Ordem fixa das "Metas por parte do mês" (painel e notificações)
+ORDEM_METAS = ["cartao avulso", "mercado", "restaurante", "gasolina"]
+
+
+def _norm_meta(s):
+    import unicodedata
+    return unicodedata.normalize("NFKD", (s or "").lower()).encode("ascii", "ignore").decode().strip()
+
+
+def ordem_meta(desc):
+    """Posição da meta na ordem preferida; as demais vêm depois, na ordem original."""
+    d = _norm_meta(desc)
+    for i, nome in enumerate(ORDEM_METAS):
+        if d == nome or d.startswith(nome):
+            return i
+    for i, nome in enumerate(ORDEM_METAS):
+        if nome in d:
+            return i
+    return len(ORDEM_METAS)
+
+
+def resumo_metas_partes(user_id):
+    """Texto curto das metas por parte do mês (parte atual de cada gasto), na ordem
+    preferida — usado no corpo das notificações de compra."""
+    def _r(v):
+        return ("R$ " + f"{v:,.2f}").replace(",", "X").replace(".", ",").replace("X", ".")
+    try:
+        dados = _dados_evolucao(user_id)
+    except Exception as e:
+        print(f"[metas] resumo falhou: {e}")
+        return ""
+    grupos = [g for g in (dados.get("evolucao") or []) if g.get("partes")]
+    grupos.sort(key=lambda g: ordem_meta(g["desc"]))
+    linhas = []
+    for g in grupos:
+        atual = next((p for p in g["partes"] if p.get("atual")), None)
+        if atual:
+            resta = atual["disponivel"] - atual["gasto"]
+            sinal = (f"resta {_r(resta)}" if resta >= -0.004 else f"⚠ {_r(-resta)} acima")
+            linhas.append(f"{'🔴' if atual['estourou'] else '🟢'} {g['desc']} · parte {atual['n']} "
+                          f"({atual['label']}): {_r(atual['gasto'])} de {_r(atual['disponivel'])} · {sinal}")
+        else:
+            linhas.append(f"• {g['desc']}: {_r(sum(p['gasto'] for p in g['partes']))} de {_r(g['meta_total'])}")
+    return "\n".join(linhas)
+
+
 def _dados_evolucao(user_id, ciclo_off=0):
     """Evolução diária do Andamento (coluna de hoje, calculada na hora) +
     balanço atual. Usado no Painel inicial e na página de Avisos."""
@@ -404,6 +450,7 @@ def _dados_evolucao(user_id, ciclo_off=0):
                 })
         evolucao.append({
             "expense_id": it["expense_id"],
+            "ordem_meta": ordem_meta(it["desc"]),
             "partes": _partes,
             "meta_total": round(sum(p["meta"] for p in _partes), 2),
             "restante_metas": round(sum(p["meta"] for p in _partes) - sum(p["gasto"] for p in _partes), 2),

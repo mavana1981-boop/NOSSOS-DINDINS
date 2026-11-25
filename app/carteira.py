@@ -185,12 +185,26 @@ def lancar(user_id, card, valor, loja, entry_date=None, avisar=True):
         except Exception as ex:
             print(f"[carteira] excedente: {ex}")
 
-    if avisar and not classificado:
+    if avisar:
         try:
             from app.notificar import notificar
+            resumo = ""
+            try:
+                from app.routes.dashboard import resumo_metas_partes
+                resumo = resumo_metas_partes(user_id)
+            except Exception as ex:
+                print(f"[carteira] resumo das metas falhou: {ex}")
+            if classificado:
+                cat = (e.expense.description if getattr(e, "expense", None) else e.category) or ""
+                corpo = f"{card.name} · {cat}"
+                link = "/#metas-partes"
+            else:
+                corpo = f"Lançado em {card.name}. Toque para escolher a categoria."
+                link = f"/cartoes/{card.id}/lote/{batch_id}/revisao"
+            if resumo:
+                corpo += "\n\n🎯 Metas da parte do mês:\n" + resumo
             notificar(user_id, f"📱 {loja[:60]} · R$ {valor:.2f}".replace(".", ","),
-                      f"Lançado em {card.name}. Toque para escolher a categoria.",
-                      link=f"/cartoes/{card.id}/lote/{batch_id}/revisao",
+                      corpo, link=link,
                       tag=f"carteira-{e.id}", email=False, urgencia="normal")
         except Exception as ex:
             print(f"[carteira] aviso falhou: {ex}")
