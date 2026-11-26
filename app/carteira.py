@@ -185,18 +185,63 @@ def _classificar(e):
     Marca como ativo se classificou. Retorna True/False."""
     from app.models import MerchantRule
     from app.utils import aplicar_regra_fixa
+    e._motivo_categoria = None
     for rule in MerchantRule.query.filter_by(user_id=e.user_id).all():
         if rule.keyword and rule.keyword.lower() in (e.description or "").lower():
             e.category = rule.category
             if rule.expense_id:
                 e.expense_id = rule.expense_id
                 e.subcategoria_id = getattr(rule, "subcategoria_id", None)
+            e._motivo_categoria = f"regra aprendida “{rule.keyword}”"
             break
-    aplicar_regra_fixa(e)
+    if aplicar_regra_fixa(e):
+        e._motivo_categoria = "regra fixa"
     classificado = bool(e.expense_id) or bool(e.category and e.category != "A classificar")
     if classificado and e.status == "em_avaliacao":
         e.status = "ativo"
     return classificado
+
+
+def nome_categoria(e):
+    """'Gasto › Subcategoria' (ou a categoria livre) do lançamento."""
+    cat = (e.expense.description if getattr(e, "expense", None) else e.category) or ""
+    sub = getattr(e, "subcategoria", None)
+    if sub is not None and getattr(sub, "nome", None):
+        cat = f"{cat} › {sub.nome}"
+    return cat
+
+
+def avisar_compra(e, card, classificado, depois=False):
+    """Push da compra da Carteira. Classificada → diz onde foi categorizada;
+    senão → pede para escolher. Sempre com o resumo das metas da parte do mês."""
+    try:
+        from app.notificar import notificar
+        resumo = ""
+        try:
+            from app.routes.dashboard import resumo_metas_partes
+            resumo = resumo_metas_partes(e.user_id)
+        except Exception as ex:
+            print(f"[carteira] resumo das metas falhou: {ex}")
+        if classificado:
+            motivo = getattr(e, "_motivo_categoria", None)
+            corpo = f"✅ Categorizada em {nome_categoria(e)}"
+            if depois:
+                corpo += " (agora que o nome da loja chegou)"
+            corpo += f"\nCartão {card.name} · fatura {e.billing_month}"
+            if motivo:
+                corpo += f"\nPor {motivo}. Toque para conferir."
+            link = f"/cartoes/{card.id}"
+        else:
+            corpo = f"Lançado em {card.name}. Toque para escolher a categoria."
+            link = f"/cartoes/{card.id}/lote/{e.batch_id}/revisao"
+        if resumo:
+            corpo += "\n\n🎯 Metas da parte do mês:\n" + resumo
+        loja = (e.description or "")[:60]
+        notificar(e.user_id, f"📱 {loja} · R$ {float(e.amount):.2f}".replace(".", ","),
+                  corpo, link=link,
+                  tag=f"carteira-{e.id}", email=False, urgencia="normal")
+    except Exception as ex:
+        print(f"[carteira] aviso falhou: {ex}")
 
 
 def renomear_generico(e, nova_desc):
@@ -207,8 +252,20 @@ def renomear_generico(e, nova_desc):
         return False
     e.description = nova_desc
     if not e.expense_id and (e.category or "A classificar") == "A classificar":
-        _classificar(e)
+        if _classificar(e):
+            # Avisa depois do commit de quem chamou (ver avisar_pendentes)
+            e._avisar_categoria = True
     return True
+
+
+def avisar_pendentes(entries):
+    """Manda o aviso de 'categorizada em …' dos lançamentos que só foram
+    classificados depois (nome da loja corrigido / confirmação do banco)."""
+    for e in entries:
+        if e is not None and getattr(e, "_avisar_categoria", False):
+            e._avisar_categoria = False
+            if e.card is not None:
+                avisar_compra(e, e.card, True, depois=True)
 
 
 def corrigir_lojas(user_id=None):
@@ -218,7 +275,7 @@ def corrigir_lojas(user_id=None):
     q = CarteiraNotificacao.query.filter(CarteiraNotificacao.loja == LOJA_PADRAO)
     if user_id:
         q = q.filter(CarteiraNotificacao.user_id == user_id)
-    n = 0
+    n, mudados = 0, []
     for reg in q.all():
         info = interpretar(reg.titulo, reg.texto)
         if not info["loja"] or info["loja"] == LOJA_PADRAO:
@@ -227,7 +284,9 @@ def corrigir_lojas(user_id=None):
         e = CardEntry.query.get(reg.entry_id) if reg.entry_id else None
         if e and renomear_generico(e, info["loja"]):
             n += 1
+            mudados.append(e)
     db.session.commit()
+    avisar_pendentes(mudados)
     return n
 
 
@@ -261,28 +320,7 @@ def lancar(user_id, card, valor, loja, entry_date=None, avisar=True):
             print(f"[carteira] excedente: {ex}")
 
     if avisar:
-        try:
-            from app.notificar import notificar
-            resumo = ""
-            try:
-                from app.routes.dashboard import resumo_metas_partes
-                resumo = resumo_metas_partes(user_id)
-            except Exception as ex:
-                print(f"[carteira] resumo das metas falhou: {ex}")
-            if classificado:
-                cat = (e.expense.description if getattr(e, "expense", None) else e.category) or ""
-                corpo = f"{card.name} · {cat}"
-                link = "/#metas-partes"
-            else:
-                corpo = f"Lançado em {card.name}. Toque para escolher a categoria."
-                link = f"/cartoes/{card.id}/lote/{batch_id}/revisao"
-            if resumo:
-                corpo += "\n\n🎯 Metas da parte do mês:\n" + resumo
-            notificar(user_id, f"📱 {loja[:60]} · R$ {valor:.2f}".replace(".", ","),
-                      corpo, link=link,
-                      tag=f"carteira-{e.id}", email=False, urgencia="normal")
-        except Exception as ex:
-            print(f"[carteira] aviso falhou: {ex}")
+        avisar_compra(e, card, classificado)
     return e
 
 

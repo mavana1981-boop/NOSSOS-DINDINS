@@ -224,6 +224,7 @@ def sincronizar_link(api_key, link, diag=None):
 
     batch_id = "of" + uuid.uuid4().hex[:6]
     qtde = 0
+    _carteira_casados = []
     for tx in txs:
         if tx["id"] in ids_existentes:
             diag["ja_importadas"] += 1
@@ -243,7 +244,9 @@ def sincronizar_link(api_key, link, diag=None):
         _pn = int(meta.get("installmentNumber") or 1)
         if _pn == 1:
             from app.carteira import casar_com_pluggy as _ccp
-            if _ccp(card, valor, entry_date, tx["id"], _tp, _pn, desc=desc):
+            _casado = _ccp(card, valor, entry_date, tx["id"], _tp, _pn, desc=desc)
+            if _casado:
+                _carteira_casados.append(_casado)
                 ids_existentes.add(tx["id"])
                 diag["confirmadas_carteira"] = diag.get("confirmadas_carteira", 0) + 1
                 continue
@@ -295,6 +298,12 @@ def sincronizar_link(api_key, link, diag=None):
         db.session.flush()
         finalizar_lote(card.id, batch_id, link.user_id)  # parcelas planejadas + regras
     db.session.commit()
+    if _carteira_casados:
+        try:
+            from app.carteira import avisar_pendentes
+            avisar_pendentes(_carteira_casados)
+        except Exception as ex:
+            print(f"[pluggy] aviso da carteira falhou: {ex}")
     return (batch_id if qtde else None), qtde
 
 
