@@ -71,6 +71,7 @@ def bootstrap():
             print(f"[migrate] indice pluggy_tx_id: {_epx}")
         _ensure_column("card_entries", "subcategoria_id", "INTEGER REFERENCES subcategorias(id) ON DELETE SET NULL")
         _ensure_column("merchant_rules", "subcategoria_id", "INTEGER REFERENCES subcategorias(id) ON DELETE SET NULL")
+        _ensure_column("subcategorias", "valor", "NUMERIC(12,2)")
         _ensure_column("payment_plans", "mes_ref", "VARCHAR(7) NOT NULL DEFAULT ''")
         _ensure_column("card_month_history", "card_id", "INTEGER REFERENCES cards(id)")
         _ensure_column("card_month_history", "snapshot", "TEXT")

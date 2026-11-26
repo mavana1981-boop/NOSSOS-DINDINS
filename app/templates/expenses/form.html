@@ -23,9 +23,13 @@
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Valor por parcela (R$) *</label>
+        {% set _subs_valor = (expense.subcategorias|selectattr('valor', 'ne', None)|list) if expense and expense.kind == 'recorrente' else [] %}
         <input class="form-control mono" name="amount" id="amount-input" required inputmode="decimal"
                value="{{ expense.amount if expense }}"
-               placeholder="0,00">
+               placeholder="0,00" {% if _subs_valor %}readonly style="opacity:.75;"{% endif %}>
+        {% if _subs_valor %}
+        <div class="form-help">Soma dos {{ _subs_valor|length }} sub-gasto(s) abaixo — edite os sub-gastos para mudar o orçado.</div>
+        {% endif %}
       </div>
       <div class="form-group">
         <label class="form-label">Data inicial *</label>
@@ -202,31 +206,49 @@
 </div>
 
 {% if expense and expense.kind == 'recorrente' and expense.payer_id == current_user.id %}
-<!-- Subcategorias -->
+<!-- Subcategorias / sub-gastos -->
 <div class="card" id="subcategorias" style="max-width:780px;margin-top:16px;">
-  <div class="card-title"><h3>Subcategorias de “{{ expense.description }}”</h3></div>
+  <div class="card-title"><h3>Sub-gastos de “{{ expense.description }}”</h3></div>
   <p class="text-dim text-small" style="margin-top:-4px;">
-    Ao lançar no cartão, você pode escolher <strong>{{ expense.description }} › subcategoria</strong>.
-    Esses lançamentos continuam somando no total de {{ expense.description }}; a subcategoria só detalha onde foi o dinheiro.
+    Detalhe o que compõe <strong>{{ expense.description }}</strong> (ex.: Anthropic, Cabeleireiro, Seguro).
+    Se você informar o <strong>valor</strong> dos sub-gastos, o orçado de {{ expense.description }} passa a ser a soma deles.
+    Ao lançar no cartão, você também pode escolher <strong>{{ expense.description }} › sub-gasto</strong>.
   </p>
   {% if expense.subcategorias %}
-  <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0 14px;">
+  {% set _tot = namespace(v=0, n=0) %}
+  <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0 8px;">
     {% for sub in expense.subcategorias %}
-    <div class="flex-between" style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
-      <span>↳ {{ sub.nome }}</span>
+    {% if sub.valor is not none %}{% set _tot.v = _tot.v + sub.valor %}{% set _tot.n = _tot.n + 1 %}{% endif %}
+    <div class="flex-between" style="gap:8px;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+      <form method="POST" action="{{ url_for('expenses.update_subcategoria_valor', sub_id=sub.id) }}"
+            class="flex" style="gap:8px;margin:0;flex:1;align-items:center;flex-wrap:wrap;">
+        <span>↳</span>
+        <input class="form-control" name="nome" value="{{ sub.nome }}" maxlength="80" style="flex:1;min-width:140px;padding:4px 8px;">
+        <input class="form-control mono" name="valor" inputmode="decimal" placeholder="valor (opcional)"
+               value="{{ '%.2f'|format(sub.valor)|replace('.', ',') if sub.valor is not none else '' }}"
+               style="width:130px;padding:4px 8px;text-align:right;">
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px;" title="Salvar">✓</button>
+      </form>
       <form method="POST" action="{{ url_for('expenses.delete_subcategoria', sub_id=sub.id) }}" style="margin:0;"
-            onsubmit="return confirm('Excluir a subcategoria “{{ sub.nome|e }}”? Os lançamentos continuam em {{ expense.description|e }}.');">
+            onsubmit="return confirm('Excluir o sub-gasto “{{ sub.nome|e }}”?');">
         <button class="btn btn-danger btn-sm" style="padding:2px 8px;">×</button>
       </form>
     </div>
     {% endfor %}
   </div>
+  {% if _tot.n %}
+  <div class="flex-between" style="padding:8px 10px;margin-bottom:14px;border-top:1px solid var(--border);">
+    <strong>Total orçado ({{ _tot.n }} sub-gasto{{ 's' if _tot.n > 1 }})</strong>
+    <strong class="mono">{{ _tot.v|brl }}</strong>
+  </div>
+  {% endif %}
   {% else %}
-  <div class="text-faint text-small" style="margin:10px 0 14px;">Nenhuma subcategoria ainda.</div>
+  <div class="text-faint text-small" style="margin:10px 0 14px;">Nenhum sub-gasto ainda.</div>
   {% endif %}
   <form method="POST" action="{{ url_for('expenses.add_subcategoria', expense_id=expense.id) }}"
         class="flex flex-gap" style="gap:8px;flex-wrap:wrap;">
-    <input class="form-control" name="nome" maxlength="80" required placeholder="ex.: Presentes em geral" style="flex:1;min-width:200px;">
+    <input class="form-control" name="nome" maxlength="80" required placeholder="ex.: Anthropic" style="flex:1;min-width:180px;">
+    <input class="form-control mono" name="valor" inputmode="decimal" placeholder="valor (R$)" style="width:130px;text-align:right;">
     <button class="btn btn-primary btn-sm">+ Adicionar</button>
   </form>
 </div>

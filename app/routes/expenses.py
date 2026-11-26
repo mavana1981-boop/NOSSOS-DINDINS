@@ -71,6 +71,37 @@ def _sync_card_entry(expense, old_card_id=None):
     auto_entry.notes = f"Lançamento automático — {expense.kind}"
 
 
+def _soma_subgastos(expense):
+    """Soma dos sub-gastos com valor; None se nenhum sub-gasto tem valor."""
+    vals = [Decimal(str(sub.valor)) for sub in (expense.subcategorias or [])
+            if sub.valor is not None]
+    if not vals:
+        return None
+    return sum(vals, Decimal("0")).quantize(Decimal("0.01"))
+
+
+def _aplicar_novo_valor(expense, novo):
+    """Troca o valor do gasto e ajusta divisões e o lançamento automático no cartão."""
+    antigo = Decimal(str(expense.amount or 0))
+    novo = Decimal(str(novo))
+    expense.amount = novo
+    for sh in expense.shares:
+        if expense.share_mode == "split" and antigo > 0:
+            sh.share_amount = (Decimal(str(sh.share_amount)) * novo / antigo).quantize(Decimal("0.01"))
+        else:
+            sh.share_amount = novo
+    _sync_card_entry(expense, expense.card_id)
+
+
+def _recalcular_pelos_subgastos(expense):
+    """Se o gasto tem sub-gastos com valor, o valor orçado vira a soma deles."""
+    total = _soma_subgastos(expense)
+    if total is not None and total > 0 and total != Decimal(str(expense.amount or 0)):
+        _aplicar_novo_valor(expense, total)
+        return total
+    return None
+
+
 @expenses_bp.route("/")
 @login_required
 def list_expenses():
@@ -283,6 +314,12 @@ def _save_expense(expense, users, user_cards):
     rec_months_raw = request.form.get("recurrence_months", "").strip()
     card_id_raw = request.form.get("card_id", "").strip()
 
+    # Gasto com sub-gastos valorados: o valor é sempre a soma deles
+    if expense is not None and kind == "recorrente":
+        _soma = _soma_subgastos(expense)
+        if _soma is not None and _soma > 0:
+            amount = _soma
+
     if not desc or not amount or amount <= 0:
         flash("Descrição e valor são obrigatórios.", "danger")
         return render_template("expenses/form.html", expense=expense,
@@ -435,15 +472,59 @@ def add_subcategoria(expense_id):
     if e.payer_id != current_user.id:
         abort(403)
     nome = (request.form.get("nome") or "").strip()[:80]
+    valor = _parse_valor_sub(request.form.get("valor"))
     if not nome:
         flash("Informe o nome da subcategoria.", "danger")
     elif Subcategoria.query.filter(Subcategoria.expense_id == e.id,
                                    db.func.lower(Subcategoria.nome) == nome.lower()).first():
         flash(f"“{nome}” já existe em {e.description}.", "warning")
     else:
-        db.session.add(Subcategoria(user_id=current_user.id, expense_id=e.id, nome=nome))
+        db.session.add(Subcategoria(user_id=current_user.id, expense_id=e.id, nome=nome, valor=valor))
+        db.session.flush()
+        db.session.refresh(e)
+        novo = _recalcular_pelos_subgastos(e)
         db.session.commit()
-        flash(f"Subcategoria “{e.description} › {nome}” criada.", "success")
+        msg = f"Sub-gasto “{e.description} › {nome}” criado."
+        if novo is not None:
+            msg += f" Orçado de {e.description} agora é R$ {novo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + "."
+        flash(msg, "success")
+    return redirect(url_for("expenses.edit_expense", expense_id=e.id) + "#subcategorias")
+
+
+def _parse_valor_sub(raw):
+    """Aceita '1.234,56', '1234,56' ou '1234.56'. Vazio → None."""
+    raw = (raw or "").strip().replace("R$", "").strip()
+    if not raw:
+        return None
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    try:
+        v = Decimal(raw).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return None
+    return v if v >= 0 else None
+
+
+@expenses_bp.route("/subcategorias/<int:sub_id>/valor", methods=["POST"])
+@login_required
+def update_subcategoria_valor(sub_id):
+    from app.models import Subcategoria
+    sub = Subcategoria.query.get_or_404(sub_id)
+    if sub.user_id != current_user.id:
+        abort(403)
+    sub.valor = _parse_valor_sub(request.form.get("valor"))
+    novo_nome = (request.form.get("nome") or "").strip()[:80]
+    if novo_nome and novo_nome != sub.nome:
+        if not Subcategoria.query.filter(Subcategoria.expense_id == sub.expense_id,
+                                         Subcategoria.id != sub.id,
+                                         db.func.lower(Subcategoria.nome) == novo_nome.lower()).first():
+            sub.nome = novo_nome
+    e = sub.expense
+    db.session.flush()
+    db.session.refresh(e)
+    _recalcular_pelos_subgastos(e)
+    db.session.commit()
+    flash(f"Sub-gasto “{sub.nome}” atualizado.", "success")
     return redirect(url_for("expenses.edit_expense", expense_id=e.id) + "#subcategorias")
 
 
@@ -459,6 +540,11 @@ def delete_subcategoria(sub_id):
     n = CardEntry.query.filter_by(subcategoria_id=sub.id).update({"subcategoria_id": None})
     MerchantRule.query.filter_by(subcategoria_id=sub.id).update({"subcategoria_id": None})
     db.session.delete(sub)
+    db.session.flush()
+    _e = Expense.query.get(exp_id)
+    if _e:
+        db.session.refresh(_e)
+        _recalcular_pelos_subgastos(_e)
     db.session.commit()
     flash(f"Subcategoria “{nome}” excluída"
           + (f" — {n} lançamento(s) voltaram para o gasto principal." if n else "."), "info")
