@@ -135,6 +135,6 @@ def reprocessar(reg_id):
     reg.detalhe = f"{card.name} · fatura {e.billing_month} (lançada depois)"
     db.session.commit()
     if e.status == "ativo":
-        flash(f"Lançado em {card.name}.", "success")
+        flash(f"Lançado em {card.name} · categorizado em {carteira.nome_categoria(e)}.", "success")
         return redirect(url_for("carteira.index"))
     return redirect(url_for("cards.batch_review", card_id=card.id, batch_id=e.batch_id))
