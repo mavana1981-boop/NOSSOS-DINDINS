@@ -211,9 +211,10 @@ def nome_categoria(e):
     return cat
 
 
-def avisar_compra(e, card, classificado, depois=False):
+def avisar_compra(e, card, classificado, depois=False, confirmado=False):
     """Push da compra da Carteira. Classificada → diz onde foi categorizada;
-    senão → pede para escolher. Sempre com o resumo das metas da parte do mês."""
+    senão → pede para escolher. Sempre com o resumo das metas da parte do mês.
+    `confirmado` = aviso disparado quando o Open Finance confirmou a compra."""
     try:
         from app.notificar import notificar
         resumo = ""
@@ -228,11 +229,15 @@ def avisar_compra(e, card, classificado, depois=False):
             if depois:
                 corpo += " (agora que o nome da loja chegou)"
             corpo += f"\nCartão {card.name} · fatura {e.billing_month}"
+            if confirmado:
+                corpo += "\n🏦 Confirmada pelo banco (Open Finance)"
             if motivo:
                 corpo += f"\nPor {motivo}. Toque para conferir."
             link = f"/cartoes/{card.id}"
         else:
             corpo = f"Lançado em {card.name}. Toque para escolher a categoria."
+            if confirmado:
+                corpo += "\n🏦 Confirmada pelo banco (Open Finance)"
             link = f"/cartoes/{card.id}/lote/{e.batch_id}/revisao"
         if resumo:
             corpo += "\n\n🎯 Metas da parte do mês:\n" + resumo
@@ -258,14 +263,27 @@ def renomear_generico(e, nova_desc):
     return True
 
 
+def _esta_classificado(e):
+    return bool(e.expense_id) or bool(e.category and e.category != "A classificar")
+
+
 def avisar_pendentes(entries):
-    """Manda o aviso de 'categorizada em …' dos lançamentos que só foram
-    classificados depois (nome da loja corrigido / confirmação do banco)."""
+    """Manda o aviso dos lançamentos da Carteira que mudaram depois:
+    classificados só agora (nome da loja corrigido) ou confirmados pelo banco.
+    Confirmação pelo Open Finance SEMPRE avisa — inclusive quando a compra já
+    estava categorizada (diz onde ficou)."""
     for e in entries:
-        if e is not None and getattr(e, "_avisar_categoria", False):
-            e._avisar_categoria = False
-            if e.card is not None:
-                avisar_compra(e, e.card, True, depois=True)
+        if e is None:
+            continue
+        cat_nova = getattr(e, "_avisar_categoria", False)
+        confirmado = getattr(e, "_avisar_confirmacao", False)
+        if not (cat_nova or confirmado):
+            continue
+        e._avisar_categoria = False
+        e._avisar_confirmacao = False
+        if e.card is not None:
+            avisar_compra(e, e.card, _esta_classificado(e),
+                          depois=cat_nova, confirmado=confirmado)
 
 
 def corrigir_lojas(user_id=None):
@@ -396,6 +414,7 @@ def casar_com_pluggy(card, valor, data_tx, tx_id, total_parc=1, parc_no=1, desc=
     e = min(cands, key=lambda c: (abs((c.entry_date - data_tx).days), c.id))
     e.pluggy_tx_id = tx_id
     e.notes = (e.notes or "").replace(MARCA_AGUARDANDO, MARCA_CONFIRMADO) or MARCA_CONFIRMADO
+    e._avisar_confirmacao = True   # avisa mesmo se já estava categorizada
     if e.entry_date != data_tx:
         e.entry_date = data_tx
     # Notificação sem o nome da loja: usa a descrição do banco
