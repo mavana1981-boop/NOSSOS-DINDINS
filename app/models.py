@@ -551,6 +551,10 @@ class Subcategoria(db.Model):
     user_id    = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id", ondelete="CASCADE"), nullable=False, index=True)
     nome       = db.Column(db.String(80), nullable=False)
+    # Valor orçado do sub-gasto (opcional). Quando algum sub-gasto tem valor,
+    # o valor do gasto-pai passa a ser a soma deles (ex.: Assinaturas =
+    # Anthropic + Cabeleireiro + Seguro).
+    valor      = db.Column(db.Numeric(12, 2), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     __table_args__ = (db.UniqueConstraint("expense_id", "nome"),)
 
