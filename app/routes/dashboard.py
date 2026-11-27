@@ -1064,6 +1064,13 @@ def notificacoes():
     import os as _os
     itens = (Notificacao.query.filter_by(user_id=current_user.id)
              .order_by(Notificacao.created_at.desc()).limit(100).all())
+    # Entrou em Meus Avisos = leu: marca tudo como lido (o contador do sininho
+    # some), mas a tela ainda destaca o que era novo nesta visita.
+    for n in itens:
+        n.nova = not n.lida
+    if Notificacao.query.filter_by(user_id=current_user.id, lida=False).first():
+        Notificacao.query.filter_by(user_id=current_user.id, lida=False).update({"lida": True})
+        db.session.commit()
 
     from app.models import PushInscricao
     from app.agente_andamento import (cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS,

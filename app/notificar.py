@@ -23,7 +23,8 @@ def notificar(user_id: int, titulo: str, mensagem: str = "", link: str = None,
     try:
         from app.webpush import enviar_para_usuario
         n = enviar_para_usuario(user_id, {"title": titulo, "body": mensagem or "",
-                                          "url": link or "/notificacoes", "tag": tag},
+                                          # Tocar no push passa por /abrir: marca como lido e segue para o link
+                                          "url": f"/notificacoes/abrir/{aviso.id}", "tag": tag},
                                 erros, urgencia=urgencia, entregues=entregues)
         if n:
             status = "📱 enviado para: " + ", ".join(entregues)
