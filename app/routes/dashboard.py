@@ -290,18 +290,24 @@ def ordem_meta(desc):
     return len(ORDEM_METAS)
 
 
-def resumo_metas_partes(user_id):
+def resumo_metas_partes(user_id, primeiro=()):
     """Texto curto das metas por parte do mês (parte atual de cada gasto), na ordem
-    preferida — usado no corpo das notificações de compra."""
+    preferida — usado no corpo das notificações de compra. Os gastos em
+    `primeiro` (onde a compra foi enquadrada) vêm na frente. Inclui os gastos
+    compartilhados e sempre os da ordem fixa (ex.: Cartão Avulso), mesmo sem
+    metas por parte configuradas."""
     def _r(v):
         return ("R$ " + f"{v:,.2f}").replace(",", "X").replace(".", ",").replace("X", ".")
     try:
-        dados = _dados_evolucao(user_id)
+        dados = _dados_evolucao(user_id, somente_dono=False)
     except Exception as e:
         print(f"[metas] resumo falhou: {e}")
         return ""
-    grupos = [g for g in (dados.get("evolucao") or []) if g.get("partes")]
+    grupos = [g for g in (dados.get("evolucao") or [])
+              if g.get("partes") or ordem_meta(g["desc"]) < len(ORDEM_METAS)]
     grupos.sort(key=lambda g: ordem_meta(g["desc"]))
+    from app.agente_andamento import priorizar
+    grupos = priorizar(grupos, primeiro)
     linhas = []
     for g in grupos:
         atual = next((p for p in g["partes"] if p.get("atual")), None)
@@ -311,11 +317,17 @@ def resumo_metas_partes(user_id):
             linhas.append(f"{'🔴' if atual['estourou'] else '🟢'} {g['desc']} · parte {atual['n']} "
                           f"({atual['label']}): {_r(atual['gasto'])} de {_r(atual['disponivel'])} · {sinal}")
         else:
-            linhas.append(f"• {g['desc']}: {_r(sum(p['gasto'] for p in g['partes']))} de {_r(g['meta_total'])}")
+            if g["partes"]:
+                linhas.append(f"• {g['desc']}: {_r(sum(p['gasto'] for p in g['partes']))} de {_r(g['meta_total'])}")
+            else:
+                resta = g["planned"] - g["spent"]
+                sinal = (f"resta {_r(resta)}" if resta >= -0.004 else f"⚠ {_r(-resta)} acima")
+                linhas.append(f"{'🟢' if g['ok'] else '🔴'} {g['desc']} · mês: "
+                              f"{_r(g['spent'])} de {_r(g['planned'])} · {sinal}")
     return "\n".join(linhas)
 
 
-def _dados_evolucao(user_id, ciclo_off=0):
+def _dados_evolucao(user_id, ciclo_off=0, somente_dono=True):
     """Evolução diária do Andamento (coluna de hoje, calculada na hora) +
     balanço atual. Usado no Painel inicial e na página de Avisos."""
     from app.agente_andamento import TOLERANCIA_PP
@@ -346,7 +358,7 @@ def _dados_evolucao(user_id, ciclo_off=0):
         cartao=_pc.card.name if getattr(_pc, "card", None) else "—",
         valor=float(_pc.amount)) if _pc else None)
     agora, pct_ideal_agora = calcular_andamento(user_id, mes_evo, _hoje_evo,
-                                                somente_dono=True)
+                                                somente_dono=somente_dono)
 
     # Só a coluna de HOJE, sempre calculada agora com os lançamentos atuais
     # (as fotos das noites anteriores continuam gravadas, mas não são exibidas).

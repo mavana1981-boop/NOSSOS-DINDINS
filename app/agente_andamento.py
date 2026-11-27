@@ -403,11 +403,35 @@ def enviar_email(destino: str, assunto: str, corpo: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 #  Execução
 # ─────────────────────────────────────────────────────────────
-def andamento_com_lote(user_id: int, hoje: date, batch_ids=()) -> str:
+def gastos_do_lote(batch_ids) -> list:
+    """expense_ids (na ordem do maior valor) das compras dos lotes indicados."""
+    if not batch_ids:
+        return []
+    from sqlalchemy import func
+    from app import db
+    from app.models import CardEntry
+    linhas = (db.session.query(CardEntry.expense_id, func.sum(CardEntry.amount))
+              .filter(CardEntry.batch_id.in_(list(batch_ids)),
+                      CardEntry.expense_id.isnot(None),
+                      CardEntry.status.in_(["ativo", "em_avaliacao"]))
+              .group_by(CardEntry.expense_id).all())
+    return [eid for eid, _t in sorted(linhas, key=lambda x: -float(x[1] or 0))]
+
+
+def priorizar(itens: list, ids_primeiro=(), chave="expense_id") -> list:
+    """Põe na frente os itens cujo gasto está em `ids_primeiro` (na ordem dada);
+    os demais mantêm a ordem original."""
+    ordem = {eid: i for i, eid in enumerate(ids_primeiro or [])}
+    return sorted(itens, key=lambda it: ordem.get(it.get(chave), len(ordem)))
+
+
+def andamento_com_lote(user_id: int, hoje: date, batch_ids=(), primeiro=None) -> str:
     """Uma linha por gasto do Andamento (sem gravar nada).
 
     Compras ainda em avaliação dos lotes indicados entram como projeção:
-    "84% → 90% (+R$ 230,00 em avaliação)".
+    "84% → 90% (+R$ 230,00 em avaliação)". O(s) gasto(s) em que as compras
+    foram enquadradas vêm primeiro (ou os de `primeiro`, se informado).
+    Inclui os gastos compartilhados (ex.: Cartão Avulso), como no painel.
     """
     from sqlalchemy import func
     from app import db
@@ -415,9 +439,10 @@ def andamento_com_lote(user_id: int, hoje: date, batch_ids=()) -> str:
     from app.utils import get_open_billing_month
 
     mes = mes_fatura_atual(user_id, hoje)
-    itens, pct_ideal = calcular_andamento(user_id, mes, hoje, somente_dono=True)
+    itens, pct_ideal = calcular_andamento(user_id, mes, hoje)
     if not itens:
         return ""
+    itens = priorizar(itens, primeiro if primeiro is not None else gastos_do_lote(batch_ids))
     limite = pct_ideal + TOLERANCIA_PP
     pend = {}
     sem_gasto = 0.0

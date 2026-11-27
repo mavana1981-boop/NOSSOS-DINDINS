@@ -365,23 +365,38 @@ def sincronizar_usuario(user_id, relatorio=None):
                 if qtde:
                     resultados.append({"card": link.card, "batch_id": batch_id, "qtde": qtde})
                     mensagem = "Chegaram pelo Open Finance. Revise e aprove os lançamentos."
+                    _ids_lote, _cats = [], ""
+                    try:
+                        from app.agente_andamento import gastos_do_lote
+                        from app.models import Expense
+                        _ids_lote = gastos_do_lote([batch_id])
+                        _nomes = [x.description for x in
+                                  (Expense.query.get(i) for i in _ids_lote) if x]
+                        if _nomes:
+                            _cats = ", ".join(_nomes[:3]) + ("…" if len(_nomes) > 3 else "")
+                    except Exception as e:
+                        print(f"[pluggy] categorias do lote falharam: {e}")
                     try:
                         from app.agente_andamento import andamento_com_lote, hoje_brasilia
-                        andamento = andamento_com_lote(user_id, hoje_brasilia(), [batch_id])
+                        andamento = andamento_com_lote(user_id, hoje_brasilia(), [batch_id],
+                                                       primeiro=_ids_lote)
                         if andamento:
                             mensagem = f"Revise e aprove. Andamento:\n{andamento}"
                     except Exception as e:
                         print(f"[pluggy] andamento para o aviso falhou: {e}")
                     try:
                         from app.routes.dashboard import resumo_metas_partes
-                        _rm = resumo_metas_partes(user_id)
+                        _rm = resumo_metas_partes(user_id, primeiro=_ids_lote)
                         if _rm:
                             mensagem += "\n\n🎯 Metas da parte do mês:\n" + _rm
                     except Exception as e:
                         print(f"[pluggy] resumo das metas falhou: {e}")
+                    if _cats:
+                        mensagem = f"🏷️ {_cats}\n" + mensagem
                     notificar(
                         user_id,
-                        f"💳 {qtde} compra(s) nova(s) em {link.card.name}",
+                        (f"💳 {_cats} · " if _cats else "💳 ")
+                        + f"{qtde} compra(s) nova(s) em {link.card.name}",
                         mensagem,
                         link=f"/cartoes/{link.card_id}/lote/{batch_id}/revisao",
                         tag=f"openfinance-{link.card_id}",

@@ -220,7 +220,8 @@ def avisar_compra(e, card, classificado, depois=False, confirmado=False):
         resumo = ""
         try:
             from app.routes.dashboard import resumo_metas_partes
-            resumo = resumo_metas_partes(e.user_id)
+            resumo = resumo_metas_partes(e.user_id,
+                                         primeiro=[e.expense_id] if e.expense_id else [])
         except Exception as ex:
             print(f"[carteira] resumo das metas falhou: {ex}")
         if classificado:
@@ -242,7 +243,9 @@ def avisar_compra(e, card, classificado, depois=False, confirmado=False):
         if resumo:
             corpo += "\n\n🎯 Metas da parte do mês:\n" + resumo
         loja = (e.description or "")[:60]
-        notificar(e.user_id, f"📱 {loja} · R$ {float(e.amount):.2f}".replace(".", ","),
+        cat = nome_categoria(e) if classificado else "A classificar"
+        valor = f"R$ {float(e.amount):.2f}".replace(".", ",")
+        notificar(e.user_id, f"📱 {cat} · {loja} · {valor}",
                   corpo, link=link,
                   tag=f"carteira-{e.id}", email=False, urgencia="normal")
     except Exception as ex:
