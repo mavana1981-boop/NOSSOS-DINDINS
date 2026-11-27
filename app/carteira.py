@@ -247,7 +247,7 @@ def avisar_compra(e, card, classificado, depois=False, confirmado=False):
         valor = f"R$ {float(e.amount):.2f}".replace(".", ",")
         notificar(e.user_id, f"📱 {cat} · {loja} · {valor}",
                   corpo, link=link,
-                  tag=f"carteira-{e.id}", email=False, urgencia="normal")
+                  tag=f"carteira-{e.id}", email=False, urgencia="high")
     except Exception as ex:
         print(f"[carteira] aviso falhou: {ex}")
 
