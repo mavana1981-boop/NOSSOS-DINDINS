@@ -1064,6 +1064,12 @@ def notificacoes():
     import os as _os
     itens = (Notificacao.query.filter_by(user_id=current_user.id)
              .order_by(Notificacao.created_at.desc()).limit(100).all())
+    # Entrar em Meus Avisos já marca tudo como lido (o "•" segue nesta visita)
+    for n in itens:
+        n.nova = not n.lida
+    if Notificacao.query.filter_by(user_id=current_user.id, lida=False).first():
+        Notificacao.query.filter_by(user_id=current_user.id, lida=False).update({"lida": True})
+        db.session.commit()
 
     from app.models import PushInscricao
     from app.agente_andamento import (cartoes_ultimo_lancamento, CARTAO_ALERTA_DIAS,
@@ -1072,11 +1078,14 @@ def notificacoes():
     lista_aparelhos = (PushInscricao.query.filter_by(user_id=current_user.id)
                        .order_by(PushInscricao.created_at.desc()).all())
     aparelhos = len(lista_aparelhos)
+    from app.webpush import rotulo_aparelho
+    tem_celular = any(rotulo_aparelho(a.aparelho) in ("Android", "iPhone") and not a.expirado_em
+                      for a in lista_aparelhos)
 
     return render_template("notificacoes.html", itens=itens,
                            lista_aparelhos=lista_aparelhos,
                            cartoes=cartoes, cartao_alerta_dias=CARTAO_ALERTA_DIAS,
-                           aparelhos=aparelhos,
+                           aparelhos=aparelhos, tem_celular=tem_celular,
                            hora=_os.environ.get("AGENTE_ANDAMENTO_HORA", "21"),
                            minuto=int(_os.environ.get("AGENTE_ANDAMENTO_MINUTO", "0")))
 

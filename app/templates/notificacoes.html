@@ -15,11 +15,6 @@
     <form method="POST" action="{{ url_for('dashboard.notificacoes_rodar_agora') }}" style="margin:0;">
       <button class="btn btn-ghost btn-sm" type="submit" style="white-space:nowrap;">▶ Rodar agora</button>
     </form>
-    {% if itens|selectattr('lida', 'equalto', false)|list %}
-    <form method="POST" action="{{ url_for('dashboard.notificacoes_lidas') }}" style="margin:0;">
-      <button class="btn btn-primary btn-sm" type="submit" style="white-space:nowrap;">Marcar como lidas</button>
-    </form>
-    {% endif %}
   </div>
 </div>
 
@@ -66,9 +61,9 @@
 
 {% macro aviso(n) %}
     <a href="{{ url_for('dashboard.notificacao_abrir', nid=n.id) }}"
-       style="display:block;text-decoration:none;color:inherit;padding:12px 4px;border-bottom:1px solid rgba(128,128,128,.2);{% if n.lida %}opacity:.6;{% endif %}">
+       style="display:block;text-decoration:none;color:inherit;padding:12px 4px;border-bottom:1px solid rgba(128,128,128,.2);{% if not n.nova %}opacity:.6;{% endif %}">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;">
-        <strong>{% if not n.lida %}• {% endif %}{{ n.titulo }}</strong>
+        <strong>{% if n.nova %}• {% endif %}{{ n.titulo }}</strong>
         <span style="font-size:12px;white-space:nowrap;opacity:.7;">{{ n.created_at|hora_brt }}</span>
       </div>
       {% if n.mensagem %}<div style="font-size:13px;margin-top:4px;opacity:.85;white-space:pre-line;">{{ n.mensagem }}</div>{% endif %}
@@ -94,5 +89,147 @@
     </div>
   {% endif %}
 </div>
+
+
+<!-- ── Notificações no celular (recolhido) ── -->
+<details class="card" id="push-card" style="margin-top:16px;" {% if not tem_celular %}open{% endif %}>
+  <summary style="cursor:pointer;"><strong>📱 Notificações no celular</strong>
+    <span style="font-size:13px;color:{% if tem_celular %}var(--text-dim){% else %}#c4654a{% endif %};">
+      — {% if tem_celular %}celular recebendo{% else %}nenhum celular recebendo — abra esta página no celular e toque em Ativar{% endif %}
+    </span>
+  </summary>
+  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+    <div id="push-status" style="font-size:13px;color:var(--text-dim);">
+      {% if aparelhos %}{{ aparelhos }} aparelho(s) cadastrados.{% else %}Nenhum aparelho ativado ainda.{% endif %}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="push-ativar" class="btn btn-primary btn-sm" type="button">Ativar neste aparelho</button>
+      <button id="push-testar" class="btn btn-ghost btn-sm" type="button">Enviar teste</button>
+      <button id="push-desativar" class="btn btn-ghost btn-sm" type="button" style="display:none;">Desativar aqui</button>
+    </div>
+  </div>
+  <div id="push-ios" style="display:none;font-size:13px;margin-top:10px;color:var(--text-dim);line-height:1.5;">
+    <strong>No iPhone:</strong> abra este site no Safari → <em>Compartilhar</em> → <em>Adicionar à Tela de Início</em>,
+    abra o <strong>Dindin</strong> pelo ícone e toque em <em>Ativar neste aparelho</em>.
+  </div>
+  {% if lista_aparelhos %}
+  <div style="font-size:12px;margin-top:10px;color:var(--text-dim);line-height:1.6;">
+    {% for a in lista_aparelhos %}
+    {% set ua = a.aparelho or '' %}
+    <div>
+      {{ '📱 iPhone' if 'iPhone' in ua else ('📱 Android' if 'Android' in ua else '💻 Computador') }}
+      · ativado {{ a.created_at|hora_brt }}
+      {% if a.instalado == false and ('Android' in ua or 'iPhone' in ua) %} · <span style="color:#c4654a;">aberto pelo navegador — instale o app (⋮ → Instalar app) e abra pelo ícone</span>{% endif %}
+      {% if a.expirado_em %} · <strong style="color:#c4654a;">❌ fora da lista desde {{ a.expirado_em|hora_brt }}</strong>{% endif %}
+      {% if a.ultimo_ok_em %} · último envio OK {{ a.ultimo_ok_em|hora_brt }}{% endif %}
+      {% if a.ultimo_erro %} · <span style="color:#c4654a;">⚠️ {{ a.ultimo_erro }} ({{ a.ultimo_erro_em|hora_brt }})</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</details>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const status = (t) => { $("push-status").textContent = t; };
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const suportado = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  function b64ToBytes(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/"); s += "=".repeat((4 - s.length % 4) % 4);
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  }
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify(body || {}), credentials: "same-origin" });
+    return r.json();
+  }
+
+  if (!suportado) {
+    $("push-ativar").style.display = "none";
+    if (isIOS && !standalone) { $("push-ios").style.display = "block"; status("Para receber no iPhone, instale o app na Tela de Início."); }
+    else status("Este navegador não suporta notificações push.");
+    return;
+  }
+
+  async function atualizar() {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === "granted") {
+      $("push-ativar").style.display = "none";
+      $("push-desativar").style.display = "";
+      $("push-testar").style.display = "";
+      status("✅ Este aparelho recebe os avisos e o resumo diário.");
+    } else if (Notification.permission !== "granted") {
+      status(Notification.permission === "denied"
+        ? "As notificações estão bloqueadas neste aparelho. Toque em Ativar para ver como liberar."
+        : "Este aparelho não está recebendo: toque em Ativar neste aparelho.");
+    }
+    if (Notification.permission === "denied") {
+      status("As notificações foram bloqueadas neste aparelho. Libere nas configurações do navegador/app.");
+    }
+  }
+
+  $("push-ativar").addEventListener("click", async () => {
+    try {
+      let perm = Notification.permission;
+      if (perm !== "granted") {
+        perm = await new Promise((ok) => {           // Safari antigo usa callback
+          const r = Notification.requestPermission(ok);
+          if (r && r.then) r.then(ok);
+        });
+      }
+      if (perm !== "granted") {
+        const onde = isIOS
+          ? "No iPhone: Ajustes → Notificações → Dindin → Permitir Notificações. Abra o app pelo ícone da Tela de Início (não pelo Safari)."
+          : "No Android: toque no cadeado ao lado do endereço (ou ⋮ → Informações do site / Configurações do site) → Notificações → Permitir. Se o app está instalado: Configurações do Android → Apps → Dindin (ou Chrome) → Notificações → ativar.";
+        status((perm === "denied" ? "O navegador bloqueou as notificações deste site. " : "A permissão não foi concedida (o pedido foi fechado ou silenciado). ") + onde);
+        return;
+      }
+      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      await navigator.serviceWorker.ready;
+      const { publicKey } = await (await fetch("/push/chave", { credentials: "same-origin" })).json();
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+      // Inscrição antiga feita com outra chave do servidor não recebe nada: refaz.
+      if (sub && sub.options && sub.options.applicationServerKey) {
+        const atual = new Uint8Array(sub.options.applicationServerKey).join(",");
+        if (atual !== b64ToBytes(publicKey).join(",")) {
+          await sub.unsubscribe();
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+        }
+      }
+      let r = await post("/push/inscrever", Object.assign(sub.toJSON(), { instalado: !!standalone }));
+      if (r.renovar) {                               // endereço morto: gera um novo
+        await sub.unsubscribe();
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+        r = await post("/push/inscrever", Object.assign(sub.toJSON(), { instalado: !!standalone }));
+      }
+      if (!r.ok) throw new Error(r.erro || "falha ao registrar");
+      await atualizar();
+      await post("/push/testar");
+    } catch (e) { status("Não deu para ativar: " + e.message); }
+  });
+
+  $("push-testar").addEventListener("click", async () => {
+    const r = await post("/push/testar");
+    status(r.ok ? "Teste enviado — deve chegar em alguns segundos."
+                : "Nenhum aparelho recebeu o teste" + (r.erro ? " (" + r.erro + ")" : "") + ". Toque em Ativar neste aparelho de novo.");
+  });
+
+  $("push-desativar").addEventListener("click", async () => {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await post("/push/cancelar", { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+    $("push-desativar").style.display = "none"; $("push-ativar").style.display = "";
+    status("Desativado neste aparelho.");
+  });
+
+  if (isIOS && !standalone) $("push-ios").style.display = "block";
+  atualizar();
+})();
+</script>
 
 {% endblock %}
